@@ -1,5 +1,5 @@
-# The CI tooling: release.py with its package toon_release, rulesets.py and
-# vulnerabilities.py. The scripts run on the standard library (plus pyyaml
+# The CI tooling: release.py with its package toon_release, rulesets.py,
+# vulnerabilities.py and provenance.py. The scripts run on the standard library (plus pyyaml
 # for vulnerabilities.py, which its PEP 723 header names); this project
 # exists for their tests, which need pytest and friends.
 [project]

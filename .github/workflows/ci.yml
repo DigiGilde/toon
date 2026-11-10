@@ -247,6 +247,15 @@ jobs:
         working-directory: frontend
         run: npm ci --no-audit --no-fund
 
+      # Needs node_modules: npm verifies what is installed, not the lockfile.
+      - name: Verify signatures and provenance (npm audit signatures)
+        working-directory: frontend
+        env:
+          REPORT: ${{ runner.temp }}/npm-signatures.json
+        run: |
+          npm audit signatures --json --include-attestations > "$REPORT" || true
+          python3 ../scripts/provenance.py "$REPORT"
+
       - name: Check types
         working-directory: frontend
         run: npm run typecheck

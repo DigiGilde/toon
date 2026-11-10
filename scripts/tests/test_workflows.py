@@ -393,6 +393,20 @@ class TestTheScans:
             assert step["with"]["severity"] == "CRITICAL,HIGH"
             assert step["with"]["trivyignores"] == ".trivyignore.yaml"
 
+    def test_the_frontend_install_is_checked_for_provenance(self, ci) -> None:
+        """npm verifies what is installed, so the check sits between
+        `npm ci` and the first step that runs the installed code. Its
+        own exit code is swallowed: provenance.py is what decides."""
+        steps = ci["jobs"]["frontend"]["steps"]
+        runs = [s.get("run", "") for s in steps]
+        install = runs.index("npm ci --no-audit --no-fund")
+        [check] = [i for i, run in enumerate(runs) if "npm audit signatures" in run]
+
+        assert check == install + 1
+        assert "--json --include-attestations" in runs[check]
+        assert "python3 ../scripts/provenance.py" in runs[check]
+        assert steps[check]["working-directory"] == "frontend"
+
     def test_the_base_image_scan_skips_only_what_the_image_removes(self, ci) -> None:
         """Skipping pip in the runtime base scan is only honest while the
         runtime stage uninstalls it; the other scans skip nothing."""
