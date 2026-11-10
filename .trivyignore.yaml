@@ -3,4 +3,18 @@
 # pip-audit and npm audit are hooked into it via
 # scripts/vulnerabilities.py, so there is one place where an
 # accepted finding is written down.
-vulnerabilities: []
+vulnerabilities:
+  - id: CVE-2026-76844
+    expired_at: 2026-11-24
+    statement: >-
+      zlib1g in the python:3.15-slim-trixie runtime base. The newest upstream
+      image still carries 1:1.3.dfsg+really1.3.1-1+b1;
+      containers/toon/Containerfile upgrades zlib1g to deb13u1, so the built
+      image that deploy.yml scans is clean. The CI scan looks at the base
+      image, so this entry keeps it from failing. Once the FROM pin moves to
+      an image with deb13u1, both this entry and the upgrade go.
+  - id: CVE-2026-85091
+    expired_at: 2026-11-24
+    statement: >-
+      zlib1g in the python:3.15-slim-trixie runtime base, the same package
+      and the same fix as CVE-2026-76844 above.
