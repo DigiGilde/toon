@@ -14,9 +14,10 @@
  * run: a word the design system rewrites is a word we have to look at again
  * rather than silently keep saying.
  *
- * The one exception is `designSystem.comboBox.openMenu`: the package says
- * "Toon opties", which would read as the name of the product. The test lists
- * it as reworded on purpose.
+ * The exceptions are `designSystem.comboBox.openMenu` and
+ * `designSystem.fileField.showOptions`: the package says "Toon opties", which
+ * would read as the name of the product. The test lists both as reworded on
+ * purpose.
  */
 export const designSystemNl = {
   'designSystem.activityIndicator.loading': 'Laden',
@@ -32,21 +33,34 @@ export const designSystemNl = {
   'designSystem.fileField.change': 'Wijzigen',
   'designSystem.fileField.chosen': '{name} gekozen',
   'designSystem.fileField.clear': 'Wis selectie',
-  'designSystem.fileField.required': 'Kies een bestand',
+  'designSystem.fileField.required': 'Een bestand is verplicht',
   'designSystem.fileField.dropHint': 'of sleep het hierheen',
   'designSystem.fileField.dragHere': 'Sleep het bestand hierheen',
   'designSystem.fileField.dropHere': 'Zet het bestand hier neer',
   'designSystem.fileField.replaceDrag': 'Sleep hierheen om te vervangen',
   'designSystem.fileField.replaceDrop': 'Zet hier neer om te vervangen',
-  'designSystem.fileField.typeError': 'Het bestand moet een {types} zijn',
-  'designSystem.fileField.wrongType': 'Dit bestandstype past niet',
+  'designSystem.fileField.typeError': 'Alleen {types}',
+  'designSystem.fileField.wrongType': 'Bestandstype past niet',
   'designSystem.fileField.typeList': '{items} of {last}',
   'designSystem.fileField.tooMany': 'Sleep één bestand',
-  'designSystem.fileField.folder': 'Sleep een bestand, geen map',
+  'designSystem.fileField.folder': 'Sleep bestand, geen map',
+  'designSystem.fileField.chooseFilesOrFolder': 'Bestanden of map kiezen',
+  'designSystem.fileField.chooseFilesMenu': 'Bestanden kiezen…',
+  'designSystem.fileField.chooseFolderMenu': 'Map kiezen…',
+  'designSystem.fileField.chooseFolder': 'Map kiezen',
+  'designSystem.fileField.dismissMessage': 'sluit melding',
+  'designSystem.fileField.emptyFolder': 'Map is leeg',
+  'designSystem.fileField.unreadableFolder': 'Map niet te lezen',
+  'designSystem.fileField.folderCount': '{folder} ({count} bestanden)',
+  'designSystem.fileField.folderOneFile': '{folder} (1 bestand)',
+  'designSystem.fileField.folderCountShort': '{folder} ({count})',
+  'designSystem.fileField.showOptions': 'Opties tonen',
   'designSystem.linkHint.newTab': 'opent in nieuw tabblad',
   'designSystem.linkHint.external': 'andere website',
   'designSystem.linkHint.externalNewTab': 'andere website, opent in nieuw tabblad',
   'designSystem.list.arrowKeys': 'Gebruik de pijltjestoetsen om door de lijst te navigeren.',
+  'designSystem.menu.oneResult': '1 resultaat',
+  'designSystem.menu.results': '{count} resultaten',
   'designSystem.notification.dismiss': 'Sluit',
   'designSystem.notification.region': 'Meldingen',
   'designSystem.pageFooter.legalLinks': 'Juridische links',
@@ -56,7 +70,15 @@ export const designSystemNl = {
   'designSystem.progressBar.label': 'Voortgang',
   'designSystem.searchField.search': 'Zoek',
   'designSystem.searchField.clear': 'Wis zoekopdracht',
-  'designSystem.splitButton.menu': 'Meer opties',
+  'designSystem.splitButton.showOptions': 'Meer opties voor {text}',
+  'designSystem.validationList.email': 'Een geldig e-mailadres zoals naam@voorbeeld.nl.',
+  'designSystem.validationList.url': 'Een geldig webadres zoals https://www.voorbeeld.nl.',
+  'designSystem.validationList.valueMissing': 'Dit veld is verplicht.',
+  'designSystem.validationList.tooShort': 'Minstens {minlength} tekens.',
+  'designSystem.validationList.tooLong': 'Hoogstens {maxlength} tekens.',
+  'designSystem.validationList.rangeUnderflow': '{min} of meer.',
+  'designSystem.validationList.rangeOverflow': '{max} of minder.',
+  'designSystem.validationList.invalid': 'Dit klopt nog niet.',
   'designSystem.tabBar.overflow': 'Meer tabs',
   'designSystem.toolbar.overflow': 'Meer',
 } as const;
