@@ -1,0 +1,1 @@
+- ID tokens are checked by joserfc 1.8, which also refuses unprotected critical headers and boolean or non-finite time claims.
