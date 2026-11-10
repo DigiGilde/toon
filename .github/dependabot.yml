@@ -22,7 +22,8 @@
 # And a cooldown: a new version only counts once it is a week old, majors
 # only after a month. Broken upstream then surfaces somewhere else first,
 # and successive patches land in the same pull request. Security updates
-# have no cooldown, so a hole waits for nothing.
+# have no cooldown, so a hole waits for nothing. Neither does the design
+# system, see the npm entry.
 #
 # The schedules are spread over the week, because they all arrived on
 # Monday at 06:00 and pull requests that touch the same lockfile force each
@@ -152,6 +153,11 @@ updates:
     cooldown:
       default-days: 7
       semver-major-days: 30
+      # Releases almost daily: with the cooldown on top of the weekly
+      # schedule, the admin ran one to two weeks behind. Cooldown only
+      # switches per dependency; the number of days cannot differ.
+      exclude:
+        - "@nldd/design-system"
     groups:
       frontend:
         patterns:
