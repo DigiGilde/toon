@@ -14,6 +14,17 @@ write a fragment and the rest of the model are in
 
 Merged but not released yet: the fragments in [changelog.d/](changelog.d/README.md).
 
+## [2026.11.11]
+
+### Changed
+
+- The admin runs on design system 0.21.1, and the new texts of the file field, validation list, menu and split button are translated.
+
+### Security
+
+- ID tokens are checked by joserfc 1.8, which also refuses unprotected critical headers and boolean or non-finite time claims.
+- The image ships patched apt (CVE-2026-109518) and zlib (CVE-2026-76844, CVE-2026-85091).
+
 ## [2026.11.4]
 
 ### Changed
@@ -408,7 +419,8 @@ The first tagged version: what ran in production on 30 September 2026.
 - Deployment on ZAD as one component, from an image that is scanned by
   Trivy and carries SBOM and provenance attestations.
 
-[Unreleased]: https://github.com/DigiGilde/toon/compare/v2026.11.4...HEAD
+[Unreleased]: https://github.com/DigiGilde/toon/compare/v2026.11.11...HEAD
+[2026.11.11]: https://github.com/DigiGilde/toon/compare/v2026.11.4...v2026.11.11
 [2026.11.4]: https://github.com/DigiGilde/toon/compare/v2026.11.2.1...v2026.11.4
 [2026.11.2.1]: https://github.com/DigiGilde/toon/compare/v2026.11.2...v2026.11.2.1
 [2026.11.2]: https://github.com/DigiGilde/toon/compare/v2026.11.1...v2026.11.2
