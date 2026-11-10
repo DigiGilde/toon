@@ -72,11 +72,12 @@ class TestIdTokenValidation:
             await validate(oidc, idp, f"{header}.{payload}.")
 
     async def test_payload_that_is_not_a_json_object_refused(self, oidc, idp):
-        """A genuinely signed token whose payload is a JSON array: joserfc
-        decodes it without complaint, so the object check is ours."""
+        """A genuinely signed token whose payload is a JSON array. joserfc
+        refuses it since 1.8 (the floor in pyproject.toml), so the claim
+        checks never see a non-dict."""
         header = {"alg": "RS256", "kid": idp.kid}
         token = jws.serialize_compact(header, b'["geen", "object"]', idp.private_key, algorithms=["RS256"])
-        with pytest.raises(OidcError, match="JSON object"):
+        with pytest.raises(OidcError, match="invalid_payload"):
             await validate(oidc, idp, token)
 
     async def test_foreign_key_refused(self, oidc, idp):

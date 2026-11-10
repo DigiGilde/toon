@@ -585,10 +585,6 @@ class OidcClient:
 
         try:
             claims = jwt.decode(id_token, _key, registry=self._registry).claims
-            # jwt.decode only checks that the payload is JSON; a signed array
-            # or scalar would otherwise reach the claim checks as a non-dict.
-            if not isinstance(claims, dict):
-                raise OidcError("ID token payload is not a JSON object")
             JWTClaimsRegistry(leeway=60).validate(claims)
         except _UnknownKid:
             raise
