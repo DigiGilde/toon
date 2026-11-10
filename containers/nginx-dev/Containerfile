@@ -7,6 +7,10 @@ COPY --chmod=0755 10-resolver.sh /docker-entrypoint.d/10-resolver.sh
 # for the nginx user, so the real file lives on /tmp.
 USER root
 RUN ln -s /tmp/resolver.conf /etc/nginx/resolver.conf
+# The upgrade patches CVE-2026-107891 (musl) and CVE-2026-85091 (zlib) until
+# the upstream image carries musl 1.2.6-r3 and zlib 1.3.2-r1; it can go when
+# the FROM pin moves past them.
+RUN apk upgrade --no-cache musl musl-utils zlib
 USER nginx
 
 EXPOSE 8080
