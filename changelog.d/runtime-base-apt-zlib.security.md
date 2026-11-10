@@ -1,1 +1,0 @@
-- The image ships patched apt (CVE-2026-109518) and zlib (CVE-2026-76844, CVE-2026-85091).

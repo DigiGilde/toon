@@ -1,1 +1,0 @@
-- The admin runs on design system 0.21.1, and the new texts of the file field, validation list, menu and split button are translated.
