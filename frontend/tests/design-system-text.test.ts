@@ -74,8 +74,6 @@ const UNREACHED: Record<string, string> = {
   'components.file-field.drag-here-multiple-text': 'no file field here takes more than one file',
   'components.file-field.drop-here-multiple-text': 'no file field here takes more than one file',
   'components.file-field.files-type-error-text': 'no file field here takes more than one file',
-  'components.file-field.folder-multiple-error-text':
-    'no file field here takes more than one file',
   'components.file-field.accepted-types-text': 'no file field here is variant="area"',
   'components.file-field.image-lowercase': 'no file field here accepts a family such as image/*',
   'components.file-field.video-lowercase': 'no file field here accepts a family such as image/*',
@@ -89,7 +87,7 @@ const UNREACHED: Record<string, string> = {
   'components.list.items-accessible-label': 'every list here sets accessible-label',
   'components.list.navigation-accessible-label': 'no list here is type="navigation"',
   'components.list.search-placeholder-label': 'no list here is type="listbox"',
-  'components.list.search-clear-action': 'no list here is type="listbox"',
+  'components.list.clear-search-action': 'no list here is type="listbox"',
   'components.list.reorder-moved-text': 'no list here is reorderable',
   'components.list.reorder-dropped-text': 'no list here is reorderable',
   'components.list.reorder-no-change-text': 'no list here is reorderable',
@@ -116,6 +114,7 @@ const UNREACHED: Record<string, string> = {
  */
 const REWORDED: Record<string, string> = {
   'components.combo-box.open-menu-action': 'Toon opties',
+  'components.file-field.show-options-action': 'Toon opties',
 };
 
 function filesUnder(directory: string, keep: (name: string) => boolean): string[] {

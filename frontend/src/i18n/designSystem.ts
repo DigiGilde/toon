@@ -73,6 +73,29 @@ export function wordsPerElement(): Record<string, Record<string, string>> {
       'components.file-field.list-lowercase-text': t('designSystem.fileField.typeList'),
       'components.file-field.too-many-files-error-text': t('designSystem.fileField.tooMany'),
       'components.file-field.folder-error-text': t('designSystem.fileField.folder'),
+      'components.file-field.to-choose-files-or-folder-action': t(
+        'designSystem.fileField.chooseFilesOrFolder',
+      ),
+      'components.file-field.to-choose-files-menu-action': t(
+        'designSystem.fileField.chooseFilesMenu',
+      ),
+      'components.file-field.to-choose-folder-menu-action': t(
+        'designSystem.fileField.chooseFolderMenu',
+      ),
+      'components.file-field.to-choose-folder-action': t('designSystem.fileField.chooseFolder'),
+      'components.file-field.dismiss-message-lowercase-action': t(
+        'designSystem.fileField.dismissMessage',
+      ),
+      'components.file-field.empty-folder-error-text': t('designSystem.fileField.emptyFolder'),
+      'components.file-field.unreadable-folder-error-text': t(
+        'designSystem.fileField.unreadableFolder',
+      ),
+      'components.file-field.folder-count-text': t('designSystem.fileField.folderCount'),
+      'components.file-field.folder-one-file-text': t('designSystem.fileField.folderOneFile'),
+      'components.file-field.folder-count-short-text': t(
+        'designSystem.fileField.folderCountShort',
+      ),
+      'components.file-field.show-options-action': t('designSystem.fileField.showOptions'),
     },
     'nldd-link': {
       'components.link.link-hint-new-tab-lowercase-label': t('designSystem.linkHint.newTab'),
@@ -83,6 +106,10 @@ export function wordsPerElement(): Record<string, Record<string, string>> {
     },
     'nldd-list': {
       'components.list.arrow-navigation-description-text': t('designSystem.list.arrowKeys'),
+    },
+    'nldd-menu': {
+      'components.menu.one-result-text': t('designSystem.menu.oneResult'),
+      'components.menu.results-text': t('designSystem.menu.results'),
     },
     'nldd-notification': {
       'components.notification.dismiss-action': t('designSystem.notification.dismiss'),
@@ -106,10 +133,24 @@ export function wordsPerElement(): Record<string, Record<string, string>> {
       'components.search-field.search-action': t('designSystem.searchField.search'),
     },
     'nldd-split-button': {
-      'components.split-button.menu-action': t('designSystem.splitButton.menu'),
+      'components.split-button.show-options-action': t('designSystem.splitButton.showOptions'),
     },
     'nldd-tab-bar': {
       'components.tab-bar.overflow-action': t('designSystem.tabBar.overflow'),
+    },
+    'nldd-validation-list': {
+      'components.validation-list.email-text': t('designSystem.validationList.email'),
+      'components.validation-list.url-text': t('designSystem.validationList.url'),
+      'components.validation-list.value-missing-text': t('designSystem.validationList.valueMissing'),
+      'components.validation-list.too-short-text': t('designSystem.validationList.tooShort'),
+      'components.validation-list.too-long-text': t('designSystem.validationList.tooLong'),
+      'components.validation-list.range-underflow-text': t(
+        'designSystem.validationList.rangeUnderflow',
+      ),
+      'components.validation-list.range-overflow-text': t(
+        'designSystem.validationList.rangeOverflow',
+      ),
+      'components.validation-list.invalid-text': t('designSystem.validationList.invalid'),
     },
     'nldd-toolbar': {
       'components.toolbar.overflow-action': t('designSystem.toolbar.overflow'),
