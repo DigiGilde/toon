@@ -433,8 +433,8 @@ jobs:
   #     is multi-stage: the node and uv stages build the SPA and the venv
   #     and then stay behind, so only the python runtime base ends up in
   #     the image. The nginx base is the dev stack's and does not deploy,
-  #     but it is cheap and it is ours to keep current, so it is reported
-  #     rather than gated.
+  #     but it is cheap and it is ours to keep current, so it is gated
+  #     the same way (see its step below).
   #
   # Not scanned here: the built image, because building it means npm ci,
   # a vite build and a uv sync on every pull request, minutes of work that
