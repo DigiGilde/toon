@@ -89,6 +89,64 @@ class TestClassification:
     def test_no_content_paths(self, path: str) -> None:
         assert not belongs_to_content(path)
 
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/-/feedback/",
+            "/-/feedback/widget.0123456789abcdef.js",
+            "/-/feedback/v1/items",
+            "/-/feedback/v1/items/9a1c/replies",
+            "/-/feedback/account/stop",
+            "/-/feedback/onbekend/diep/",
+        ],
+    )
+    def test_site_feedback_is_a_content_prefix(self, path: str) -> None:
+        """The one part of the platform namespace admitted as a whole prefix:
+        its routes check the host and refuse what they do not know with the
+        neutral 404 themselves."""
+        assert belongs_to_content(path)
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            # The prefix ends in a slash: the bare name is not under it.
+            "/-/feedback",
+            "/-/feedbackx",
+            "/-/feedbackx/v1/items",
+            "/-/feedbac/v1/items",
+            "/-/Feedback/v1/items",
+            "/-/api/v1/feedback/",
+        ],
+    )
+    def test_lookalikes_of_the_feedback_prefix_are_no_content_paths(self, path: str) -> None:
+        assert not belongs_to_content(path)
+
+    @pytest.mark.parametrize(
+        ("path", "admitted"),
+        [("/-/feedback/v1/items", True), ("/-/feedback/", True), ("/-/feedback", False), ("/-/feedbackx", False)],
+    )
+    async def test_the_middleware_admits_the_feedback_prefix_on_the_content_host_alone(
+        self, path: str, admitted: bool
+    ) -> None:
+        async def inner(scope: Scope, receive: Receive, send: Send) -> None:
+            await PlainTextResponse("app")(scope, receive, send)
+
+        middleware = HostSeparationMiddleware(inner, content_host="toon.example")
+        async with (
+            httpx.AsyncClient(transport=httpx.ASGITransport(app=middleware), base_url=CONTENT) as content,
+            httpx.AsyncClient(transport=httpx.ASGITransport(app=middleware), base_url=ADMIN) as admin,
+        ):
+            on_content = await content.get(path)
+            on_admin = await admin.get(path)
+
+        if admitted:
+            assert on_content.text == "app"
+        else:
+            assert (on_content.status_code, on_content.content) == (404, NEUTRAL_404_BODY)
+        # The admin host claims every path, the feedback prefix and its
+        # lookalikes included, exactly as before.
+        assert on_admin.text == "app"
+
     def test_healthz_belongs_to_the_admin_host_only(self) -> None:
         assert not belongs_to_content("/-/healthz")
 
@@ -216,11 +274,19 @@ class TestAdminHost:
 class TestContentHost:
     @pytest.mark.parametrize(
         "path",
-        ["/-/api/v1/x", "/-/onbekend", "/-/onbekend/diep/", "/-/healthz"],
+        ["/-/api/v1/x", "/-/onbekend", "/-/onbekend/diep/", "/-/healthz", "/-/feedback", "/-/feedbackx/v1/items"],
     )
     async def test_platform_paths_are_neutral_404(self, two_hosts, path: str) -> None:
         _, content = two_hosts
         assert await _is_neutral_404(content, path)
+
+    async def test_a_dot_segment_does_not_climb_out_of_the_feedback_prefix(self, two_hosts) -> None:
+        """The prefix is matched on the path as it arrives, and nothing on the
+        way normalises it: `/-/feedback/../api/...` stays a feedback path and
+        never reaches the API it spells. A browser resolves the dots itself,
+        so only a hand-made request arrives like this."""
+        _, content = two_hosts
+        assert await _is_neutral_404(content, "/-/feedback/%2E%2E/api/v1/me")
 
     async def test_the_old_admin_prefixes_are_content_here(self, two_hosts) -> None:
         # `admin` and `beheer` are not reserved slugs: on this host they

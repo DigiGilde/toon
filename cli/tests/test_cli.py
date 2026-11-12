@@ -838,6 +838,8 @@ def test_an_unusable_host_gives_exit_2_and_one_line_instead_of_a_traceback(
     assert captured.err == f"Error: {NOT_A_VALID_HOST}\n"
 
 
+_FEEDBACK_ID = "00000000-0000-4000-8000-000000000001"
+
 _COMMANDS = {
     "login": ["login", "--no-open"],
     "logout": ["logout"],
@@ -847,6 +849,12 @@ _COMMANDS = {
     "group-create": ["group", "create", "team-aurora", "--name", "Team Aurora"],
     "site-create": ["site", "create", "team-aurora/website", "--title", "Website"],
     "site-link": ["site", "link", "team-aurora/website", "minbzk/website"],
+    "feedback-list": ["feedback", "list", "--site", "team-aurora/website"],
+    "feedback-show": ["feedback", "show", _FEEDBACK_ID, "--site", "team-aurora/website"],
+    "feedback-seen": ["feedback", "seen", _FEEDBACK_ID, "--site", "team-aurora/website"],
+    "feedback-resolve": ["feedback", "resolve", _FEEDBACK_ID, "--site", "team-aurora/website"],
+    "feedback-reopen": ["feedback", "reopen", _FEEDBACK_ID, "--site", "team-aurora/website"],
+    "feedback-reply": ["feedback", "reply", _FEEDBACK_ID, "--site", "team-aurora/website", "--message", "ok"],
 }
 
 

@@ -112,6 +112,41 @@ class TestCheckCatalogues:
             messages._check_catalogues()
 
 
+@pytest.mark.parametrize(
+    ("key", "dutch", "english"),
+    [
+        (
+            "FEEDBACK_BUSY",
+            "Toon kan je feedback nu niet aannemen. Probeer het over een minuut opnieuw.",
+            "Toon cannot take your feedback right now. Try again in a minute.",
+        ),
+        (
+            "FEEDBACK_TIMEOUT",
+            "Het versturen duurde te lang. Probeer het opnieuw, eventueel zonder schermafbeelding.",
+            "Sending took too long. Try again, without the screenshot if need be.",
+        ),
+        (
+            "FEEDBACK_THREAD_FULL",
+            "Bij deze feedback kunnen geen reacties meer bij.",
+            "This feedback cannot take any more replies.",
+        ),
+        (
+            "FEEDBACK_PAGE_MOVED",
+            "De site of groep heeft een nieuw adres gekregen. Laad de pagina opnieuw.",
+            "The site or group has a new address. Reload the page.",
+        ),
+    ],
+)
+def test_the_widget_shows_these_refusals_in_these_words(key: str, dutch: str, english: str) -> None:
+    """The widget shows the detail as it comes: these words are part of what
+    it was built against."""
+    assert (messages.render("nl", Msg(key)), messages.render("en", Msg(key))) == (dutch, english)
+
+
+def test_a_request_that_took_too_long_has_a_title_in_both_languages() -> None:
+    assert (messages.title("nl", 408), messages.title("en", 408)) == ("Verzoek duurde te lang", "Request timeout")
+
+
 def test_a_code_key_carries_its_code_and_a_variant_does_not_change_it() -> None:
     assert messages.code_of("UNKNOWN_SITE") == "UNKNOWN_SITE"
     assert messages.code_of("MULTIPART_INVALID.incomplete") == "MULTIPART_INVALID"

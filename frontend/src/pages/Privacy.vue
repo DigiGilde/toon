@@ -23,18 +23,25 @@ const operator = useOperator();
       <li>{{ t('page.privacy.data.invitees') }}</li>
       <li>{{ t('page.privacy.data.audit') }}</li>
       <li>{{ t('page.privacy.data.visits') }}</li>
+      <li>{{ t('page.privacy.data.feedback') }}</li>
       <li>{{ t('page.privacy.data.content') }}</li>
     </ul>
+    <p>{{ t('page.privacy.data.feedbackTechnical') }}</p>
+    <p>{{ t('page.privacy.data.feedbackAnonymous') }}</p>
     <h2>{{ t('page.privacy.purpose.heading') }}</h2>
     <p>{{ t('page.privacy.purpose.body') }}</p>
+    <p>{{ t('page.privacy.purpose.feedback') }}</p>
     <h2>{{ t('page.privacy.processors.heading') }}</h2>
     <p>{{ t('page.privacy.processors.body') }}</p>
+    <p>{{ t('page.privacy.processors.ai') }}</p>
     <h2>{{ t('page.privacy.retention.heading') }}</h2>
     <p>{{ t('page.privacy.retention.body') }}</p>
     <p>{{ t('page.privacy.retention.ip') }}</p>
     <p>{{ t('page.privacy.retention.session') }}</p>
+    <p>{{ t('page.privacy.retention.feedback') }}</p>
     <h2>{{ t('page.privacy.visibility.heading') }}</h2>
     <p>{{ t('page.privacy.visibility.body') }}</p>
+    <p>{{ t('page.privacy.visibility.feedback') }}</p>
     <h2>{{ t('page.privacy.rights.heading') }}</h2>
     <p>{{ t('page.privacy.rights.body') }}</p>
     <p v-if="operator?.email">

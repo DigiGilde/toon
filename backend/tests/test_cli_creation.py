@@ -1,6 +1,7 @@
 """Creating a group or a site and linking a repository with the CLI token
 (`toon group create`, `toon site create`, `toon site link`), and the edge of
-that: those three routes of api/admin.py take a bearer, no other admin
+that: those three routes of api/admin.py take a bearer, and so do the five
+feedback routes the CLI uses (test_feedback_admin_api.py), no other admin
 route does.
 
 The app under test wires the admin router, the CLI router and
@@ -793,20 +794,31 @@ class TestCreationBudget:
 # -- Bearer on every other admin route: refused exactly as before ------------
 
 
+# The admin routes that take the CLI token, listed here rather than asked of
+# accepts_bearer: the test below is there to catch that list growing.
+_OPENED = frozenset(
+    {
+        ("POST", f"{BASE}/groups"),
+        ("POST", f"{BASE}/groups/x/sites"),
+        ("PUT", f"{BASE}/sites/x/x/repository"),
+        ("GET", f"{BASE}/sites/x/x/feedback"),
+        ("GET", f"{BASE}/sites/x/x/feedback/x"),
+        ("GET", f"{BASE}/sites/x/x/feedback/x/screenshot"),
+        ("PUT", f"{BASE}/sites/x/x/feedback/x/status"),
+        ("POST", f"{BASE}/sites/x/x/feedback/x/replies"),
+    }
+)
+
+
 def _admin_routes() -> list[tuple[str, str]]:
     """Every (method, concrete path) the admin router serves, apart from the
-    two creation routes and the repository link."""
+    ones that take the CLI token."""
     router = make_admin_router()
     routes = []
     for route in router.routes:
         assert isinstance(route, APIRoute)
         path = re.sub(r"\{[^}]+\}", "x", route.path)
-        for method_ in sorted(route.methods):
-            if method_ == "POST" and (path == f"{BASE}/groups" or path == f"{BASE}/groups/x/sites"):
-                continue
-            if method_ == "PUT" and path == f"{BASE}/sites/x/x/repository":
-                continue
-            routes.append((method_, path))
+        routes.extend((method_, path) for method_ in sorted(route.methods) if (method_, path) not in _OPENED)
     return routes
 
 
@@ -823,8 +835,8 @@ async def test_a_valid_cli_token_on_any_other_admin_route_is_refused(client, fac
     body = _problem(response, 401, "BEARER_NOT_ACCEPTED")
     assert response.headers["WWW-Authenticate"] == WWW_AUTHENTICATE
     assert body["detail"] == (
-        "Bearer authentication is accepted on the deploy and CLI endpoints, for creating a group or site and "
-        "for linking a repository only."
+        "Bearer authentication is accepted only on the deploy and CLI endpoints, for creating a group or site, "
+        "for linking a repository and for reading, marking and answering feedback."
     )
 
 
@@ -956,6 +968,20 @@ class TestNeighbouringRoutesStayShut:
             ("PUT", f"{BASE}/sites/team/docs/repository/"),
             ("PUT", f"{BASE}/sites/team/repository"),
             ("PUT", f"{BASE}/sites/team/docs/extra/repository"),
+            ("POST", f"{BASE}/sites/team/docs/feedback"),
+            ("GET", f"{BASE}/sites/team/docs/feedback/"),
+            ("GET", f"{BASE}/sites/team/feedback"),
+            ("GET", f"{BASE}/sites/team/docs/extra/feedback"),
+            ("PUT", f"{BASE}/sites/team/docs/feedback/x"),
+            ("DELETE", f"{BASE}/sites/team/docs/feedback/x"),
+            ("GET", f"{BASE}/sites/team/docs/feedback/x/y"),
+            ("POST", f"{BASE}/sites/team/docs/feedback/x/screenshot"),
+            ("GET", f"{BASE}/sites/team/docs/feedback/x/status"),
+            ("PUT", f"{BASE}/sites/team/docs/feedback/x/status/"),
+            ("GET", f"{BASE}/sites/team/docs/feedback/x/replies"),
+            ("PUT", f"{BASE}/sites/team/docs/feedback/x/replies"),
+            ("PUT", f"{BASE}/sites/team/docs/feedback-settings"),
+            ("GET", f"{BASE}/sites/team/docs/feedback-settings"),
         ],
     )
     async def test_the_opened_paths_open_only_for_their_exact_method_and_shape(

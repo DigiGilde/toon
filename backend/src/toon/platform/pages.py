@@ -52,6 +52,7 @@ from toon.auth.sessions import (
     check_signature,
     clear_content_session_cookies,
     clear_session_cookies,
+    content_anchor_is_duplicated,
     content_anchor_session_from_request,
     content_site_prefix,
     session_from_request,
@@ -251,8 +252,13 @@ def _cookie_for_next_site(request: Request, target: str) -> RedirectResponse | N
     otherwise be a two-hop way for a page on one site to have the browser
     attach a session to a request aimed at another, which is the very thing
     the scoped cookie takes away.
+
+    Not when the anchor arrives more than once either: the session read would
+    be whichever value came last, possibly one set from elsewhere, and its
+    site cookie would replace the visitor's own. The IdP's callback sets the
+    visitor's own cookies instead.
     """
-    if not top_level_navigation(request):
+    if not top_level_navigation(request) or content_anchor_is_duplicated(request):
         return None
     session = content_anchor_session_from_request(request)
     if session is None:

@@ -10,6 +10,7 @@ involved never touch it (lexical redirect, /-/login).
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 import os
@@ -28,6 +29,10 @@ from toon.auth.sessions import SessionStore
 from toon.config import ConfigurationError, Settings
 from toon.ingest.store import ContentStore
 from toon.main import ApiVersionHeaderMiddleware, SessionRecheckMiddleware, create_app
+from toon.ratelimit import FEEDBACK_API_HEADERS
+from toon.serving import feedback_api
+from toon.serving.feedback_api import PREFLIGHT_HEADERS, BodyBudget, WriteCounter
+from toon.serving.feedback_widget import WidgetBundle, widget_url
 from toon.serving.response import NEUTRAL_404_BODY
 
 BASE_URL = "https://toon.example"
@@ -458,3 +463,173 @@ async def test_no_trustedhost_middleware_without_base_url(tmp_path: Path) -> Non
             resp = await client.get("/robots.txt")
 
     assert resp.status_code == 200
+
+
+# --- Site feedback: the bundle, the counters and the routes in the stack --------
+
+
+def _built_widget(tmp_path: Path) -> tuple[Path, bytes]:
+    spa = tmp_path / "spa"
+    spa.mkdir()
+    content = b"/*! Toon feedback widget. */(()=>{})();\n"
+    (spa / "feedback-widget.js").write_bytes(content)
+    return spa, content
+
+
+async def test_the_feedback_widget_is_read_at_startup_and_served_on_the_content_host(tmp_path: Path) -> None:
+    spa, content = _built_widget(tmp_path)
+    settings = _make_settings(tmp_path, spa_path=spa, base_url="https://beheer.toon.example")
+    app = create_app(settings)
+
+    async with app.router.lifespan_context(app):
+        bundle = app.state.feedback_widget
+        assert isinstance(bundle, WidgetBundle)
+        assert bundle.content == content
+        async with _client_for(app) as content_host:
+            served = await content_host.get(widget_url(bundle))
+            other = await content_host.get("/-/feedback/widget.0000000000000000.js")
+        async with _client_for(app, "https://beheer.toon.example") as admin_host:
+            on_admin = await admin_host.get(widget_url(bundle))
+
+    assert served.status_code == 200
+    assert served.content == content
+    assert served.headers["content-type"] == "text/javascript; charset=utf-8"
+    assert served.headers["cache-control"] == "public, max-age=31536000, immutable"
+    assert (other.status_code, other.content) == (404, NEUTRAL_404_BODY)
+    assert (on_admin.status_code, on_admin.content) == (404, NEUTRAL_404_BODY)
+
+
+async def test_without_a_built_widget_toon_starts_and_says_so(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    app = create_app(_make_settings(tmp_path, spa_path=tmp_path / "leeg"))
+
+    with caplog.at_level(logging.WARNING, logger="toon.serving.feedback_widget"):
+        async with app.router.lifespan_context(app):
+            assert app.state.feedback_widget is None
+
+    assert "Feedback widget not readable" in caplog.text
+
+
+async def test_the_feedback_write_counters_are_two_of_their_own(tmp_path: Path) -> None:
+    app = create_app(_make_settings(tmp_path))
+
+    async with app.router.lifespan_context(app):
+        assert isinstance(app.state.feedback_author_writes, WriteCounter)
+        assert isinstance(app.state.feedback_site_writes, WriteCounter)
+        assert app.state.feedback_author_writes is not app.state.feedback_site_writes
+        assert app.state.feedback_author_writes is not app.state.code_attempts
+
+
+async def test_the_feedback_bodies_in_flight_start_at_nothing(tmp_path: Path) -> None:
+    app = create_app(_make_settings(tmp_path))
+
+    async with app.router.lifespan_context(app):
+        assert isinstance(app.state.feedback_bodies, BodyBudget)
+        assert app.state.feedback_bodies.in_flight == 0
+
+
+async def test_the_feedback_routes_answer_before_the_serving_catch_all(tmp_path: Path) -> None:
+    """Every path under /-/feedback/ reaches the feedback router first: a
+    preflight gets its 204 rather than the serving router's 405, and any
+    other method on any other path the neutral 404 that host separation
+    gives elsewhere under /-/, header for header."""
+    app = create_app(_make_settings(tmp_path))
+
+    async with app.router.lifespan_context(app), _client_for(app) as client:
+        preflight = await client.options(
+            "/-/feedback/v1/items", headers={"Origin": "null", "Access-Control-Request-Method": "POST"}
+        )
+        elsewhere = await client.get("/-/onbekend")
+        misses = [
+            await client.request(method, path)
+            for method in ("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE", "PROPFIND", "QUERY")
+            for path in ("/-/feedback/onbekend", "/-/feedback/v1/items/x/y")
+        ]
+        # A method no route names, on a path one does.
+        unnamed = [await client.request(method, "/-/feedback/v1/items") for method in ("TRACE", "PROPFIND", "QUERY")]
+        head = await client.head("/-/feedback/show")
+
+    assert preflight.status_code == 204
+    for name, value in PREFLIGHT_HEADERS.items():
+        assert preflight.headers[name] == value, name
+    for miss in misses + unnamed:
+        assert miss.status_code == 404
+        assert miss.content == NEUTRAL_404_BODY
+        assert sorted(miss.headers.multi_items()) == sorted(elsewhere.headers.multi_items())
+    assert head.status_code == 404
+    assert "allow" not in head.headers
+
+
+async def test_the_rate_limit_answers_the_widget_api_with_its_header_set(tmp_path: Path) -> None:
+    """Preflights count against the feedback class like every request; the
+    429 that follows carries the widget header set, or a shielded page would
+    see a network error instead."""
+    app = create_app(_make_settings(tmp_path, ratelimit_feedback_max=1, ratelimit_feedback_window_s=60))
+
+    async with app.router.lifespan_context(app), _client_for(app) as client:
+        first = await client.options("/-/feedback/v1/items")
+        refused = await client.post("/-/feedback/v1/items", headers={"Accept-Language": "nl"})
+
+    assert first.status_code == 204
+    assert refused.status_code == 429
+    assert refused.json()["code"] == "TOO_MANY_REQUESTS"
+    assert int(refused.headers["retry-after"]) > 0
+    for name, value in FEEDBACK_API_HEADERS.items():
+        assert refused.headers[name] == value, name
+    assert refused.headers["content-language"] == "nl"
+
+
+async def test_a_preflight_over_budget_is_answered_as_within_it(tmp_path: Path) -> None:
+    """Fetch turns a preflight that is not 2xx into a network error: a
+    preflight over budget still gets its 204 on the content host and the
+    neutral 404 on the admin host, and the request after it the 429 a
+    shielded page can read."""
+    app = create_app(_make_settings(tmp_path, ratelimit_feedback_max=1, ratelimit_feedback_window_s=60))
+    preflight_headers = {"Origin": "null", "Access-Control-Request-Method": "POST"}
+
+    async with app.router.lifespan_context(app):
+        async with _client_for(app) as client:
+            first = await client.options("/-/feedback/v1/items", headers=preflight_headers)
+            over = await client.options("/-/feedback/v1/items", headers=preflight_headers)
+            refused = await client.post("/-/feedback/v1/items", headers={"Origin": "null"})
+        async with _client_for(app, "https://beheer.toon.example") as admin_host:
+            on_admin = await admin_host.options("/-/feedback/v1/items", headers=preflight_headers)
+
+    for preflight in (first, over):
+        assert preflight.status_code == 204
+        for name, value in PREFLIGHT_HEADERS.items():
+            assert preflight.headers[name] == value, name
+    assert refused.status_code == 429
+    assert refused.headers["retry-after"] == "60"
+    for name, value in FEEDBACK_API_HEADERS.items():
+        assert refused.headers[name] == value, name
+    assert (on_admin.status_code, on_admin.content) == (404, NEUTRAL_404_BODY)
+
+
+async def test_the_feedback_write_counters_forget_a_key_without_another_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The lifespan sweeps both counters every window, so the address of the
+    last giver does not wait in memory for a write that may never come."""
+    now = [1000.0]
+    monkeypatch.setattr(feedback_api, "_clock", lambda: now[0])
+    app = create_app(_make_settings(tmp_path, feedback_writes_window_s=1))
+
+    async with app.router.lifespan_context(app):
+        counters = (app.state.feedback_author_writes, app.state.feedback_site_writes)
+        for counter in counters:
+            counter.charge("ip:203.0.113.5", 1, now[0])
+        # The job sweeps the site's counter after the author's.
+        ended = asyncio.Event()
+        sweep = counters[-1].sweep
+
+        def watched(now_: float) -> None:
+            sweep(now_)
+            if now_ >= 1001.0:
+                ended.set()
+
+        monkeypatch.setattr(counters[-1], "sweep", watched)
+        now[0] = 1001.0
+        await asyncio.wait_for(ended.wait(), 5)
+        assert [len(counter) for counter in counters] == [0, 0]

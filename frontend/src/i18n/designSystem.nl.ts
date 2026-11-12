@@ -55,6 +55,7 @@ export const designSystemNl = {
   'designSystem.fileField.folderOneFile': '{folder} (1 bestand)',
   'designSystem.fileField.folderCountShort': '{folder} ({count})',
   'designSystem.fileField.showOptions': 'Opties tonen',
+  'designSystem.image.error': 'Afbeelding is niet geladen',
   'designSystem.linkHint.newTab': 'opent in nieuw tabblad',
   'designSystem.linkHint.external': 'andere website',
   'designSystem.linkHint.externalNewTab': 'andere website, opent in nieuw tabblad',

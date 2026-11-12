@@ -24,6 +24,11 @@ This document describes how to run and test Toon locally.
 - A built SPA: `just build-spa` (npm run build) fills `frontend/dist`,
   which the compose stack mounts read-only into the app container. Without
   that directory the admin host answers with a 503 and a clear message.
+  The same build writes the site feedback widget, `frontend/dist/feedback-widget.js`
+  (`frontend/vite.widget.config.ts`). The app reads that file once, at
+  startup, so after a new build of the widget restart the app container:
+  `podman compose -f dev/compose.yml restart app`. Without the file every page
+  goes out without the widget, and the app logs one warning at startup.
 
 ## Commit hooks
 
@@ -46,7 +51,10 @@ the working tree and the commits a pull request adds, because
 
 Both use `.gitleaks.toml`: the default rule set plus an allowlist for
 `dev/.secrets/` and `frontend/dist/`, the two gitignored directories a
-working-tree scan would otherwise trip over.
+working-tree scan would otherwise trip over, and one that lets the rule
+`grafana-api-key` skip a highlight link (`#toon-feedback=`) in an eval
+prompt under `plugin/evals/`, whose base64url JSON starts with `eyJrIjoi`,
+the prefix of a Grafana API key.
 
 Building the gitleaks hook needs a Go toolchain on the first run. Every
 hook revision is pinned to a commit SHA; Dependabot bumps them.
@@ -102,7 +110,8 @@ volume. So the stack has to be up (`./dev/up.sh`).
 
 **The seed is destructive and repeatable.** It first wipes every group and
 every member (with everything hanging off them: sites, versions, previews,
-invitees, secret links, linked repositories and CLI sessions) plus the
+invitees, secret links, linked repositories, CLI sessions and feedback
+items with their replies and screenshots) plus the
 matching version directories on the content volume, and then puts the whole
 set down again. The audit log is left untouched: the triggers from
 `0001_base` refuse every UPDATE and every DELETE within the retention
@@ -143,6 +152,13 @@ What ends up there:
   own override that is stricter: base `site_team` without exceptions. An
   override is always the whole access, never a base from the preview with
   exceptions from the site.
+- **Feedback.** `jaarverslag` takes feedback on its previews only, from
+  anyone who can view them ("Ook zonder naam", without a name). Five items
+  lie on `pr-42` and `pr-77`, covering every kind, status and author kind,
+  with two replies from Sanne Jansen as the site team, one from the
+  submitter and one screenshot. The item with an account is Dev
+  Beheerder's own, so after the consent page the widget's "Mijn feedback"
+  shows it with the dev login. The output prints the Feedback tab URL.
 
 The secret link of `kerncijfers` is shown once, at the bottom of the
 output, and cannot be reconstructed afterwards. Instead of a deploy
@@ -160,6 +176,41 @@ curl -s -o /dev/null -w '%{http_code}\n' http://toon.localhost:8080/rijksoverhei
 testcontainer database, so that a schema change which breaks the script
 fails in `just test` and not only when someone wants their dev environment
 back.
+
+## Trying site feedback
+
+The seed switches feedback on for `rijksoverheid/jaarverslag`, on its
+previews only. Open one of them in a browser, for instance
+`http://toon.localhost:8080/rijksoverheid/jaarverslag/_preview/pr-42/`: the
+button sits at the bottom right of the page. The settings are on the site's
+"Feedback" tab on `http://beheer.toon.localhost:8080`. The widget only goes into a
+navigation the browser marks with `Sec-Fetch-Dest: document`, so `curl` gets
+the page without it, unless you send that header yourself:
+
+```bash
+curl -s -H 'Sec-Fetch-Dest: document' http://toon.localhost:8080/rijksoverheid/jaarverslag/_preview/pr-42/ | grep -o '<script src="/-/feedback/[^"]*"'
+```
+
+The seed sets "Wie mag feedback geven" (who may give feedback) to "Ook
+zonder naam" (also without a name), so the menu lets you send straight
+away. "Met je account versturen" (send with your account) takes you through
+the login, which the mock OIDC server does at once, to Toon's consent page.
+Its form shows after a second and takes a tick in its box before "Ja, met
+mijn account" (yes, with my account) does anything.
+On "Alleen met een account" (only with an account), the default for a new
+site, the menu of a visitor who has not said yes yet offers only "Feedback
+geven met je account" (give feedback with your account) and "Knop verbergen"
+(hide the button), and no "Feedback op deze tekst" (feedback on this text)
+button appears beside a selection. What comes in shows on the "Feedback" tab,
+and from the terminal:
+
+```bash
+toon login --host http://beheer.toon.localhost:8080
+toon feedback list --site rijksoverheid/jaarverslag --host http://beheer.toon.localhost:8080
+```
+
+The widget stays off when `TOON_BASE_URL` is not set: its link to the privacy
+statement has to be an absolute address. `dev/compose.yml` sets it.
 
 ## Compose topology
 
@@ -215,7 +266,9 @@ point at the same nginx on port `8080`; the app makes the distinction.
   decision, audit, file resolution and the streaming itself. In compose the
   app gets `./frontend/dist` mounted read-only at `/spa`
   (`TOON_SPA_PATH=/spa`), so that `just build-spa` is visible without a
-  rebuild. The same holds for the backend: `./backend/src` is read-only at
+  rebuild, apart from the feedback widget, which the app reads at startup (a
+  new one needs a restart of the app container, see "Prerequisites"). The
+  same holds for the backend: `./backend/src` is read-only at
   `/app/src` and uvicorn runs with `--reload`, so a change in Python code
   is there within seconds. That polls (`WATCHFILES_FORCE_POLLING`), because
   over the mount from macOS inotify events do not reach the container. A

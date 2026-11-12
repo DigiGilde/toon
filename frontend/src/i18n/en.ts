@@ -10,6 +10,7 @@
 import { addressEn } from './address.en';
 import { adminEn } from './admin.en';
 import { designSystemEn } from './designSystem.en';
+import { feedbackEn } from './feedback.en';
 import { groupEn } from './group.en';
 import { pagesEn } from './pages.en';
 import { publishEn } from './publish.en';
@@ -140,6 +141,7 @@ export const en: Catalogue = {
   ...addressEn,
   ...adminEn,
   ...siteEn,
+  ...feedbackEn,
   ...publishEn,
   ...designSystemEn,
 };

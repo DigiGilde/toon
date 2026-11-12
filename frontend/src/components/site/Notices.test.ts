@@ -12,10 +12,11 @@ type Variant = 'neutral' | 'accent' | 'success' | 'warning' | 'critical';
  */
 function makeWrapper() {
   const wrapper = mount(Notices);
-  const notify = (wrapper.vm as unknown as {
-    notify: (variant: Variant, text: string, detail?: string, duration?: number) => void;
-  }).notify;
-  return { wrapper, notify };
+  const { notify, dismiss } = wrapper.vm as unknown as {
+    notify: (variant: Variant, text: string, detail?: string, duration?: number) => number;
+    dismiss: (id: number) => void;
+  };
+  return { wrapper, notify, dismiss };
 }
 
 function durations(wrapper: ReturnType<typeof mount>): (string | undefined)[] {
@@ -70,5 +71,20 @@ describe('Notifications', () => {
     const rest = wrapper.findAll('nldd-notification');
     expect(rest).toHaveLength(1);
     expect(rest[0].attributes('text')).toBe('Tweede');
+  });
+
+  it('gives every notification its own id, and takes away only the one dismissed by it', async () => {
+    const { wrapper, notify, dismiss } = makeWrapper();
+
+    const first = notify('critical', 'Eerste');
+    const second = notify('critical', 'Tweede');
+    notify('success', 'Derde');
+    expect(second).not.toBe(first);
+    dismiss(first);
+    // Gone already: dismissing it again takes nothing else along.
+    dismiss(first);
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.findAll('nldd-notification').map((el) => el.attributes('text'))).toEqual(['Tweede', 'Derde']);
   });
 });

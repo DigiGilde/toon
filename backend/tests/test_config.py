@@ -58,6 +58,24 @@ def test_valid_configuration_loads_with_expected_defaults(monkeypatch):
     assert settings.site_max_bytes == 500 * 1024 * 1024
     assert settings.live_versions_kept == 5
     assert settings.storage_min_free_bytes == 100 * 1024 * 1024
+    assert settings.feedback_inject_max_bytes == 2 * 1024 * 1024
+    assert settings.feedback_screenshot_max_bytes == 2 * 1024 * 1024
+    assert settings.feedback_site_screenshot_max_bytes == 50 * 1024 * 1024
+    assert settings.feedback_total_screenshot_max_bytes == 500 * 1024 * 1024
+    assert settings.feedback_site_max_open == 500
+    assert settings.feedback_resolved_retention_days == 90
+    assert settings.feedback_screenshot_retention_days == 30
+    assert settings.feedback_open_retention_days == 365
+    assert settings.feedback_writes_per_author == 30
+    assert settings.feedback_writes_per_address == 150
+    assert settings.feedback_writes_per_site == 300
+    assert settings.feedback_writes_window_s == 600
+    assert settings.feedback_body_budget_bytes == 64 * 1024 * 1024
+    assert settings.feedback_bodies_per_client == 4
+    assert settings.feedback_body_deadline_seconds == 60
+    assert settings.ratelimit_feedback_max == 300
+    assert settings.ratelimit_feedback_window_s == 60
+    assert settings.ratelimit_feedback_global_max == 10000
 
 
 def test_too_short_session_secret_refused(monkeypatch):
@@ -108,6 +126,129 @@ def test_negative_live_versions_kept_refused(monkeypatch):
     with pytest.raises(ConfigurationError) as excinfo:
         load_settings()
     assert "LIVE_VERSIONS_KEPT" in str(excinfo.value)
+
+
+# Every site feedback setting with a value of its own, unlike its default.
+_FEEDBACK_SETTINGS_FROM_ENV = [
+    ("feedback_inject_max_bytes", 512 * 1024),
+    ("feedback_screenshot_max_bytes", 1024 * 1024),
+    ("feedback_site_screenshot_max_bytes", 10 * 1024 * 1024),
+    ("feedback_total_screenshot_max_bytes", 1024 * 1024 * 1024),
+    ("feedback_site_max_open", 50),
+    ("feedback_resolved_retention_days", 30),
+    ("feedback_screenshot_retention_days", 7),
+    ("feedback_open_retention_days", 180),
+    ("feedback_writes_per_author", 10),
+    ("feedback_writes_per_address", 50),
+    ("feedback_writes_per_site", 100),
+    ("feedback_writes_window_s", 300),
+    ("feedback_body_budget_bytes", 128 * 1024 * 1024),
+    ("feedback_bodies_per_client", 2),
+    ("feedback_body_deadline_seconds", 30),
+    ("ratelimit_feedback_max", 100),
+    ("ratelimit_feedback_window_s", 120),
+    ("ratelimit_feedback_global_max", 5000),
+]
+
+_FEEDBACK_RETENTIONS = (
+    "feedback_resolved_retention_days",
+    "feedback_screenshot_retention_days",
+    "feedback_open_retention_days",
+)
+
+
+@pytest.mark.parametrize(("attribute", "value"), _FEEDBACK_SETTINGS_FROM_ENV)
+def test_a_feedback_setting_is_read_from_env(monkeypatch, attribute, value):
+    _set_required_env(monkeypatch, **{f"TOON_{attribute.upper()}": str(value)})
+    assert getattr(load_settings(), attribute) == value
+
+
+@pytest.mark.parametrize("attribute", _FEEDBACK_RETENTIONS)
+def test_a_feedback_retention_of_zero_keeps_and_is_accepted(monkeypatch, attribute):
+    _set_required_env(monkeypatch, **{f"TOON_{attribute.upper()}": "0"})
+    assert getattr(load_settings(), attribute) == 0
+
+
+@pytest.mark.parametrize(
+    ("attribute", "value"),
+    [
+        ("feedback_inject_max_bytes", 1),
+        ("feedback_screenshot_max_bytes", 1),
+        ("feedback_screenshot_max_bytes", 16 * 1024 * 1024),
+        ("feedback_site_screenshot_max_bytes", 1),
+        ("feedback_total_screenshot_max_bytes", 1),
+        ("feedback_site_max_open", 1),
+        *((attribute, 3650) for attribute in _FEEDBACK_RETENTIONS),
+        ("feedback_writes_per_author", 1),
+        ("feedback_writes_per_address", 1),
+        ("feedback_writes_per_site", 1),
+        ("feedback_writes_window_s", 1),
+        ("feedback_body_budget_bytes", 2 * 1024 * 1024 + 64 * 1024),
+        ("feedback_body_budget_bytes", 1024 * 1024 * 1024),
+        ("feedback_bodies_per_client", 1),
+        ("feedback_body_deadline_seconds", 1),
+        ("feedback_body_deadline_seconds", 600),
+        ("ratelimit_feedback_max", 1),
+        ("ratelimit_feedback_window_s", 1),
+        ("ratelimit_feedback_global_max", 1),
+    ],
+)
+def test_a_feedback_setting_on_its_bound_is_accepted(monkeypatch, attribute, value):
+    _set_required_env(monkeypatch, **{f"TOON_{attribute.upper()}": str(value)})
+    assert getattr(load_settings(), attribute) == value
+
+
+@pytest.mark.parametrize(
+    ("variable", "value"),
+    [
+        ("TOON_FEEDBACK_INJECT_MAX_BYTES", "0"),
+        ("TOON_FEEDBACK_SCREENSHOT_MAX_BYTES", "0"),
+        ("TOON_FEEDBACK_SCREENSHOT_MAX_BYTES", str(16 * 1024 * 1024 + 1)),
+        ("TOON_FEEDBACK_SITE_SCREENSHOT_MAX_BYTES", "0"),
+        ("TOON_FEEDBACK_TOTAL_SCREENSHOT_MAX_BYTES", "0"),
+        ("TOON_FEEDBACK_SITE_MAX_OPEN", "0"),
+        ("TOON_FEEDBACK_SITE_MAX_OPEN", "veel"),
+        ("TOON_FEEDBACK_RESOLVED_RETENTION_DAYS", "-1"),
+        ("TOON_FEEDBACK_RESOLVED_RETENTION_DAYS", "3651"),
+        ("TOON_FEEDBACK_SCREENSHOT_RETENTION_DAYS", "-1"),
+        ("TOON_FEEDBACK_SCREENSHOT_RETENTION_DAYS", "3651"),
+        ("TOON_FEEDBACK_OPEN_RETENTION_DAYS", "-1"),
+        ("TOON_FEEDBACK_OPEN_RETENTION_DAYS", "3651"),
+        ("TOON_FEEDBACK_WRITES_PER_AUTHOR", "0"),
+        ("TOON_FEEDBACK_WRITES_PER_ADDRESS", "0"),
+        ("TOON_FEEDBACK_WRITES_PER_SITE", "0"),
+        ("TOON_FEEDBACK_WRITES_WINDOW_S", "0"),
+        ("TOON_FEEDBACK_BODY_BUDGET_BYTES", "0"),
+        ("TOON_FEEDBACK_BODY_BUDGET_BYTES", str(1024 * 1024 * 1024 + 1)),
+        ("TOON_FEEDBACK_BODY_BUDGET_BYTES", str(2 * 1024 * 1024 + 64 * 1024 - 1)),
+        ("TOON_FEEDBACK_BODIES_PER_CLIENT", "0"),
+        ("TOON_FEEDBACK_BODY_DEADLINE_SECONDS", "0"),
+        ("TOON_FEEDBACK_BODY_DEADLINE_SECONDS", "601"),
+        ("TOON_RATELIMIT_FEEDBACK_MAX", "0"),
+        ("TOON_RATELIMIT_FEEDBACK_WINDOW_S", "0"),
+        ("TOON_RATELIMIT_FEEDBACK_GLOBAL_MAX", "0"),
+    ],
+)
+def test_a_feedback_setting_out_of_its_bounds_is_refused(monkeypatch, variable, value):
+    _set_required_env(monkeypatch, **{variable: value})
+    with pytest.raises(ConfigurationError) as excinfo:
+        load_settings()
+    assert variable in str(excinfo.value)
+
+
+def test_the_body_budget_holds_one_whole_create_at_any_screenshot_limit(monkeypatch):
+    """Below that, a create with a screenshot at the limit would be busy
+    every time without anything saying why; at it, that create fits alone."""
+    _set_required_env(
+        monkeypatch,
+        TOON_FEEDBACK_SCREENSHOT_MAX_BYTES=str(16 * 1024 * 1024),
+        TOON_FEEDBACK_BODY_BUDGET_BYTES=str(16 * 1024 * 1024 + 64 * 1024 - 1),
+    )
+    with pytest.raises(ConfigurationError) as excinfo:
+        load_settings()
+    assert "TOON_FEEDBACK_BODY_BUDGET_BYTES must hold at least one whole feedback create" in str(excinfo.value)
+    monkeypatch.setenv("TOON_FEEDBACK_BODY_BUDGET_BYTES", str(16 * 1024 * 1024 + 64 * 1024))
+    assert load_settings().feedback_body_budget_bytes == 16 * 1024 * 1024 + 64 * 1024
 
 
 def test_non_base64_audit_ip_key_refused(monkeypatch):

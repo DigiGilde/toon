@@ -1003,6 +1003,40 @@ class TestContentCookiePerSite:
         assert response.status_code == 302
         assert response.headers["location"].startswith(idp.issuer + "/authorize?")
 
+    @pytest.mark.parametrize("planted_path", ["/", "/-/login"], ids=["read-last", "read-first"])
+    async def test_a_second_anchor_gets_no_shortcut(self, content_client, app, idp, planted_path):
+        """The script of an unshielded page, or a sibling host, sets an anchor
+        of its own beside the visitor's and sends the tab here. Whichever value
+        comes last would be read: at `/` the planter's, and its site cookie
+        would replace the visitor's own at that path, which no script can
+        overwrite. So no shortcut while the anchor arrives twice: the IdP, and
+        the visitor's own site cookie stays as it was."""
+        secret = app.state.settings.session_secret
+        await _complete_content_login(content_client, idp, return_to="/fin/rapport/")
+        own = check_signature(secret, content_client.cookies.get(CONTENT_SESSION_COOKIE))
+        planter = app.state.session_store.create_session(
+            sub="ander", email=None, email_verified=False, acr="urn:acr:hoog", kind=SessionKind.CONTENT
+        )
+        content_client.cookies.set(
+            CONTENT_ANCHOR_COOKIE, sign(secret, planter.id), domain="content.toon.example", path=planted_path
+        )
+        idp.token_requests.clear()
+
+        response = await content_client.get(
+            PATH_CONTENT_LOGIN, params={"returnTo": "/fin/rapport/"}, headers=self.NAVIGATION
+        )
+
+        assert response.status_code == 302
+        assert response.headers["location"].startswith(idp.issuer + "/authorize?")
+        assert not any(
+            k.startswith(CONTENT_SESSION_COOKIE + "=") for k in response.headers.get_list("set-cookie")
+        )
+        site_cookies = [cookie for cookie in content_client.cookies.jar if cookie.name == CONTENT_SESSION_COOKIE]
+        assert [(cookie.path, check_signature(secret, cookie.value)) for cookie in site_cookies] == [
+            ("/fin/rapport/", own)
+        ]
+        assert app.state.session_store.get_session(planter.id).content_sites == frozenset()
+
     async def test_without_a_session_the_login_is_the_ordinary_one(self, content_client, idp):
         response = await content_client.get(
             PATH_CONTENT_LOGIN, params={"returnTo": "/fin/jaarverslag/"}, headers=self.NAVIGATION
@@ -1256,6 +1290,149 @@ class TestSessionStoreEdgeCases:
         assert attempt.id not in store._attempts
 
 
+SITE_A = "6f1c2a52-3c1e-4c55-9d0e-8a4b1f0e2d3c"
+SITE_B = "0b0f6a43-5a8e-4f43-8d1e-1c7a3f9b2e10"
+
+
+class TestFeedbackConsent:
+    """The consent to give feedback on a site with one's account lives on the
+    content session and nowhere else: it is refused for anything but a live
+    content session, capped like the site cookies, and gone with the
+    session."""
+
+    def _content_session(self, store: SessionStore):
+        return store.create_session(
+            sub="kijker", email="kijker@example.org", email_verified=True, acr="acr", kind=SessionKind.CONTENT
+        )
+
+    def test_consent_for_an_unknown_session_is_refused(self):
+        store = SessionStore()
+        assert store.consent_feedback("onbestaande-sessie", SITE_A) is None
+        assert store._sessions == {}
+
+    def test_consent_for_an_admin_session_is_refused(self):
+        """Feedback happens on the content host, and an admin session is
+        never the one a page token names."""
+        store = SessionStore()
+        admin = store.create_session(sub="lid", email=None, email_verified=False, acr="acr")
+        assert store.consent_feedback(admin.id, SITE_A) is None
+        assert store.get_session(admin.id).feedback_sites == frozenset()
+
+    def test_consent_for_an_expired_session_is_refused_and_sweeps_it(self):
+        store = SessionStore()
+        session = self._content_session(store)
+        store._sessions[session.id] = dataclasses.replace(
+            session, created_at=datetime.now(UTC) - MAX_SESSION_AGE - timedelta(seconds=1)
+        )
+        assert store.consent_feedback(session.id, SITE_A) is None
+        assert session.id not in store._sessions
+
+    def test_consent_past_the_ceiling_is_refused(self):
+        store = SessionStore()
+        session = self._content_session(store)
+        for i in range(sessions_mod._MAX_FEEDBACK_SITES):
+            assert store.consent_feedback(session.id, f"site-{i}") is not None
+
+        assert store.consent_feedback(session.id, SITE_A) is None
+        recorded = store.get_session(session.id).feedback_sites
+        assert len(recorded) == sessions_mod._MAX_FEEDBACK_SITES
+        assert SITE_A not in recorded
+        # A site that already has the consent keeps it at the ceiling.
+        assert store.consent_feedback(session.id, "site-0") is not None
+
+    def test_consent_is_recorded_on_the_session(self):
+        store = SessionStore()
+        session = self._content_session(store)
+
+        updated = store.consent_feedback(session.id, SITE_A)
+
+        assert updated is not None
+        assert updated.feedback_sites == frozenset({SITE_A})
+        assert store.get_session(session.id) == updated
+
+    def test_consent_twice_for_one_site_is_one_consent(self):
+        store = SessionStore()
+        session = self._content_session(store)
+        store.consent_feedback(session.id, SITE_A)
+        assert store.consent_feedback(session.id, SITE_A).feedback_sites == frozenset({SITE_A})
+
+    def test_a_new_session_holds_no_consent(self):
+        store = SessionStore()
+        assert self._content_session(store).feedback_sites == frozenset()
+
+    def test_withdrawing_from_an_unknown_or_admin_session_is_refused(self):
+        store = SessionStore()
+        admin = store.create_session(sub="lid", email=None, email_verified=False, acr="acr")
+        assert store.withdraw_feedback("onbestaande-sessie", SITE_A) is None
+        assert store.withdraw_feedback(admin.id, SITE_A) is None
+
+    def test_withdrawing_from_an_expired_session_is_refused(self):
+        store = SessionStore()
+        session = self._content_session(store)
+        store.consent_feedback(session.id, SITE_A)
+        store._sessions[session.id] = dataclasses.replace(
+            store._sessions[session.id], created_at=datetime.now(UTC) - MAX_SESSION_AGE - timedelta(seconds=1)
+        )
+        assert store.withdraw_feedback(session.id, SITE_A) is None
+
+    def test_withdrawing_ends_the_consent_for_that_site_only(self):
+        store = SessionStore()
+        session = self._content_session(store)
+        store.consent_feedback(session.id, SITE_A)
+        store.consent_feedback(session.id, SITE_B)
+
+        updated = store.withdraw_feedback(session.id, SITE_A)
+
+        assert updated.feedback_sites == frozenset({SITE_B})
+        assert store.get_session(session.id).feedback_sites == frozenset({SITE_B})
+
+    def test_withdrawing_without_consent_leaves_the_session_as_it_was(self):
+        store = SessionStore()
+        session = self._content_session(store)
+        assert store.withdraw_feedback(session.id, SITE_A) == session
+
+    def test_the_consent_outlives_every_other_change_to_the_session(self):
+        """Each store method that touches a session replaces the frozen
+        record, and none of them may drop the consent on the way."""
+        store = SessionStore()
+        session = self._content_session(store)
+        store.consent_feedback(session.id, SITE_A)
+
+        store.note_content_site(session.id, "/fin/rapport/")
+        store.mark_checked(session.id, refresh_token="nieuw", at=datetime.now(UTC))
+        store.defer_check(session.id, until=datetime.now(UTC))
+
+        kept = store.get_session(session.id)
+        assert kept.feedback_sites == frozenset({SITE_A})
+        assert kept.content_sites == frozenset({"/fin/rapport/"})
+
+    async def test_a_new_login_starts_without_the_consent_of_the_old_one(self, content_client, app, idp):
+        store = app.state.session_store
+        secret = app.state.settings.session_secret
+        await _complete_content_login(content_client, idp, return_to="/fin/rapport/")
+        first = check_signature(secret, content_client.cookies.get(CONTENT_ANCHOR_COOKIE))
+        store.consent_feedback(first, SITE_A)
+
+        await _complete_content_login(content_client, idp, return_to="/fin/rapport/")
+        second = check_signature(secret, content_client.cookies.get(CONTENT_ANCHOR_COOKIE))
+
+        assert store.get_session(first) is None
+        assert store.get_session(second).feedback_sites == frozenset()
+
+    async def test_the_logout_ends_the_consent(self, content_client, app, idp):
+        store = app.state.session_store
+        await _complete_content_login(content_client, idp, return_to="/fin/rapport/")
+        session_id = check_signature(
+            app.state.settings.session_secret, content_client.cookies.get(CONTENT_ANCHOR_COOKIE)
+        )
+        store.consent_feedback(session_id, SITE_A)
+
+        await content_client.get("/-/logout")
+
+        assert store.get_session(session_id) is None
+        assert store.consent_feedback(session_id, SITE_A) is None
+
+
 def _request_with_headers(app, headers: dict[str, str], cookie_header: str = ""):
     from starlette.requests import Request
 
@@ -1324,6 +1501,148 @@ class TestVisitorFromRequest:
         foreign = sign(secret, "een-sessie-id")
         visitor = visitor_from_request(_request_with_cookies(app, f"{KEY_COOKIE}={foreign}"))
         assert visitor.key_cookie == ""
+
+
+def _request_with_cookie_headers(app, *headers: bytes):
+    """A bare Request with each of these raw Cookie headers as it arrived: one
+    for HTTP/1.1, several when HTTP/2 split the cookies over fields."""
+    from starlette.requests import Request
+
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/fin/rapport/",
+            "headers": [(b"cookie", header) for header in headers],
+            "app": app,
+            "query_string": b"",
+        }
+    )
+
+
+SITE_COOKIE = CONTENT_SESSION_COOKIE.encode()
+
+
+class TestRawCookieValues:
+    """Every value under one name, as the raw Cookie headers carry them. The
+    hide mark of site feedback is read this way: a value set from elsewhere
+    sits beside the visitor's own for another path, and `request.cookies`
+    keeps one of them."""
+
+    @pytest.mark.parametrize(
+        ("headers", "values"),
+        [
+            pytest.param((), [], id="no-cookie-header"),
+            pytest.param((b"",), [], id="empty-header"),
+            pytest.param((b"a=1",), ["1"], id="one"),
+            pytest.param((b"a=1; b=2; a=3",), ["1", "3"], id="two-in-one-header"),
+            pytest.param((b"a=1", b"a=2"), ["1", "2"], id="two-headers"),
+            pytest.param((b"a= 1 ;  a  =2;a=1",), ["1", "2", "1"], id="trimmed-and-every-repeat"),
+            pytest.param((b'a="1"',), ['"1"'], id="quotes-stay"),
+            pytest.param((b"a=x=y",), ["x=y"], id="an-equals-sign-in-the-value"),
+            pytest.param((b"a=",), [""], id="empty-value"),
+            pytest.param((b"a; ab=1; b=a=1; A=1; =a",), [], id="other-names-and-no-name"),
+            pytest.param((b"a=\xc3\xa9",), ["\xc3\xa9"], id="read-as-latin-1"),
+        ],
+    )
+    async def test_every_value_under_the_name(self, app, headers, values):
+        request = _request_with_cookie_headers(app, *headers)
+        assert sessions_mod.raw_cookie_values(request, "a") == values
+
+
+class TestContentCookieIsDuplicated:
+    """A second site session cookie under the same name, from a sibling host
+    or a page's own script, shadows the visitor's own. `request.cookies`
+    keeps one of them and says nothing, the raw headers say."""
+
+    @pytest.mark.parametrize(
+        "headers",
+        [
+            pytest.param((), id="no-cookie-header"),
+            pytest.param((b"",), id="empty-header"),
+            pytest.param((SITE_COOKIE + b"=a.b",), id="one"),
+            pytest.param((CONTENT_ANCHOR_COOKIE.encode() + b"=a.b; " + SITE_COOKIE + b"=c.d",), id="anchor-beside-it"),
+            pytest.param((b"__secure-toon-content=a; " + SITE_COOKIE + b"=b",), id="other-case"),
+            pytest.param((b"x=" + SITE_COOKIE + b"=1; " + SITE_COOKIE + b"=b",), id="name-inside-a-value"),
+            pytest.param((SITE_COOKIE + b"; " + SITE_COOKIE + b"=b",), id="name-without-a-value"),
+            pytest.param((b";;; =; garbage; " + SITE_COOKIE + b"=a=b",), id="malformed-around-one"),
+            pytest.param((SITE_COOKIE + b"=\xc3\xa9",), id="one-non-ascii-value"),
+            pytest.param((b"\xff\xfe=\x00; " + SITE_COOKIE + b"=a",), id="undecodable-bytes"),
+        ],
+    )
+    async def test_one_or_none_is_no_duplicate(self, app, headers):
+        assert sessions_mod.content_cookie_is_duplicated(_request_with_cookie_headers(app, *headers)) is False
+
+    @pytest.mark.parametrize(
+        "headers",
+        [
+            pytest.param((SITE_COOKIE + b"=a; " + SITE_COOKIE + b"=b",), id="two-in-one-header"),
+            pytest.param((SITE_COOKIE + b"=a", SITE_COOKIE + b"=b"), id="two-headers"),
+            pytest.param((SITE_COOKIE + b"=a;" + SITE_COOKIE + b"=a",), id="same-value-twice"),
+            pytest.param((SITE_COOKIE + b"=a; x=1; " + SITE_COOKIE + b"=b; " + SITE_COOKIE + b"=c",), id="three"),
+            pytest.param((SITE_COOKIE + b'="a"; ' + SITE_COOKIE + b"=b",), id="quoted"),
+            pytest.param((SITE_COOKIE + b"=\xc3\xa9; " + SITE_COOKIE + b"=\xc3\xbc",), id="non-ascii-values"),
+            pytest.param((b";;garbage;" + SITE_COOKIE + b"=a;;=;" + SITE_COOKIE + b"=b;",), id="malformed-around-two"),
+            pytest.param((SITE_COOKIE + b"=a;  " + SITE_COOKIE + b"  =b",), id="spaces-around-the-name"),
+        ],
+    )
+    async def test_more_than_one_is_a_duplicate(self, app, headers):
+        request = _request_with_cookie_headers(app, *headers)
+
+        assert sessions_mod.content_cookie_is_duplicated(request) is True
+        # What the detector is for: Starlette folded them into one value.
+        assert CONTENT_SESSION_COOKIE in request.cookies
+
+    async def test_it_counts_the_names_starlette_reads(self, app):
+        """Starlette trims a name the way `str.strip` does, a no-break space
+        included, so two spellings a browser keeps apart land on one key
+        there. They have to count as one name here too, or the shadow would
+        slip through."""
+        request = _request_with_cookie_headers(app, SITE_COOKIE + b"=eigen; \xa0" + SITE_COOKIE + b"=schaduw")
+        assert request.cookies[CONTENT_SESSION_COOKIE] == "schaduw"
+        assert sessions_mod.content_cookie_is_duplicated(request) is True
+
+
+ANCHOR = CONTENT_ANCHOR_COOKIE.encode()
+
+
+class TestContentAnchorIsDuplicated:
+    """The anchor under the same name a second time, at another path or for
+    the parent domain, shadows the visitor's own the way a second site cookie
+    does: `request.cookies` keeps one value and says nothing."""
+
+    @pytest.mark.parametrize(
+        "headers",
+        [
+            pytest.param((), id="no-cookie-header"),
+            pytest.param((b"",), id="empty-header"),
+            pytest.param((ANCHOR + b"=a.b",), id="one"),
+            pytest.param(
+                (SITE_COOKIE + b"=a.b; " + ANCHOR + b"=a.b; " + SITE_COOKIE + b"=c.d",), id="site-cookies-beside-it"
+            ),
+            pytest.param((b"__secure-toon-content-anchor=a; " + ANCHOR + b"=b",), id="other-case"),
+            pytest.param((b"x=" + ANCHOR + b"=1; " + ANCHOR + b"=b",), id="name-inside-a-value"),
+            pytest.param((ANCHOR + b"; " + ANCHOR + b"=b",), id="name-without-a-value"),
+        ],
+    )
+    async def test_one_or_none_is_no_duplicate(self, app, headers):
+        assert sessions_mod.content_anchor_is_duplicated(_request_with_cookie_headers(app, *headers)) is False
+
+    @pytest.mark.parametrize(
+        "headers",
+        [
+            pytest.param((ANCHOR + b"=a; " + ANCHOR + b"=b",), id="two-in-one-header"),
+            pytest.param((ANCHOR + b"=a", ANCHOR + b"=b"), id="two-headers"),
+            pytest.param((ANCHOR + b"=a;" + ANCHOR + b"=a",), id="same-value-twice"),
+            pytest.param((ANCHOR + b'="a"; ' + ANCHOR + b"=b",), id="quoted"),
+            pytest.param((ANCHOR + b"=a;  \xa0" + ANCHOR + b"  =b",), id="spaces-around-the-name"),
+        ],
+    )
+    async def test_more_than_one_is_a_duplicate(self, app, headers):
+        request = _request_with_cookie_headers(app, *headers)
+
+        assert sessions_mod.content_anchor_is_duplicated(request) is True
+        assert CONTENT_ANCHOR_COOKIE in request.cookies
 
 
 class TestCsrfValid:

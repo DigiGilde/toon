@@ -2,7 +2,8 @@
 
 The admin SPA carries its own catalogue; this one covers what a browser gets
 before any JavaScript runs: the screens a visitor meets while logging in or
-while being refused, and the code page of a secret link.
+while being refused, the code page of a secret link, and the page that asks
+for consent to site feedback with an account.
 
 There is no session to read a preference from on the content host, and these
 pages are public, so the language comes from `Accept-Language` alone. A
@@ -66,6 +67,41 @@ NL: Final[dict[str, str]] = {
     "code.wrong": "De code klopt niet. Controleer de code die je apart hebt gekregen.",
     "code.later": "Probeer het later opnieuw.",
     "code.error": "Fout:",
+    # The page that asks whether a visitor gives feedback on a site with their
+    # account (serving/feedback_consent.py). It names who the visitor is
+    # signed in as and what the site team will see, because nothing on the
+    # site itself may show that.
+    "consent.title": "Feedback geven met je account",
+    "consent.signed_in": "Je bent ingelogd als {name}.",
+    "consent.signed_in_account": "Je bent ingelogd met account {account}.",
+    "consent.intro": (
+        "Wil je feedback op {site} geven met je account? Dan ziet het siteteam bij alles wat je "
+        "op deze site stuurt:"
+    ),
+    "consent.intro_account_only": (
+        "Wil je feedback op {site} geven met je account? Dan ziet het siteteam alleen dat wat je op "
+        "deze site stuurt van iemand met een account komt."
+    ),
+    "consent.name": "Naam",
+    "consent.email": "E-mailadres",
+    "consent.email_editors": "Het e-mailadres zien alleen redacteuren en beheerders van de site.",
+    "consent.until": (
+        "Je toestemming geldt tot je uitlogt of tot je sessie afloopt, uiterlijk na 12 uur. Wat je in "
+        "die tijd stuurt, houdt die gegevens zolang de feedback bestaat."
+    ),
+    "consent.log": (
+        "Bij het inloggen bewaart Toon je SSO-id en je e-mailadres tot 90 dagen na je laatste keer "
+        "inloggen. Elke keer inloggen staat 90 dagen in het toegangslogboek, met je IP-adres. "
+        "Beëindigt de inlogdienst je sessie eerder, dan blijft je IP-adres drie jaar in het "
+        "toegangslogboek. Kwam je via een geheime link op deze site? Dan staat na je toestemming, tot "
+        "je sessie eindigt, elke pagina die je op de site bekijkt 90 dagen in het toegangslogboek, met "
+        "je account."
+    ),
+    "consent.privacy": "Meer hierover lees je in de {link}.",
+    "consent.privacy_link": "privacyverklaring",
+    "consent.agree": "Het siteteam mag bij mijn feedback zien wat hierboven staat.",
+    "consent.submit": "Ja, met mijn account",
+    "consent.back": "Terug zonder account",
     "footer.label": "Over deze dienst",
     "footer.accessibility": "Toegankelijkheid",
 }
@@ -87,6 +123,36 @@ EN: Final[dict[str, str]] = {
     "code.wrong": "That code is not right. Check the code you were given separately.",
     "code.later": "Please try again later.",
     "code.error": "Error:",
+    "consent.title": "Give feedback with your account",
+    "consent.signed_in": "You are signed in as {name}.",
+    "consent.signed_in_account": "You are signed in with account {account}.",
+    "consent.intro": (
+        "Do you want to give feedback on {site} with your account? Then the site team sees this with "
+        "everything you send on this site:"
+    ),
+    "consent.intro_account_only": (
+        "Do you want to give feedback on {site} with your account? Then the site team only sees that what "
+        "you send on this site comes from someone with an account."
+    ),
+    "consent.name": "Name",
+    "consent.email": "Email address",
+    "consent.email_editors": "Only the site's editors and administrators see the email address.",
+    "consent.until": (
+        "Your consent lasts until you sign out or your session ends, after 12 hours at most. What you "
+        "send in that time keeps those details for as long as the feedback exists."
+    ),
+    "consent.log": (
+        "When you sign in, Toon keeps your SSO ID and your email address until 90 days after your last "
+        "sign-in. Each sign-in stays in its access log for 90 days, with your IP address. If the sign-in "
+        "service ends your session early, your IP address stays in the access log for three years. Did you "
+        "come to this site through a secret link? Then after your consent, until your session ends, every "
+        "page you view on the site stays in the access log for 90 days, with your account."
+    ),
+    "consent.privacy": "Read more about this in the {link}.",
+    "consent.privacy_link": "privacy statement",
+    "consent.agree": "The site team may see what is listed above with my feedback.",
+    "consent.submit": "Yes, with my account",
+    "consent.back": "Back without an account",
     "footer.label": "About this service",
     "footer.accessibility": "Accessibility",
 }

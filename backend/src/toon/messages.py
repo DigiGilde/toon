@@ -40,6 +40,7 @@ TITLES_NL: Final[dict[int, str]] = {
     401: "Niet geauthenticeerd",
     403: "Geen toegang",
     404: "Niet gevonden",
+    408: "Verzoek duurde te lang",
     409: "Conflict",
     413: "Inhoud te groot",
     422: "Onverwerkbare invoer",
@@ -52,6 +53,7 @@ TITLES_EN: Final[dict[int, str]] = {
     401: "Not authenticated",
     403: "Forbidden",
     404: "Not found",
+    408: "Request timeout",
     409: "Conflict",
     413: "Content too large",
     422: "Unprocessable input",
@@ -86,8 +88,9 @@ NL: Final[dict[str, str]] = {
     "role.admin": "beheerder",
     "NO_AUTHENTICATION": "Geen geldige sessie of bearer-token.",
     "BEARER_NOT_ACCEPTED": (
-        "Bearer-authenticatie wordt alleen op de deploy- en CLI-endpoints, bij het aanmaken van "
-        "een groep of site en bij het koppelen van een repository geaccepteerd."
+        "Bearer-authenticatie wordt alleen geaccepteerd op de deploy- en CLI-endpoints, bij het "
+        "aanmaken van een groep of site, bij het koppelen van een repository en bij het lezen, "
+        "markeren en beantwoorden van feedback."
     ),
     # -- Groups, sites, members ----------------------------------------------
     "UNKNOWN_GROUP": "Onbekende groep.",
@@ -357,6 +360,34 @@ NL: Final[dict[str, str]] = {
         "Publiceer de map '{directory}' zelf, of stuur het veld basispad mee met de waarde "
         "'{directory}'"
     ),
+    # -- Site feedback: the widget API, then the admin ------------------------
+    "FEEDBACK_UNAVAILABLE": "Dit lukt nu niet vanaf deze pagina. Laad de pagina opnieuw en probeer het nog eens.",
+    "FEEDBACK_ACCOUNT_REQUIRED": (
+        "Dit kan alleen als je met je account feedback geeft. Log in en probeer het opnieuw."
+    ),
+    "FEEDBACK_INVALID": "Er klopt iets niet met het veld {field}.",
+    "FEEDBACK_PAGE_MOVED": "De site of groep heeft een nieuw adres gekregen. Laad de pagina opnieuw.",
+    "FEEDBACK_AUTHOR_NOT_ALLOWED": (
+        "Deze site neemt feedback op deze manier niet aan. Laad de pagina opnieuw en kies een andere manier."
+    ),
+    "FEEDBACK_SCREENSHOT_TOO_LARGE": (
+        "De schermafbeelding is te groot. Kies een kleiner deel of verstuur zonder schermafbeelding."
+    ),
+    "FEEDBACK_SCREENSHOT_INVALID": (
+        "Deze schermafbeelding is niet bruikbaar. Verstuur je feedback zonder schermafbeelding."
+    ),
+    "FEEDBACK_SCREENSHOT_QUOTA": (
+        "Er is geen ruimte meer voor schermafbeeldingen. Verstuur je feedback zonder schermafbeelding."
+    ),
+    "FEEDBACK_SITE_FULL": "Er staat op deze site al te veel feedback open. Probeer het later opnieuw.",
+    "FEEDBACK_THREAD_FULL": "Bij deze feedback kunnen geen reacties meer bij.",
+    "FEEDBACK_RATE_LIMITED": "Er komt nu veel feedback binnen. Probeer het over een paar minuten opnieuw.",
+    "FEEDBACK_BUSY": "Toon kan je feedback nu niet aannemen. Probeer het over een minuut opnieuw.",
+    "FEEDBACK_TIMEOUT": (
+        "Het versturen duurde te lang. Probeer het opnieuw, eventueel zonder schermafbeelding."
+    ),
+    "FEEDBACK_NOT_FOUND": "Onbekende feedback.",
+    "FEEDBACK_REF_WITHOUT_PREVIEW": "Het filter ref werkt alleen samen met target=preview.",
     # -- Examples in the OpenAPI document, one per status code ----------------
     "example.401": "Er is geen actieve sessie.",
     "example.403": "Je hebt hier geen toegang.",
@@ -390,8 +421,8 @@ EN: Final[dict[str, str]] = {
     "role.admin": "admin",
     "NO_AUTHENTICATION": "No valid session or bearer token.",
     "BEARER_NOT_ACCEPTED": (
-        "Bearer authentication is accepted on the deploy and CLI endpoints, for creating a group or "
-        "site and for linking a repository only."
+        "Bearer authentication is accepted only on the deploy and CLI endpoints, for creating a group "
+        "or site, for linking a repository and for reading, marking and answering feedback."
     ),
     # -- Groups, sites, members ----------------------------------------------
     "UNKNOWN_GROUP": "Unknown group.",
@@ -664,6 +695,30 @@ EN: Final[dict[str, str]] = {
         "directory '{directory}' itself, or send along the base path field with the value "
         "'{directory}'"
     ),
+    # -- Site feedback: the widget API, then the admin ------------------------
+    "FEEDBACK_UNAVAILABLE": "This does not work from this page right now. Reload the page and try again.",
+    "FEEDBACK_ACCOUNT_REQUIRED": (
+        "This only works when you give feedback with your account. Sign in and try again."
+    ),
+    "FEEDBACK_INVALID": "Something is wrong with the field {field}.",
+    "FEEDBACK_PAGE_MOVED": "The site or group has a new address. Reload the page.",
+    "FEEDBACK_AUTHOR_NOT_ALLOWED": (
+        "This site does not take feedback this way. Reload the page and choose another way."
+    ),
+    "FEEDBACK_SCREENSHOT_TOO_LARGE": (
+        "The screenshot is too large. Choose a smaller part or send without a screenshot."
+    ),
+    "FEEDBACK_SCREENSHOT_INVALID": "This screenshot cannot be used. Send your feedback without a screenshot.",
+    "FEEDBACK_SCREENSHOT_QUOTA": (
+        "There is no room left for screenshots. Send your feedback without a screenshot."
+    ),
+    "FEEDBACK_SITE_FULL": "This site has too much open feedback already. Try again later.",
+    "FEEDBACK_THREAD_FULL": "This feedback cannot take any more replies.",
+    "FEEDBACK_RATE_LIMITED": "A lot of feedback is coming in right now. Try again in a few minutes.",
+    "FEEDBACK_BUSY": "Toon cannot take your feedback right now. Try again in a minute.",
+    "FEEDBACK_TIMEOUT": "Sending took too long. Try again, without the screenshot if need be.",
+    "FEEDBACK_NOT_FOUND": "Unknown feedback.",
+    "FEEDBACK_REF_WITHOUT_PREVIEW": "The filter ref only works together with target=preview.",
     # -- Examples in the OpenAPI document, one per status code ----------------
     "example.401": "There is no active session.",
     "example.403": "You have no access here.",

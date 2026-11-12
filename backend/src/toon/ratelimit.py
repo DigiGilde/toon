@@ -23,13 +23,16 @@ from toon import i18n, messages, net
 from toon.config import Settings
 from toon.constants import (
     PATH_CONTENT_CODE,
+    PATH_CONTENT_FEEDBACK_PREFIX,
     PATH_CONTENT_LOGIN,
     PATH_CONTENT_OAUTH2_PREFIX,
+    PATH_FEEDBACK_API_PREFIX,
     PATH_LOGIN,
     PATH_LOGOUT,
     PATH_OAUTH2_PREFIX,
 )
 from toon.messages import Msg
+from toon.serving.response import PLATFORM_CSP
 
 _logger = logging.getLogger(__name__)
 
@@ -58,22 +61,43 @@ _DEFAULT_MAX_KEYS = 50_000
 
 _BACKSTOP_KEY = "__backstop__"
 
+# What every answer of the widget API's routes carries, this 429 on their
+# paths included. The widget calls the API without credentials from a page
+# whose origin may be opaque: without these it gets a network error instead
+# of the refusal, and cannot read Retry-After. The API-Version every answer
+# carries is the admin API's and says nothing about /-/feedback/v1, so it is
+# not exposed.
+FEEDBACK_API_HEADERS: dict[str, str] = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Expose-Headers": "Retry-After, Content-Language",
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "Content-Security-Policy": PLATFORM_CSP,
+}
+
 
 class RateLimitClass(enum.StrEnum):
     LOGIN = "login"
     API = "api"
     CONTENT = "content"
     CODE = "code"
+    FEEDBACK = "feedback"
 
 
 def class_for_path(path: str) -> RateLimitClass:
     """Determines the rate-limit class for a path."""
-    # Its own class, and the strictest of the four: guessing a code here is
+    # Its own class, and the strictest of them all: guessing a code here is
     # the one place on the content host where guessing gets you in
     # (serving/code_page.py). The limit per selector sits in the route itself;
     # this one counts per IP.
     if path == PATH_CONTENT_CODE:
         return RateLimitClass.CODE
+    # The widget, its API and the pages around it: a budget of their own, so
+    # sending feedback neither spends nor shares the budget of page views. The
+    # counters per author and per site sit in the routes.
+    if path.startswith(PATH_CONTENT_FEEDBACK_PREFIX):
+        return RateLimitClass.FEEDBACK
     if path.startswith(_LOGIN_PREFIXES):
         return RateLimitClass.LOGIN
     if path.startswith(_API_PREFIXES):
@@ -124,6 +148,10 @@ class InMemoryCounter:
         self._calls = 0
 
     async def increment(self, key: str, window_s: int, now_: float) -> CounterResult:
+        return self.add(key, window_s, now_)
+
+    def add(self, key: str, window_s: int, now_: float) -> CounterResult:
+        """`increment` for a caller that checks and counts in one step."""
         # No await anywhere in this method: under asyncio's cooperative
         # concurrency another task can therefore never interleave halfway,
         # which makes this atomic without an explicit lock (also for
@@ -215,12 +243,10 @@ class RateLimitMiddleware:
                 refusal_s = backstop.remaining_s if backstop.count > limit.global_max else None
         except Exception:
             _logger.exception("Rate limit counter broken; request refused fail-closed (class=%s)", klass.value)
-            response = _too_many_requests_response(limit.window_s, accept_language)
-            await response(scope, receive, send)
-            return
+            refusal_s = limit.window_s
 
-        if refusal_s is not None:
-            response = _too_many_requests_response(refusal_s, accept_language)
+        if refusal_s is not None and not _passed_on_over_budget(request):
+            response = _too_many_requests_response(refusal_s, accept_language, request.url.path)
             await response(scope, receive, send)
             return
 
@@ -238,12 +264,23 @@ class RateLimitMiddleware:
         return f"ip:{net.rate_limit_key(net.client_ip(request, self._behind_proxy))}"
 
 
-def _too_many_requests_response(remaining_s: float, accept_language: str | None) -> JSONResponse:
+def _passed_on_over_budget(request: Request) -> bool:
+    """An OPTIONS under the widget API, counted but never refused: Fetch turns
+    a preflight answered with anything but 2xx into a network error, so the
+    widget could not read the 429 of the request that follows. The routes
+    answer it as within budget, and the request after it gets that 429."""
+    return request.method == "OPTIONS" and request.url.path.startswith(PATH_FEEDBACK_API_PREFIX)
+
+
+def _too_many_requests_response(remaining_s: float, accept_language: str | None, path: str) -> JSONResponse:
     # A deliberately inline problem+json body instead of importing api.errors:
     # this module sits below the API layer and must not depend on it. The
     # catalogue it renders from does sit below both.
     retry_after = max(1, math.ceil(remaining_s))
     locale = i18n.negotiate(accept_language, default=i18n.API_DEFAULT)
+    headers = {"Retry-After": str(retry_after)}
+    if path.startswith(PATH_FEEDBACK_API_PREFIX):
+        headers |= {**FEEDBACK_API_HEADERS, "Content-Language": locale, "Vary": "Accept-Language"}
     return JSONResponse(
         status_code=429,
         media_type="application/problem+json",
@@ -254,7 +291,7 @@ def _too_many_requests_response(remaining_s: float, accept_language: str | None)
             "detail": messages.render(locale, Msg("TOO_MANY_REQUESTS")),
             "code": "TOO_MANY_REQUESTS",
         },
-        headers={"Retry-After": str(retry_after)},
+        headers=headers,
     )
 
 

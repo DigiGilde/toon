@@ -54,6 +54,7 @@ TAG_VERSIONS = "Versions"
 TAG_PREVIEWS = "Previews"
 TAG_INVITEES = "Invitees"
 TAG_KEYS = "Secret links"
+TAG_FEEDBACK = "Feedback"
 TAG_AUDIT = "Audit log"
 TAG_CI = "Publishing from CI"
 TAG_CLI = "CLI login"
@@ -73,8 +74,8 @@ There are two ways to identify yourself, and every endpoint accepts exactly one 
   Mutations (POST, PUT, DELETE) additionally require the CSRF double-submit header `X-CSRF-Token`, with the
   same value as the CSRF cookie.
 * **Bearer token** - `Authorization: Bearer <token>`, only on the two deploy endpoints, on
-  `DELETE /cli/session` and `GET /cli/whoami`, and, with a CLI token only, on creating a group or a site
-  and on linking a repository. The token is one of two kinds:
+  `DELETE /cli/session` and `GET /cli/whoami`, and, with a CLI token only, on creating a group or a site,
+  on linking a repository and on reading, marking and answering feedback. The token is one of two kinds:
   * a **CI ID token** (JWT) from GitHub Actions or Forgejo Actions, whose audience is exactly the admin
     URL of Toon (`TOON_BASE_URL`) followed by `/-/sites/` and the `id` of one site. It is valid only
     for that site, and only while the repository of that workflow is linked to it
@@ -145,6 +146,13 @@ OPENAPI_TAGS: list[dict[str, str]] = [
         "description": "Individual addresses that may view a site with the 'invitees' exception.",
     },
     {"name": TAG_KEYS, "description": "Secret links through which a site can be viewed without signing in."},
+    {
+        "name": TAG_FEEDBACK,
+        "description": (
+            "Feedback that visitors give with the feedback button on the pages of a site: reading it, marking it, "
+            "answering it, and the feedback settings of the site."
+        ),
+    },
     {
         "name": TAG_CI,
         "description": (
@@ -336,8 +344,8 @@ _SECURITY_SCHEMES: dict[str, dict[str, Any]] = {
             "A CI ID token (JWT from GitHub or Forgejo Actions, with the admin URL as audience) or a CLI token "
             "`tooncli_...` from `toon login`. Paste the whole token under Authorize. Only the deploy endpoints "
             "and the CLI session endpoints accept it, and, with a CLI token only, creating a group, creating a "
-            "site and linking a repository; anywhere else a Bearer header yields 401, even when the token is "
-            "valid."
+            "site, linking a repository and reading, marking and answering feedback; anywhere else a Bearer "
+            "header yields 401, even when the token is valid."
         ),
     },
 }
@@ -351,6 +359,11 @@ _TOKEN_ENDPOINTS = (
     ("post", "/-/api/v1/groups"),
     ("post", "/groups/{group_slug}/sites"),
     ("put", "/repository"),
+    ("get", "/{site_slug}/feedback"),
+    ("get", "/feedback/{item_id}"),
+    ("get", "/feedback/{item_id}/screenshot"),
+    ("put", "/feedback/{item_id}/status"),
+    ("post", "/feedback/{item_id}/replies"),
 )
 
 
@@ -403,6 +416,7 @@ PATH_PARAMETERS = {
     "invitee_id": "ID of the invitee, from the invitee list of the site.",
     "member_id": "ID of the platform member.",
     "version_id": "ID of the version.",
+    "item_id": "ID of the feedback item, from the feedback list of the site.",
 }
 
 

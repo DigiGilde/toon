@@ -1,7 +1,10 @@
 import re
+import uuid
 from pathlib import Path
 
 from toon.constants import (
+    FEEDBACK_MAX_GIVER_REPLIES,
+    FEEDBACK_MAX_REPLIES,
     RESERVED_SEGMENTS,
     RESERVED_SLUGS,
     SLUG_RE,
@@ -9,6 +12,10 @@ from toon.constants import (
     STANDARD_LOCATIONS,
     AccessBase,
     AccessPolicy,
+    FeedbackAuthor,
+    FeedbackIdentity,
+    feedback_item_lock_key,
+    identity_allows,
 )
 
 
@@ -84,3 +91,40 @@ def test_login_can_help_follows_the_base_and_the_invitee_extra():
     assert AccessPolicy(AccessBase.NOBODY, invitees=True).login_can_help is True
     assert AccessPolicy(AccessBase.SSO).login_can_help is True
     assert AccessPolicy(AccessBase.SITE_TEAM).login_can_help is True
+
+
+# Every (setting, author) pair: the setting is a floor that each wider level
+# keeps, so an account is always welcome and no name only on the widest level.
+_IDENTITY_TABLE = {
+    (FeedbackIdentity.ACCOUNT, FeedbackAuthor.ACCOUNT): True,
+    (FeedbackIdentity.ACCOUNT, FeedbackAuthor.NAME): False,
+    (FeedbackIdentity.ACCOUNT, FeedbackAuthor.ANONYMOUS): False,
+    (FeedbackIdentity.NAME, FeedbackAuthor.ACCOUNT): True,
+    (FeedbackIdentity.NAME, FeedbackAuthor.NAME): True,
+    (FeedbackIdentity.NAME, FeedbackAuthor.ANONYMOUS): False,
+    (FeedbackIdentity.ANONYMOUS, FeedbackAuthor.ACCOUNT): True,
+    (FeedbackIdentity.ANONYMOUS, FeedbackAuthor.NAME): True,
+    (FeedbackIdentity.ANONYMOUS, FeedbackAuthor.ANONYMOUS): True,
+}
+
+
+def test_the_identity_table_covers_every_pair():
+    assert set(_IDENTITY_TABLE) == {(i, a) for i in FeedbackIdentity for a in FeedbackAuthor}
+
+
+def test_identity_allows_follows_the_ordered_levels():
+    for (identity, author), allowed in _IDENTITY_TABLE.items():
+        assert identity_allows(identity, author) is allowed, (identity, author)
+
+
+def test_a_feedback_item_takes_twenty_replies_from_its_giver_and_a_hundred_in_all():
+    """The widget and the admin API hold one item to these, and the widget
+    API's contract names them."""
+    assert (FEEDBACK_MAX_GIVER_REPLIES, FEEDBACK_MAX_REPLIES) == (20, 100)
+
+
+def test_the_item_lock_names_the_item_in_its_canonical_form():
+    """Both reply routes have to hash the very same text for one item, and
+    the admin route holds the id as the UUID its path parsed."""
+    item = uuid.UUID("0B9F4C3E-1D2A-4E5F-8A9B-0C1D2E3F4A5B")
+    assert feedback_item_lock_key(item) == "toon-feedback-item:0b9f4c3e-1d2a-4e5f-8a9b-0c1d2e3f4a5b"

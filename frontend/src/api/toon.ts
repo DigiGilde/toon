@@ -9,6 +9,13 @@ import { ApiError, request, sendJson } from './client';
 import type {
   CliSession,
   DeviceAuthorization,
+  FeedbackDetail,
+  FeedbackPage,
+  FeedbackReply,
+  FeedbackSettings,
+  FeedbackStatus,
+  FeedbackStatusFilter,
+  FeedbackTargetFilter,
   Group,
   GroupDetail,
   GroupMember,
@@ -484,6 +491,82 @@ export function deletePreview(
     join(sitePath(groupSlug, siteSlug), 'previews', ref),
     { method: 'DELETE' },
   );
+}
+
+// -- Feedback ------------------------------------------------------------------
+
+/** What the list of a site is narrowed to. Left out, the API answers open items of every target. */
+export interface FeedbackQuery {
+  status?: FeedbackStatusFilter;
+  target?: FeedbackTargetFilter;
+  /** One preview, only together with `target: 'preview'`. */
+  ref?: string;
+  limit?: number;
+  /** The `nextCursor` of the page before. */
+  cursor?: string;
+}
+
+function feedbackPath(group: string, site: string, id: string): string {
+  return join(sitePath(group, site), 'feedback', id);
+}
+
+export function feedbackList(
+  group: string,
+  site: string,
+  query: FeedbackQuery = {},
+): Promise<FeedbackPage> {
+  const params = new URLSearchParams();
+  for (const [name, value] of Object.entries(query)) {
+    if (value !== undefined) params.set(name, String(value));
+  }
+  const search = params.toString();
+  return request<FeedbackPage>(`${sitePath(group, site)}/feedback${search ? `?${search}` : ''}`);
+}
+
+export function feedbackDetail(group: string, site: string, id: string): Promise<FeedbackDetail> {
+  return request<FeedbackDetail>(feedbackPath(group, site, id));
+}
+
+/** The same status again changes nothing and is not an error. Needs site role editor. */
+export function setFeedbackStatus(
+  group: string,
+  site: string,
+  id: string,
+  status: FeedbackStatus,
+): Promise<FeedbackDetail> {
+  return sendJson<FeedbackDetail>('PUT', `${feedbackPath(group, site, id)}/status`, { status });
+}
+
+/** Needs site role editor. */
+export function addFeedbackReply(
+  group: string,
+  site: string,
+  id: string,
+  body: string,
+): Promise<FeedbackReply> {
+  return sendJson<FeedbackReply>('POST', `${feedbackPath(group, site, id)}/replies`, { body });
+}
+
+/** The item goes with its replies and its screenshot. Needs site role admin. */
+export function deleteFeedback(group: string, site: string, id: string): Promise<void> {
+  return request<void>(feedbackPath(group, site, id), { method: 'DELETE' });
+}
+
+/** All three settings in one call, so the site is never on a mix of old and new. Needs site role admin. */
+export function setFeedbackSettings(
+  group: string,
+  site: string,
+  settings: FeedbackSettings,
+): Promise<Site> {
+  return sendJson<Site>('PUT', `${sitePath(group, site)}/feedback-settings`, settings);
+}
+
+/**
+ * Where the screenshot of an item is served: on this origin, behind the
+ * session, so an image element can load it under the admin CSP.
+ */
+export function feedbackScreenshotUrl(group: string, site: string, id: string): string {
+  return `${feedbackPath(group, site, id)}/screenshot`;
 }
 
 // -- Upload (deploy via session) -----------------------------------------------

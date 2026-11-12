@@ -20,6 +20,7 @@ import { createMemoryHistory, createRouter, RouterView } from 'vue-router';
 
 import { makeMockBackend, MOCK_CONTENT_BASE } from './mock-api';
 import TabDeploy from '../src/components/site/TabDeploy.vue';
+import TabFeedback from '../src/components/site/TabFeedback.vue';
 import TabOverview from '../src/components/site/TabOverview.vue';
 import TabPreviews from '../src/components/site/TabPreviews.vue';
 import TabAccess from '../src/components/site/TabAccess.vue';
@@ -200,6 +201,65 @@ describe('axe: tabs of the site detail page', () => {
     await expectNoViolationsIn(wrapper.element);
     wrapper.unmount();
   });
+  it('has no violations on the Feedback tab', () => expectNoViolations(TabFeedback));
+
+  it('has no violations on the Feedback tab with an item open in the sheet', async () => {
+    const provide = await provideSiteGroupFromApi();
+    const wrapper = mount(TabFeedback, {
+      props: { group: 'team-aurora', site: 'website', contentBase: MOCK_CONTENT_BASE },
+      attachTo: document.body,
+      global: { stubs: { teleport: true }, provide },
+    });
+    await untilIdle();
+    await wrapper.find('[data-testid="feedback-fb-1"]').trigger('click');
+    await untilIdle();
+    expect(wrapper.find('[data-testid="feedback-reply-form"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="feedback-screenshot"] nldd-image').exists()).toBe(true);
+    await expectNoViolationsIn(wrapper.element);
+    wrapper.unmount();
+  });
+
+  it('has no violations on the Feedback tab for a reader, with the thread of an item open', async () => {
+    const backend = makeMockBackend();
+    backend.data.siteRoles.push({
+      groupSlug: 'team-aurora',
+      siteSlug: 'website',
+      identifier: 'sanne@voorbeeld.nl',
+      role: 'reader',
+    });
+    backend.data.loggedInMemberId = 'lid-6';
+    vi.stubGlobal('fetch', backend.fetch);
+    const provide = await provideSiteGroupFromApi();
+    const wrapper = mount(TabFeedback, {
+      props: { group: 'team-aurora', site: 'website', contentBase: MOCK_CONTENT_BASE },
+      attachTo: document.body,
+      global: { stubs: { teleport: true }, provide },
+    });
+    await untilIdle();
+    await wrapper.find('[data-testid="feedback-fb-2"]').trigger('click');
+    await untilIdle();
+    expect(wrapper.find('[data-testid="feedback-summary"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="feedback-thread"]').exists()).toBe(true);
+    await expectNoViolationsIn(wrapper.element);
+    wrapper.unmount();
+  });
+
+  it('has no violations on the Feedback tab with feedback off and nothing in it', async () => {
+    const backend = makeMockBackend();
+    backend.data.sites[0]!.feedbackEnabled = false;
+    backend.data.feedback = [];
+    vi.stubGlobal('fetch', backend.fetch);
+    await expectNoViolations(TabFeedback);
+  });
+
+  it('has no violations on the Feedback tab warning about feedback from the public', async () => {
+    const backend = makeMockBackend();
+    backend.data.sites[0]!.feedbackLive = true;
+    backend.data.sites[0]!.feedbackIdentity = 'anonymous';
+    vi.stubGlobal('fetch', backend.fetch);
+    await expectNoViolations(TabFeedback);
+  });
+
   it('has no violations on the Members tab', () => expectNoViolations(TabMembers));
   it('has no violations on the Deploy tab', () => expectNoViolations(TabDeploy));
   it('has no violations on the Settings tab', () => expectNoViolations(TabSettings));
@@ -399,7 +459,7 @@ describe('axe: tabs of the site detail page', () => {
     wrapper.unmount();
   });
 
-  it('has no violations on the site page with the Settings tab (seven tabs)', async () => {
+  it('has no violations on the site page with the Settings tab (eight tabs)', async () => {
     const Empty = defineComponent({ render: () => h('div') });
     const router = createRouter({
       history: createMemoryHistory(),

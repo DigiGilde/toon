@@ -177,6 +177,24 @@ anybody an administrator.
 | `TOON_OPERATOR_NAME` | env-vars | optional, empty by default: the organisation that runs this installation, as people should read it (`Digi Gilde`). The public privacy and accessibility pages and `GET /-/api/v1/operator` show it |
 | `TOON_OPERATOR_EMAIL` | env-vars | optional, empty by default: where people reach that organisation about privacy, accessibility and questions (`digigilde@rijksoverheid.nl`). It is also the mail `Contact` in `security.txt`, after the GitHub advisory form, so security reports about this installation reach the operator. A plain address without a display name, or the app does not start |
 | `TOON_SECURITY_TXT_NCSC` | env-vars | optional, default `false`. `true` lists the CVD routes of NCSC-NL in `security.txt`, the central reporting point for the Dutch central government. The Digi Gilde's installation sets `true`. Leave it off for an installation outside the central government |
+| `TOON_FEEDBACK_INJECT_MAX_BYTES` | env-vars | optional, bytes, default `2097152` (2 MiB), at least 1. An HTML page whose decoded size is above this gets no feedback widget: every page that gets one is decoded in the app on every view and sent uncompressed (design.md §16.3) |
+| `TOON_FEEDBACK_SCREENSHOT_MAX_BYTES` | env-vars | optional, bytes, default `2097152` (2 MiB), from 1 to `16777216` (16 MiB). One screenshot sent with feedback. The widget gets it in its configuration and makes a screenshot no larger than it, and no larger than 2 MiB whatever the setting. The app holds a whole feedback request in memory, at most this plus 64 KiB, all of them together at most `TOON_FEEDBACK_BODY_BUDGET_BYTES` plus about an eighth, and the database driver two more copies of the one screenshot being written |
+| `TOON_FEEDBACK_SITE_SCREENSHOT_MAX_BYTES` | env-vars | optional, bytes, default `52428800` (50 MiB), at least 1. The feedback screenshots of one site together |
+| `TOON_FEEDBACK_TOTAL_SCREENSHOT_MAX_BYTES` | env-vars | optional, bytes, default `524288000` (500 MiB), at least 1. The feedback screenshots of every site together, in PostgreSQL (see below) |
+| `TOON_FEEDBACK_SITE_MAX_OPEN` | env-vars | optional, default `500`, at least 1. Feedback items still new or seen on one site. Past it the site takes no new feedback until its team resolves some |
+| `TOON_FEEDBACK_RESOLVED_RETENTION_DAYS` | env-vars | optional, default `90`, from 0 to 3650, `0` keeps. The nightly cleanup deletes a resolved feedback item this many days after it was resolved |
+| `TOON_FEEDBACK_SCREENSHOT_RETENTION_DAYS` | env-vars | optional, default `30`, from 0 to 3650, `0` keeps. The same for the screenshot of a resolved item |
+| `TOON_FEEDBACK_OPEN_RETENTION_DAYS` | env-vars | optional, default `365`, from 0 to 3650, `0` keeps. The same for an item still new or seen, counted from when it came in |
+| `TOON_FEEDBACK_WRITES_PER_AUTHOR` | env-vars | optional, default `30`, at least 1. Accepted writes through the feedback widget (an item, a reply, a delete) per signed-in person, site and window: the consented session, else the session that let a signed-in visitor in under a key of its own |
+| `TOON_FEEDBACK_WRITES_PER_ADDRESS` | env-vars | optional, default `150`, at least 1. The same for a page token that names no session, per client IP (IPv6 by its /64) and site: a visitor who is not signed in, and one signed in on a public page without consent or let in by a secret link. Many people can share one address, an office network for one, so it allows more than one person gets |
+| `TOON_FEEDBACK_WRITES_PER_SITE` | env-vars | optional, default `300`, at least 1. The same per site |
+| `TOON_FEEDBACK_WRITES_WINDOW_S` | env-vars | optional, seconds, default `600`, at least 1. The window of the write counters, and how often a task sweeps them: a key is gone at most one window after its window ended |
+| `TOON_FEEDBACK_BODY_BUDGET_BYTES` | env-vars | optional, bytes, default `67108864` (64 MiB), at most `1073741824` (1 GiB) and at least `TOON_FEEDBACK_SCREENSHOT_MAX_BYTES` plus `65536`, or the app does not start. What the bodies of feedback requests may hold in memory together. On top of it come about an eighth that their parts reserve as they grow, and two copies of the one screenshot being written to the database. Each chunk of a body takes its room as it arrives, before it is parsed, and the body holds what it took until its request is done: at most its route's limit (the screenshot limit plus 64 KiB for new feedback, 64 KiB for a reply). Past it a request is `503` `FEEDBACK_BUSY` |
+| `TOON_FEEDBACK_BODIES_PER_CLIENT` | env-vars | optional, default `4`, at least 1. Feedback request bodies one client IP (IPv6 by its /64) may have in flight at once. Past it a request is `503` `FEEDBACK_BUSY` |
+| `TOON_FEEDBACK_BODY_DEADLINE_SECONDS` | env-vars | optional, seconds, default `60`, from 1 to 600. How long reading the body of one feedback request may take in all. Past it the request is `408` `FEEDBACK_TIMEOUT`. It is also the `Retry-After` of a `503` `FEEDBACK_BUSY` |
+| `TOON_RATELIMIT_FEEDBACK_MAX` | env-vars | optional, default `300`, at least 1. Requests per window to anything under `/-/feedback/` on the content host, preflights included, though a preflight under `/-/feedback/v1/` is never refused. Counted per client IP for the widget's API calls, which carry no cookie, and per signed-in person for a request that carries a content session cookie, such as the consent page |
+| `TOON_RATELIMIT_FEEDBACK_WINDOW_S` | env-vars | optional, seconds, default `60`, at least 1. The window of that limit |
+| `TOON_RATELIMIT_FEEDBACK_GLOBAL_MAX` | env-vars | optional, default `10000`, at least 1. Those requests of every client together, per window |
 | `TOON_STORE_COMPRESSED` | env-vars | optional, default `true`; a deploy keeps its text files compressed only (design.md §5.4a). `false` keeps new deploys as published and puts back, at every start, what earlier ones compressed: the step before rolling back to an image from before compression (§7) |
 | `TOON_INGEST_MAX_BODY` | env-vars | optional, bytes, default `104857600` (100 MiB); the largest upload |
 | `TOON_INGEST_MAX_FILE` | env-vars | optional, bytes, default `52428800` (50 MiB); the largest single unpacked file |
@@ -194,6 +212,29 @@ checking while it writes, refusing with `503` `STORAGE_UNAVAILABLE` rather than
 letting the volume drop below `TOON_STORAGE_MIN_FREE_BYTES`. Keep the floor plus
 one full-size deploy (400 MiB with the defaults) well below the volume size, or
 a large deploy can only ever be refused.
+
+Site feedback keeps its screenshots in PostgreSQL, not on the content volume:
+at most `TOON_FEEDBACK_TOTAL_SCREENSHOT_MAX_BYTES` (500 MiB by default) for
+the whole platform and `TOON_FEEDBACK_SITE_SCREENSHOT_MAX_BYTES` (50 MiB) per
+site, counted from the stored bytes. Count those 500 MiB, with the text of the
+items and replies, towards the database. Past either cap a new screenshot is
+refused with `409` `FEEDBACK_SCREENSHOT_QUOTA`, and the widget offers to send
+without it. A refusal by the platform-wide cap logs a WARNING, at most once
+every ten minutes per process, that starts with
+`The platform-wide cap on feedback screenshots is reached`: from then on
+every site refuses a screenshot that does not fit, until space is freed (an
+item deleted, or a screenshot past its retention) or
+`TOON_FEEDBACK_TOTAL_SCREENSHOT_MAX_BYTES` goes up. The sites share that cap
+first come, first served (design.md §16.10). The nightly cleanup removes the
+screenshot of a resolved item after 30 days (design.md §16.12). In the pod's
+memory, the bodies of the feedback requests in flight take at most
+`TOON_FEEDBACK_BODY_BUDGET_BYTES` (64 MiB) together, plus about an eighth
+that their parts reserve as they grow, and the database driver holds two
+more copies of the one screenshot being written. Keep that, about 76 MiB at
+the defaults, well under the memory of the pod. The widget
+itself ships in the image (`/app/spa/feedback-widget.js`, read at startup)
+and needs no setting. It does need `TOON_BASE_URL`, for its link to the
+privacy statement, which production sets anyway.
 
 Besides the host separation, `TOON_BASE_URL` is also the exact CI audience: a
 GitHub or Forgejo workflow requests its ID token with this value as

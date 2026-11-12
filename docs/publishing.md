@@ -5,7 +5,8 @@ Toon: the base path contract for your build, publishing from CI with an
 OIDC ID token, publishing from your own machine with `toon login`, the use
 of the `publish` action, the curl fallback, and the difference
 between a live version, a preview and a `_version` view. If you published
-to Plak before the rename, §9 lists what to change.
+to Plak before the rename, §9 lists what to change. §10 says what feedback on
+your site adds to your pages.
 
 The CLI and the action live in this repository: `cli/` is the CLI (a uv
 project of its own, installing the `toon` command),
@@ -136,7 +137,8 @@ only the browser console tells you what is missing.
 
 Under the shielding the browser fetches some files in CORS mode, and from
 an opaque origin those requests reach Toon as `Origin: null` without the
-visitor's cookie. Toon sends no CORS headers, so the browser refuses them:
+visitor's cookie. Toon sends no CORS headers with a site's files, so the
+browser refuses them:
 
 | What | Under the shielding |
 | --- | --- |
@@ -695,9 +697,12 @@ Addresses are slugs and can change; the API knows only the current one, an
 old slug answers 404 (§3, "After an address change"). The
 endpoints live on the admin origin (`TOON_BASE_URL`); on the content host
 `/admin` does not exist. `${TOON_TOKEN}` below is one of two things: a
-CI ID token (§3), or a CLI token from `toon login` (§6). Outside these two
-endpoints and the CLI session endpoints, Toon accepts a Bearer token
-nowhere.
+CI ID token (§3), or a CLI token from `toon login` (§6). Besides these two
+endpoints and the CLI session endpoints, a CLI token reaches only the admin
+routes that `docs/design.md` §7.8 and the row on Bearer tokens in
+`docs/security.md` list, such as creating a group or a site, linking a
+repository, and reading, marking and answering feedback. Every other route
+refuses a Bearer token.
 
 `--fail-with-body` (curl 7.76 or newer) makes a refused request exit
 non-zero and still prints Toon's explanation. Without it curl exits 0, and a
@@ -998,6 +1003,12 @@ no half upload. The live site stays as it was.
   on a page the visitor may see, it does the same for a value of exactly
   eight letters or digits (a link shared without its code). Do not use `key`
   as a query parameter of your own site.
+- **Feedback adds a script to your pages, once you turn it on**: with
+  "Feedback toestaan" (allow feedback) on the site's "Feedback" tab, Toon
+  adds its feedback button to the HTML pages of your previews as it serves
+  them, and with "Ook op de live site" (on the live site too) to those of
+  your live site. A page a visitor opens there is then never cached and goes
+  out uncompressed. What Toon adds, and what it leaves alone, is in §10.
 - **Absolute base under `_version`**: if your site was built with an
   absolute base (for example hardcoded `https://example.org/path/`), then
   that absolute base inside a `_version/{version-id}/` view still
@@ -1194,6 +1205,9 @@ does not keep what it serves:
 - Previews expire automatically after thirty days without a new deploy.
 - A site admin can delete a site and a group admin a whole group, with
   every version in it.
+- Feedback on a site goes by itself: the screenshot of a resolved item after
+  30 days, a resolved item after 90 and an item that stays open after 365,
+  by default (§10).
 - The content volume is not backed up as an archive, and nothing in Toon
   records that a page was an official publication.
 
@@ -1273,3 +1287,176 @@ plugin. The skill is `/toon:toon-publish` from then on.
 /plugin marketplace add DigiGilde/toon
 /plugin install toon@toon
 ```
+
+## 10. Feedback on your site
+
+A site admin can let visitors give feedback on the site's pages. A visitor
+points at a spot, selects a text or comments on the page as a whole, with a
+screenshot if they want, and your team reads it, answers it and marks it
+resolved on the site's "Feedback" tab or with `toon feedback`. It is off until
+a site admin turns it on. The rules behind it are in `docs/design.md` §16.
+
+### Turning it on
+
+On the site's "Feedback" tab, under "Feedback verzamelen" (collecting
+feedback), a site admin turns on "Feedback toestaan" (allow feedback). Two
+choices follow:
+
+- "Wie mag feedback geven" (who may give feedback): "Alleen met een account"
+  (only with an account, the default), "Ook met een zelf ingevulde naam" (also
+  with a name they type themselves) or "Ook zonder naam" (also without a
+  name). With an account, a visitor signs in and says yes once, with a tick
+  and a press on a page of Toon that names what your team will see with their
+  feedback: their name and their verified email address, each when there is
+  one, the address for your site's editors and admins only. A visitor who is
+  signed in but did not say yes can still give feedback with a name or
+  without one, as far as your choice allows, also on a site that needs a
+  sign-in. With "Alleen met een account", the button's menu
+  offers a visitor who has not said yes only "Feedback geven met je account"
+  (give feedback with your account), with a note of what signing in keeps
+  and a link to the privacy statement, and "Knop verbergen" (hide the
+  button). That works for a visitor who came in through a secret link as
+  well: they sign in, say yes and send with their account while the link
+  lets them see the page.
+- "Ook op de live site" (on the live site too), off by default: without it
+  only the previews of your site get the button.
+
+The CLI does not offer these switches: they are a decision for the site's
+admin in the admin environment. When your site is public, or one of its
+previews is public by an access of its own, and it takes feedback without an
+account, the tab warns that you are collecting from the public, also while
+only the previews take feedback: a preview follows the site's access. Expect
+spam: the site takes nothing new once the installation's limit of open items
+is reached (500 by default), and your organisation names the collection in
+its own privacy statement too.
+
+When feedback is on but no page carries the button, the tab says so with the
+settings, and in the list while that is empty. That is a site without
+previews whose live site does not take feedback (turn on "Ook op de live
+site", or publish a preview with the CLI or from your repository), or a site
+that takes feedback on its live site but has no version there yet and no
+previews (publish one first).
+
+### What Toon adds to your pages
+
+Where the button is on (your previews, and with "Ook op de live site" your
+live site), Toon adds one script tag to each HTML page as it serves it, right
+after the doctype:
+
+```html
+<script src="/-/feedback/widget.<hash>.js" defer data-toon-feedback="..."></script>
+```
+
+Your files do not change: the version stays as you published it. A
+`_version` view, your `404.html` and every request that is not a navigation
+(a `fetch`, a script, an iframe) get the file as published. The script puts a
+"Feedback" button at the bottom right of the window (it moves to the bottom
+left, or up, while an element of your page that has keyboard focus lies under
+it and is small enough for the button to hide it, also inside your page's own
+web components), inside a shadow root of its own and outside the flow of your
+layout, with its styles in px, so your CSS does not reach it and your layout
+does not shift for it. In a wide window the panel it opens moves to the
+bottom left the same way, and Escape pressed on your page closes it. It uses
+no browser storage, no cookies, no global variable and no custom element. Key
+and input events that start inside it stop there, so your page's shortcuts
+do not see what a visitor types in it. It is hidden in print.
+
+What to keep in mind:
+
+- The widget adds one element to the end of `body`,
+  `<div data-toon-feedback-host>`. A script that walks the children of
+  `body` meets it.
+- A page larger than 2 MiB once decoded, a page that starts with a UTF-16
+  byte order mark, and a page with no place for the tag in its first 64 KiB
+  get no button.
+- The tag's configuration holds a token for this page view and no name or
+  email address, and your page's own scripts can read it. After a visitor
+  said yes to feedback with their account, the scripts on your page can also
+  send feedback in that visitor's name on your site, until they log out or
+  their session ends. On a site that takes feedback with accounts, run only
+  scripts you trust.
+- The query parameter `key` and the fragment `#toon-feedback=` belong to
+  Toon. The site team's links to an item open your page with that fragment,
+  and on a page that carries the feedback button the widget takes it off the
+  address and marks the place.
+
+### No caching for your HTML
+
+Where the button is on, the HTML page a visitor opens is never stored and
+never confirmed with a `304 Not Modified`: the answer to a navigation is
+`Cache-Control: no-store`, also when the button stays out, because the page
+carries a token for this visitor and this view. A page with the button goes
+out uncompressed. So every view of a page transfers it in full, which costs
+more for a large page than before. Every answer for such a page carries
+`Vary: Sec-Fetch-Dest`. Your other files (CSS, scripts, images) keep the
+caching they had.
+
+### Under the shielding
+
+The button works on a shielded site ("Afschermen van andere sites" on, §2).
+It is a classic script, which loads under the shielding, and its calls to
+Toon go out without a cookie and with `Origin: null`, which the feedback API
+accepts. Two things are different there:
+
+- In a screenshot your site's own images appear as grey areas: the page's
+  opaque origin cannot read them back. The widget says so before the visitor
+  sends.
+- While a screenshot is made, the browser stops the screenshot's request for
+  each such image before it goes out, and the console says so for each one.
+  Chrome and Edge show
+  `Fetch API cannot load ... Request mode is "same-origin"` and a
+  `Failed to fetch` warning from the screenshot library. Firefox shows only
+  that warning, as `NetworkError when attempting to fetch resource.`, and
+  Safari as `Load failed`. That is expected.
+
+### Which browsers get the button
+
+Toon adds the button only to a request that the browser marks as a
+navigation, with the header `Sec-Fetch-Dest: document`, because a page's own
+script cannot send that header. Chrome and Edge send it from version 80,
+Firefox from 90 and Safari from 16.4 (MDN browser compatibility data). An
+older browser gets your page without the button.
+
+### Your accessibility statement
+
+With the button on your live site, it is part of every HTML page there, and
+your accessibility statement covers it like the rest of the page. It is
+built for WCAG 2.2 AA: a landmark labelled "Feedback" with a button that
+carries visible text, the whole flow by keyboard (the arrow keys move a
+crosshair to point at a spot and Enter picks it, which the bar of the overlay
+says once the keyboard is in use, and Escape steps back), announcements
+through a status region, a panel that becomes a sheet at the bottom of the
+screen below 600 pixels, with Tab kept inside it, and support for forced
+colours, a dark colour scheme and reduced motion. It has not been audited.
+Toon's own checks run axe-core on the open widget in Chromium
+(`e2e/tests/feedback.spec.ts`), and during its build it was checked in seven
+of its states the same way. It has not been tried with a screen reader, in
+Safari or Firefox, or on a touch device.
+
+### How visitors hide it
+
+The button's menu has "Knop verbergen" (hide the button). "Een minuut" (one
+minute) hides it on that page for a minute. "Tot je de browser sluit" (until
+you close the browser) hides it on the whole site, live and previews, until
+the browser closes and for twelve hours at most, and first shows the link
+that brings it back. That choice sets a cookie that holds the site and when
+the hiding ends, sealed by Toon, and nothing about the visitor. On the
+"Feedback" tab, "De feedbackknop weer laten zien" (show the feedback button
+again) brings it back for whoever follows the link. It opens a page that
+carries the button: your live site when it takes feedback, otherwise the
+preview updated last. When no page carries the button, the tab has no such
+link.
+
+### Reading and answering it
+
+In an item on the "Feedback" tab, "Bekijk op de pagina" (view on the page)
+opens the page it is about and, where that page carries the feedback button,
+marks the place. With feedback off, or for an item from the live site while
+"Ook op de live site" (on the live site too) is off, a line beside the
+button says that the page opens without marking it. For an item from a
+preview that is gone or has expired, the item says instead that the place
+can no longer be viewed. A
+reply that is refused after you moved on from its item waits in that item's
+reply field until you open it again. A reply, written there or
+with `toon feedback`, reaches a submitter who sent with their account, under
+"Mijn feedback" (my feedback) in the button, with your name.

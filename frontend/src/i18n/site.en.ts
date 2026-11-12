@@ -13,6 +13,8 @@ export const siteEn: Record<keyof typeof siteNl, string> = {
   'site.tabs.label': 'Site sections',
   'site.tabs.overview': 'Overview',
   'site.tabs.previews': 'Previews',
+  'site.tabs.feedback': 'Feedback',
+  'site.tabs.feedback.open': 'Feedback ({count})',
   'site.tabs.versions': 'Versions',
   'site.tabs.access': 'Access',
   'site.tabs.members': 'Members',

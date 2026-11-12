@@ -1,0 +1,3 @@
+- The content host takes site feedback under `/-/feedback/`, where the widget API answers any origin with `Access-Control-Allow-Origin: *` and accepts writes only under a sealed page token, and the pages of a site with feedback on get an injected script.
+- A CLI session from `toon login`, also one linked before this release, can now read, mark and answer site feedback (`toon feedback`), including the names, e-mail addresses and screenshots its member's roles show. Deleting feedback and changing the feedback settings stay in the admin.
+- `/-/login` on the content host no longer hands out a site cookie while the request carries the anchor cookie twice, as a page without "Shield from other sites" could arrange. The visitor signs in at the identity provider instead.

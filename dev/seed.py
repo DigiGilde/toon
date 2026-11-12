@@ -20,28 +20,46 @@ What it puts down:
   - sites on every access base, with the interesting extras combined: a public
     site with a secret link beside it, and a closed site on invitees alone;
   - real published versions plus two previews, unpacked through the normal
-    ingest path from a bundle this script builds in memory.
+    ingest path from a bundle this script builds in memory;
+  - feedback on the previews of the public annual report: a handful of items
+    of every kind, status and author kind, with replies from the site team
+    and from a submitter and one screenshot, so the Feedback tab has
+    something to show.
 """
 
 from __future__ import annotations
 
 import asyncio
 import io
+import json
+import struct
 import sys
 import tarfile
 import time
 import uuid
+import zlib
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from math import isqrt
+from typing import Any
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from toon.access import keys as access_keys
+from toon.auth.sessions import site_prefix
 from toon.config import Settings, load_settings
-from toon.constants import AccessBase, Role
+from toon.constants import (
+    AccessBase,
+    FeedbackAuthor,
+    FeedbackIdentity,
+    FeedbackReplyAuthor,
+    FeedbackStatus,
+    Role,
+)
 from toon.db import make_engine, make_session_factory
 from toon.ingest.service import Deployer, IngestService
 from toon.ingest.store import ContentStore, version_ref
+from toon.models.feedback import FeedbackItem, FeedbackReply, FeedbackScreenshot
 from toon.models.identity import (
     Group,
     GroupMember,
@@ -50,7 +68,8 @@ from toon.models.identity import (
     PlatformRole,
     SiteMember,
 )
-from toon.models.publication import Invitee, Preview, Site, Version
+from toon.models.publication import Invitee, Preview, Site, Version, VersionTarget
+from toon.serving.feedback_api import parse_item
 
 # The sub the mock OIDC server hands out for every dev login
 # (dev/mock-oidc-config.json), and the sub dev/compose.yml bootstraps into a
@@ -170,6 +189,174 @@ def _bundle(files: dict[str, bytes]) -> bytes:
     return buffer.getvalue()
 
 
+# -- Example feedback ---------------------------------------------------------
+
+FEEDBACK_SITE = "jaarverslag"
+
+# The size of the stand-in screenshot, and where its pin sits: half the
+# 1280 by 800 window of the item it belongs to.
+SCREENSHOT_SIZE = (640, 400)
+SCREENSHOT_PIN = (159, 66)
+
+
+@dataclass(frozen=True)
+class _Feedback:
+    """One example item: what the widget sends for it, on which preview and
+    page, and what the site team did with it since."""
+
+    ref: str
+    page: str
+    title: str
+    kind: str
+    comment: str
+    author: dict[str, str]
+    anchor: dict[str, Any] | None
+    status: FeedbackStatus
+    age: timedelta
+    team_reply: str | None = None
+    giver_reply: str | None = None
+    screenshot: bool = False
+
+    def widget_item(self, root: str) -> dict[str, Any]:
+        """The `item` part of the widget's create request."""
+        return {
+            "kind": self.kind,
+            "comment": self.comment,
+            "page": {"path": f"{root}{self.page}", "title": self.title},
+            "anchor": self.anchor,
+            "viewport": {"width": 1280, "height": 800, "dpr": 2},
+            "author": self.author,
+            "screenshot": {"region": None},
+        }
+
+
+# Every kind, status and author kind, on both previews. The selectors and
+# quotes point at the pages _site_files writes, so the widget finds the
+# places again. The item with an account is the bootstrap member's own: the
+# dev login always signs in as that member, so the widget's Mijn feedback
+# shows it locally.
+_FEEDBACK = (
+    _Feedback(
+        ref=PREVIEW_OPEN,
+        page="",
+        title="Jaarverslag 2025",
+        kind="point",
+        comment="De titel past op mijn telefoon niet op één regel. Kan hij korter?",
+        author={"kind": "anonymous"},
+        anchor={
+            "selectors": [{"type": "CssSelector", "value": "body > header:nth-of-type(1) > h1:nth-of-type(1)"}],
+            "point": {"x": 0.42, "y": 0.5, "pageX": 318, "pageY": 132},
+        },
+        status=FeedbackStatus.NEW,
+        age=timedelta(hours=2),
+        screenshot=True,
+    ),
+    _Feedback(
+        ref=PREVIEW_OPEN,
+        page="",
+        title="Jaarverslag 2025",
+        kind="text",
+        comment="Heet dit niet de redactieronde? Zo staat het in de rest van het verslag.",
+        author={"kind": "name", "name": "Jan de Boer"},
+        anchor={
+            "selectors": [
+                {
+                    "type": "TextQuoteSelector",
+                    "exact": "tekstronde",
+                    "prefix": "Voorvertoning van de ",
+                    "suffix": " in pull request 42.",
+                },
+                {"type": "CssSelector", "value": "body > main:nth-of-type(1) > p:nth-of-type(1)"},
+            ],
+            "point": None,
+        },
+        status=FeedbackStatus.NEW,
+        age=timedelta(days=1),
+    ),
+    _Feedback(
+        ref=PREVIEW_OPEN,
+        page="verantwoording.html",
+        title="Verantwoording - Jaarverslag 2025",
+        kind="page",
+        comment="De bronnenlijst mist de CBS-tabel over 2024.",
+        author={"kind": "account"},
+        anchor=None,
+        status=FeedbackStatus.SEEN,
+        age=timedelta(days=3),
+        team_reply="Dank je, die tabel komt erbij in de volgende preview.",
+        giver_reply="Fijn. Het gaat om de tabel met de cijfers per provincie.",
+    ),
+    _Feedback(
+        ref=PREVIEW_RESTRICTED,
+        page="verantwoording.html",
+        title="Verantwoording - Jaarverslag 2025",
+        kind="point",
+        comment="Deze link gaat naar de startpagina van de preview, niet naar de live site. Klopt dat?",
+        author={"kind": "name", "name": "Fatima el Amrani"},
+        anchor={
+            "selectors": [
+                {"type": "CssSelector", "value": "body > main:nth-of-type(1) > p:nth-of-type(2) > a:nth-of-type(1)"}
+            ],
+            "point": {"x": 0.5, "y": 0.5, "pageX": 214, "pageY": 418},
+        },
+        status=FeedbackStatus.SEEN,
+        age=timedelta(days=4),
+    ),
+    _Feedback(
+        ref=PREVIEW_RESTRICTED,
+        page="",
+        title="Jaarverslag 2025",
+        kind="text",
+        comment="Wat betekent dit voor lezers buiten het siteteam?",
+        author={"kind": "anonymous"},
+        anchor={
+            "selectors": [
+                {
+                    "type": "TextQuoteSelector",
+                    "exact": "strenger dan de site zelf",
+                    "prefix": "een eigen toegang, ",
+                    "suffix": ".",
+                },
+                {"type": "CssSelector", "value": "body > main:nth-of-type(1) > p:nth-of-type(1)"},
+            ],
+            "point": None,
+        },
+        status=FeedbackStatus.RESOLVED,
+        age=timedelta(days=6),
+        team_reply="Die zien deze preview niet. Dat is hier zo bedoeld.",
+    ),
+)
+
+
+def _png_chunk(kind: bytes, data: bytes) -> bytes:
+    return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+
+def _screenshot_png(width: int, height: int, pin: tuple[int, int]) -> bytes:
+    """A stand-in screenshot: a light page, a dark bar where the title is and
+    a blue pin with a white ring where the remark points. A plain RGB PNG
+    built by hand, so the seed needs no image library."""
+    paper, ink = b"\xfd\xfd\xfc", b"\x1b\x1b\x1b"
+    pin_layers = ((b"\xff\xff\xff", 12), (b"\x18\x45\x76", 9))
+    rows = []
+    for y in range(height):
+        row = bytearray(paper * width)
+        if 54 <= y < 78:
+            row[48 * 3 : 420 * 3] = ink * 372
+        for colour, radius in pin_layers:
+            if abs(y - pin[1]) <= radius:
+                reach = isqrt(radius * radius - (y - pin[1]) ** 2)
+                row[(pin[0] - reach) * 3 : (pin[0] + reach + 1) * 3] = colour * (2 * reach + 1)
+        rows.append(b"\x00" + bytes(row))
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + _png_chunk(b"IHDR", header)
+        + _png_chunk(b"IDAT", zlib.compress(b"".join(rows), 9))
+        + _png_chunk(b"IEND", b"")
+    )
+
+
 # -- Seeding ----------------------------------------------------------------
 
 
@@ -180,6 +367,7 @@ class SeedResult:
     sites: int
     versions: int
     previews: int
+    feedback: int
     secret_link_key: str
 
 
@@ -266,6 +454,94 @@ async def _publish(
         source.unlink(missing_ok=True)
 
 
+async def _feedback(
+    session_factory: async_sessionmaker[AsyncSession],
+    site: Site,
+    group_slug: str,
+    versions: dict[str, uuid.UUID],
+    giver: Member,
+    team: Member,
+) -> None:
+    """Puts the example feedback on `site`. Every item goes through the widget
+    API's own check first, so it holds exactly what the server would have
+    stored for that request. What the site team did since is set here."""
+    now = datetime.now(tz=UTC)
+    async with session_factory() as db:
+        replies: list[FeedbackReply] = []
+        screenshots: list[FeedbackScreenshot] = []
+        for sample in _FEEDBACK:
+            root = f"/{group_slug}/{site.slug}/_preview/{sample.ref}/"
+            checked = parse_item(
+                json.dumps(sample.widget_item(root)),
+                root,
+                site_prefix(group_slug, site.slug),
+            )
+            account = checked.author is FeedbackAuthor.ACCOUNT
+            created = now - sample.age
+            # Halfway between sending and now, the site team looked at it.
+            handled = None if sample.status is FeedbackStatus.NEW else created + sample.age / 2
+            item = FeedbackItem(
+                id=uuid.uuid4(),
+                site_id=site.id,
+                target=VersionTarget.PREVIEW,
+                preview_ref=sample.ref,
+                version_id=versions[sample.ref],
+                page_path=checked.page_path,
+                page_title=checked.page_title,
+                kind=checked.kind,
+                anchor=checked.anchor,
+                quote=checked.quote,
+                comment=checked.comment,
+                author_kind=checked.author,
+                author_sub=giver.sso_subject if account else None,
+                author_name=giver.name if account else checked.author_name,
+                author_email=giver.email.lower() if account else None,
+                viewport=checked.viewport,
+                status=sample.status,
+                status_changed_at=handled,
+                status_changed_by=None if handled is None else team.id,
+                resolved_at=handled if sample.status is FeedbackStatus.RESOLVED else None,
+                created_at=created,
+            )
+            db.add(item)
+            if sample.team_reply is not None:
+                replies.append(
+                    FeedbackReply(
+                        item_id=item.id,
+                        author_kind=FeedbackReplyAuthor.MEMBER,
+                        member_id=team.id,
+                        author_name=team.name,
+                        body=sample.team_reply,
+                        created_at=handled or created,
+                    )
+                )
+            if sample.giver_reply is not None:
+                replies.append(
+                    FeedbackReply(
+                        item_id=item.id,
+                        author_kind=FeedbackReplyAuthor.GIVER,
+                        body=sample.giver_reply,
+                        created_at=created + sample.age * 3 / 4,
+                    )
+                )
+            if sample.screenshot:
+                data = _screenshot_png(*SCREENSHOT_SIZE, SCREENSHOT_PIN)
+                screenshots.append(
+                    FeedbackScreenshot(
+                        item_id=item.id,
+                        media_type="image/png",
+                        data=data,
+                        size_bytes=len(data),
+                        width=SCREENSHOT_SIZE[0],
+                        height=SCREENSHOT_SIZE[1],
+                    )
+                )
+        # The items first: replies and screenshots point at them.
+        await db.flush()
+        db.add_all(replies + screenshots)
+        await db.commit()
+
+
 async def seed(settings: Settings) -> SeedResult:
     """Wipes and refills the dev database plus the content volume."""
     if settings.environment != "dev":
@@ -329,7 +605,13 @@ async def seed(settings: Settings) -> SeedResult:
         # they are the only way in) and beside a wider one (where they add a
         # second road): that second case is the one the old single enum could
         # not express at all.
-        annual = _site(public_group, "jaarverslag", "Jaarverslag 2025", AccessBase.PUBLIC, admin)
+        annual = _site(public_group, FEEDBACK_SITE, "Jaarverslag 2025", AccessBase.PUBLIC, admin)
+        # Feedback on the previews only, from anyone who can see them: the
+        # widget then shows on the two previews below, and the live site
+        # stays as it is.
+        annual.feedback_enabled = True
+        annual.feedback_identity = FeedbackIdentity.ANONYMOUS
+        annual.feedback_live = False
         figures = _site(
             public_group, "kerncijfers", "Kerncijfers open data", AccessBase.NOBODY, admin, keys=True
         )
@@ -419,17 +701,25 @@ async def seed(settings: Settings) -> SeedResult:
             by_inspector,
         )
 
-        await _publish(
+        open_preview = await _publish(
             ingest, session_factory, store, annual,
             _site_files("Rijksoverheid", "Jaarverslag 2025", f"Preview {PREVIEW_OPEN}",
                   "Voorvertoning van de tekstronde in pull request 42."),
             by_admin, ref=PREVIEW_OPEN,
         )
-        await _publish(
+        restricted_preview = await _publish(
             ingest, session_factory, store, annual,
             _site_files("Rijksoverheid", "Jaarverslag 2025", f"Preview {PREVIEW_RESTRICTED}",
                   "Voorvertoning met een eigen toegang, strenger dan de site zelf."),
             by_admin, ref=PREVIEW_RESTRICTED,
+        )
+        await _feedback(
+            session_factory,
+            annual,
+            GROUP_PUBLIC,
+            {PREVIEW_OPEN: open_preview, PREVIEW_RESTRICTED: restricted_preview},
+            giver=admin,
+            team=editor,
         )
 
         async with session_factory() as db:
@@ -457,6 +747,7 @@ async def seed(settings: Settings) -> SeedResult:
                 sites=len(sites),
                 versions=await db.scalar(select(func.count()).select_from(Version)),
                 previews=await db.scalar(select(func.count()).select_from(Preview)),
+                feedback=await db.scalar(select(func.count()).select_from(FeedbackItem)),
                 secret_link_key=secret_link_key,
             )
     finally:
@@ -475,13 +766,14 @@ def _report(settings: Settings, result: SeedResult) -> str:
         "Dev-inhoud gezaaid.",
         (
             f"  {result.members} leden, {result.groups} groepen, {result.sites} sites, "
-            f"{result.versions} versies, {result.previews} previews"
+            f"{result.versions} versies, {result.previews} previews, {result.feedback} feedbackitems"
         ),
         "",
         "Inloggen en rondkijken:",
         f"  beheer     {admin_base}/",
         f"  live       {annual}",
         f"  preview    {annual}_preview/{PREVIEW_OPEN}/",
+        f"  feedback   {admin_base}/{GROUP_PUBLIC}/{FEEDBACK_SITE}/feedback",
         f"  geheime link  {content_base}/{GROUP_PUBLIC}/kerncijfers/?key={result.secret_link_key}",
         "",
         "Publiceren vanaf je eigen machine, met de Toon-CLI:",

@@ -70,7 +70,7 @@ export const pagesEn: Record<keyof typeof pagesNl, string> = {
   'page.privacy.title':
     'Privacy',
   'page.privacy.intro':
-    'This statement describes how this installation of Toon handles personal data and which rights you have, under the General Data Protection Regulation (GDPR, in Dutch the AVG). Toon processes personal data to arrange access to published sites: an e-mail address when you sign in through your organisation, and possibly the e-mail address of an invited person when access is by invitation.',
+    'This statement describes how this installation of Toon handles personal data and which rights you have, under the General Data Protection Regulation (GDPR, in Dutch the AVG). Toon processes personal data to arrange access to published sites: an e-mail address when you sign in through your organisation, and possibly the e-mail address of an invited person when access is by invitation. On sites that collect feedback, Toon also processes what visitors send with the feedback button: their remark, possibly a screenshot and their name, and with an account their e-mail address too. That way the team of the site can read and answer the feedback.',
   'page.privacy.standard':
     'This is the standard statement of the Toon software. The organisation that runs this installation completes it with what only that organisation can say, such as its legal basis and its Data Protection Officer.',
   'page.privacy.controller.heading':
@@ -88,29 +88,43 @@ export const pagesEn: Record<keyof typeof pagesNl, string> = {
   'page.privacy.data.audit':
     'Audit data: who published or changed what and when, and who signed in when. If you rename a group or site, the previous name or title is in that entry.',
   'page.privacy.data.visits':
-    'Visit data: which pages of a restricted site you looked at. Nothing is recorded for public sites.',
+    'Visit data: which pages of a restricted site you looked at, and when you signed in on a site, a public one included, for instance to give feedback with your account. Toon does not record which pages of a public site you view.',
+  'page.privacy.data.feedback':
+    'Feedback: what you send about a page with the feedback button, with that page, the place or the text it is about, the size and the pixel ratio of your browser window, the version of the site and the screenshot if you send one. If you send feedback with your account, also your SSO ID, your name and your verified e-mail address. With a name Toon keeps only that name, without a name no name, SSO ID or e-mail address. Your text or the screenshot can still say something about you. A screenshot shows what was on your screen, so sometimes data of other people or of yourself too.',
+  'page.privacy.data.feedbackTechnical':
+    'With feedback Toon keeps no IP address and none of the details your browser sends about itself. To limit misuse, Toon does count how much feedback comes in per site: per account when you give feedback with your account or had to sign in to see the page, otherwise per IP address. That count is kept in working memory only. It runs over ten minutes by default, and is gone at most that long after it ends. If you hide the feedback button until you close the browser, a cookie remembers only that, and for 12 hours at most.',
+  'page.privacy.data.feedbackAnonymous':
+    'Feedback without a name is not linked to a visit. On a restricted site every visit is in the audit log, though, so a platform administrator could put the times side by side.',
   'page.privacy.data.content':
     'Published content: may contain personal data, but that belongs to the maker of the site. Toon does not read, classify or filter that content. The publishing organisation is responsible for it.',
   'page.privacy.purpose.heading':
     'Purpose and legal basis',
   'page.privacy.purpose.body':
     'This data is processed to show published sites only to those who may see them, and to keep the platform secure and misuse investigable. Which legal basis of article 6 of the GDPR applies depends on the organisation that runs this installation.',
+  'page.privacy.purpose.feedback':
+    'Feedback is processed so the team of a site can read, answer and resolve remarks about that site. Whether a site takes feedback, and from whom, is chosen by the administrator of that site.',
   'page.privacy.processors.heading':
     'Processors and hosting',
   'page.privacy.processors.body':
     'Toon itself uses no web analytics and shares no data with other parties. Where this installation is hosted and which sign-in service it uses is up to the organisation that runs it.',
+  'page.privacy.processors.ai':
+    "The team of a site can also fetch feedback with the Toon CLI, for instance to load it into an AI assistant. The CLI then leaves names and e-mail addresses out, unless asked for them. Whoever loads feedback into an AI assistant that way decides about that processor themselves. A screenshot the team fetches that way, and what an AI assistant keeps of feedback in its own history, are copies outside Toon. The retention periods below and a submitter's own deletion do not reach them, so removing those copies is up to the team.",
   'page.privacy.retention.heading':
     'Retention period',
   'page.privacy.retention.body':
-    'Visit data and sign-in moments are deleted after 90 days. Other audit data, such as refused access and administrative actions, is kept for three years, because it may become part of the investigation into a security incident. Only a platform administrator can view it, and every viewing is itself recorded, with a mandatory reason that every platform administrator can read. Your name and e-mail address are not in there in readable form. Previews and their access data expire automatically after thirty days without a new deploy.',
+    'Visit data and successful sign-ins are deleted after 90 days. Other audit data, such as refused access, failed or abandoned sign-ins and administrative actions, is kept for three years, because it may become part of the investigation into a security incident. Only a platform administrator can view it, and every viewing is itself recorded, with a mandatory reason that every platform administrator can read. Your name and e-mail address are not in there in readable form. Previews and their access data expire automatically after thirty days without a new deploy.',
   'page.privacy.retention.ip':
     'Every audit entry also carries the IP address something happened from: a truncated network (not the full address) is simply in the log, kept as long as the entry itself. The full address sits beside it, encrypted, kept just as long, and only a platform administrator can request it, with the same mandatory, recorded reason.',
   'page.privacy.retention.session':
-    'If you view restricted content after signing in with your organisation, Toon keeps your SSO ID and e-mail address until ninety days after the last time you signed in. That is needed to trace an entry in the audit log back to a person, for instance during the investigation into a leak.',
+    'If you sign in on a site with your organisation, to view restricted content or to give feedback with your account, Toon keeps your SSO ID and e-mail address until ninety days after the last time you signed in. That is needed to trace an entry in the audit log back to a person, for instance during the investigation into a leak.',
+  'page.privacy.retention.feedback':
+    'Feedback goes with its site or group, when an administrator of the site or its submitter deletes it, and otherwise by itself: the screenshot 30 days after the feedback was resolved, the feedback itself 90 days after resolving, and feedback that stays open after 365 days. Those are the default periods. The organisation that runs this installation can set them differently.',
   'page.privacy.visibility.heading':
     'Who can see what',
   'page.privacy.visibility.body':
     'The audit log can only be viewed by a platform administrator. The entries hold neither your name nor your e-mail address, but a pseudonym: an encrypted representation of your SSO ID. The exception is the previous name of a group or the previous title of a site: that text is readable in the entry. A platform administrator can look up which pseudonym belongs to a person, and the other way round who is behind a pseudonym. That is only possible with a stated reason, which is itself recorded, and there is a maximum number of lookups per day. The administrator of a site sees none of this.',
+  'page.privacy.visibility.feedback':
+    'Feedback is seen by everyone with a role on the site: the site team. The e-mail address of whoever sent feedback with an account is seen only by editors and administrators of the site. If you sent feedback with your account, you find your latest feedback again in the feedback button of the site, under My feedback, and can delete it there. My feedback is in the button while you give feedback on that site with your account. When you come back later, you first choose Send with your account or Give feedback with your account, sign in and say yes again. You end that again afterwards with Stop using your account. For older feedback, or feedback on a site that no longer shows the button, send a request to see or delete it, as described under your rights below. Feedback sent with only a name or without a name cannot be found again later. When the site team replies to feedback sent with an account, the submitter sees with that reply the name of whoever replied, never an e-mail address. That name stays with the reply for as long as the feedback exists.',
   'page.privacy.rights.heading':
     'Your rights',
   'page.privacy.rights.body':
@@ -203,7 +217,7 @@ export const pagesEn: Record<keyof typeof pagesNl, string> = {
   'page.cliPair.confirm.question': 'Does your terminal show the same code?',
   'page.cliPair.confirm.account': 'You are linking this program to {account}',
   'page.cliPair.confirm.accountHint':
-    'After that the program can publish with all of your roles, until you unlink it.',
+    'After that the program can do everything the Toon CLI can with all of your roles, such as publishing, and reading, resolving and answering the feedback on your sites, with names, e-mail addresses and screenshots. That lasts until you unlink it.',
   'page.cliPair.confirm.client': 'Program, as it calls itself: "{name}"',
   'page.cliPair.confirm.requested': 'Requested: {time}',
   'page.cliPair.confirm.network': 'From network {network}',

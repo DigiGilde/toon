@@ -146,6 +146,123 @@ export interface Site {
   liveVersionsKept: number | null;
   /** Newest first, and only the addresses that still redirect. */
   previousSlugs: PreviousSlug[];
+  /** Whether the pages of this site carry the feedback button. Off by default. */
+  feedbackEnabled: boolean;
+  /** Who may give feedback; each level also lets in the ones before it. */
+  feedbackIdentity: FeedbackIdentity;
+  /** Whether the live site collects feedback too; without it only the previews do. */
+  feedbackLive: boolean;
+  /** Feedback with status new or seen, over the whole site. */
+  openFeedbackCount: number;
+}
+
+/**
+ * Who may give feedback on a site, narrowest first: with an account only, also
+ * with a name they type themselves, also without a name.
+ */
+export type FeedbackIdentity = 'account' | 'name' | 'anonymous';
+
+/** Narrowest first, which is the order the settings offer them in. */
+export const FEEDBACK_IDENTITY_VALUES: readonly FeedbackIdentity[] = ['account', 'name', 'anonymous'];
+
+/** What a piece of feedback is about: the whole page, a point on it, or a text on it. */
+export type FeedbackKind = 'page' | 'point' | 'text';
+
+export type FeedbackStatus = 'new' | 'seen' | 'resolved';
+
+/** The status filter of the list: `open` is new and seen together. */
+export type FeedbackStatusFilter = 'open' | 'new' | 'seen' | 'resolved' | 'all';
+
+export type FeedbackTargetFilter = 'all' | 'live' | 'preview';
+
+/** The page an item was given on. */
+export interface FeedbackPageAddress {
+  /** Relative to the root of the live site or the preview, without a leading slash; '' is the root. */
+  path: string;
+  title: string | null;
+  /** Absolute URL of that page at the site's current address, on the content host. */
+  url: string;
+}
+
+/**
+ * Who sent it. `account` carries the name from the login, `name` the name the
+ * sender typed (nobody checked it), `anonymous` nothing. `email` is null for a
+ * reader of the site.
+ */
+export interface FeedbackAuthor {
+  kind: 'account' | 'name' | 'anonymous';
+  name: string | null;
+  email: string | null;
+}
+
+/** One item in the list of a site. */
+export interface FeedbackItem {
+  id: string;
+  kind: FeedbackKind;
+  status: FeedbackStatus;
+  comment: string;
+  /** The selected text of a `text` item, null for the other kinds. */
+  quote: string | null;
+  page: FeedbackPageAddress;
+  target: VersionTarget;
+  previewRef: string | null;
+  /** The version the page showed; null once that version is gone. */
+  versionId: string | null;
+  author: FeedbackAuthor;
+  hasScreenshot: boolean;
+  replyCount: number;
+  createdAt: Timestamp;
+  statusChangedAt: Timestamp | null;
+  /** The name of the member who changed the status last, or null. */
+  statusChangedBy: string | null;
+}
+
+/** A reply in the thread of one item: by someone of the site team, or by the sender. */
+export interface FeedbackReply {
+  id: string;
+  /** `name` is the member's name for a member reply, while there is one; null for the sender. */
+  author: { kind: 'member' | 'giver'; name: string | null };
+  body: string;
+  createdAt: Timestamp;
+}
+
+/** The size of the browser window the item was given in, in CSS pixels. */
+export interface FeedbackViewport {
+  width: number;
+  height: number;
+  dpr: number;
+}
+
+/** One item with everything the detail view shows. */
+export interface FeedbackDetail extends FeedbackItem {
+  anchor: Record<string, unknown> | null;
+  viewport: FeedbackViewport | null;
+  /** `page.url` with the fragment that points the widget at the place; null for kind `page`. */
+  highlightUrl: string | null;
+  /** Oldest first. */
+  replies: FeedbackReply[];
+}
+
+/** How many items of each status the site holds, whatever the filter. */
+export interface FeedbackCounts {
+  new: number;
+  seen: number;
+  resolved: number;
+}
+
+/** One page of the list of a site, newest first. */
+export interface FeedbackPage {
+  items: FeedbackItem[];
+  /** Hands out the next page; null on the last one. */
+  nextCursor: string | null;
+  counts: FeedbackCounts;
+}
+
+/** Body of `PUT /sites/{group}/{site}/feedback-settings`. */
+export interface FeedbackSettings {
+  enabled: boolean;
+  identity: FeedbackIdentity;
+  live: boolean;
 }
 
 export interface SiteStorage {

@@ -126,6 +126,11 @@ export const routes = [
         component: () => import('./components/site/TabPreviews.vue'),
       },
       {
+        path: 'feedback',
+        name: 'site-feedback',
+        component: () => import('./components/site/TabFeedback.vue'),
+      },
+      {
         path: 'versions',
         name: 'site-versions',
         component: () => import('./components/site/TabVersions.vue'),

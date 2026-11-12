@@ -97,6 +97,9 @@ export function wordsPerElement(): Record<string, Record<string, string>> {
       ),
       'components.file-field.show-options-action': t('designSystem.fileField.showOptions'),
     },
+    'nldd-image': {
+      'components.image.error-text': t('designSystem.image.error'),
+    },
     'nldd-link': {
       'components.link.link-hint-new-tab-lowercase-label': t('designSystem.linkHint.newTab'),
       'components.link.link-hint-external-lowercase-label': t('designSystem.linkHint.external'),

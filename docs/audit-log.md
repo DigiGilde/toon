@@ -80,12 +80,19 @@ not even derived. A correct code writes no row of its own: the visitor gets
 the same cookie as with a full link, and the request after that is the row
 that says content was viewed.
 
-Whoever views through a secret link is not logged in and stays `anonymous`
-without a pseudonym. Which link it was is in `refs.selector`: the public
-part of the link, the same one that appears with `key_create` and
+Whoever views through a secret link without a session on that site stays
+`anonymous` without a pseudonym. Which link it was is in `refs.selector`:
+the public part of the link, the same one that appears with `key_create` and
 `key_revoke` and that admin sees in the list of links. The secret part never
 appears in the log. Whoever gave a link to one person can trace who viewed;
 whoever shares a link with several people sees only that it was that link.
+A link visitor who signs in on that site gets its session cookie, and from
+then until the session ends their page views there carry their pseudonym
+beside `refs.selector`, kept like every `content_access` row. Saying yes to
+feedback with their account does that too: the way back from the consent
+page runs through the login, which sets that cookie (`docs/design.md`
+§16.6). The consent page says so before they say yes. Signing in for
+feedback and going back without saying yes sets no cookie for the site.
 
 ### Logging in and out
 
@@ -115,6 +122,7 @@ who attempted it, and more personal data adds little for investigation.
 | `invitee_add`, `invitee_remove` | `allowed` |
 | `key_create`, `key_revoke` | `allowed` |
 | `site_repository_set`, `site_repository_remove`, `site_repository_site_id_required` | `allowed` |
+| `site_feedback`, `feedback_status`, `feedback_reply`, `feedback_delete` | `allowed` |
 | `member_activate`, `member_deactivate`, `member_platform_role` | `allowed` |
 | `admin_access` | `refused` |
 
@@ -161,6 +169,45 @@ their site needs browser storage.
 nightly cleanup keeps for this site (set on the site's Versions tab):
 `refs.live_versions_kept` is the new number, `0` for keeping all, or `null`
 when the site went back to the platform default `TOON_LIVE_VERSIONS_KEPT`.
+
+`site_feedback` is about the feedback settings on the site's Feedback tab:
+"Feedback toestaan" (allow feedback), "Wie mag feedback geven" (who may give
+feedback) and "Ook op de live site" (on the live site too). `refs` carries
+group, site and the new state of all three: `enabled` (`true` or `false`),
+`identity` (`account`, `name` or `anonymous`) and `live` (`true` or `false`).
+They are set in one PUT and so belong in one row, as with visibility.
+
+`feedback_status` is written when a site editor or admin marks a feedback item
+seen or resolved, or opens it again. `refs` carries group, site, `item` (the id
+of the item), and `from` and `to`: the status before and after, each `new`,
+`seen` or `resolved`. Setting the status an item already has writes no row.
+
+`feedback_reply` is written when a site editor or admin replies to a feedback
+item. `refs` carries group, site and `item`.
+
+`feedback_delete` is written when a site admin deletes a feedback item, which
+takes its replies and its screenshot along. `refs` carries group, site and
+`item`.
+
+Through the CLI token from `toon login` (`toon feedback seen`, `resolve`,
+`reopen` and `reply`), a `feedback_status` or `feedback_reply` row also
+carries `refs.via` with the value `cli` and `refs.cli_session` with the id of
+the CLI session, as a creation does. `resolve` with `--message` or
+`--message-file` writes the `feedback_reply` row first, then the
+`feedback_status` row. Deleting an item and changing the settings cannot be
+done with the CLI token. None of these
+rows ever carries the comment, the quote, a reply, a name or an email
+address: what was said stays with the item, and goes when the item goes.
+
+What happens through the feedback widget on the content host writes no row:
+giving feedback, a submitter replying to or deleting their own item under
+"Mijn feedback", saying yes to feedback with their account or taking that
+back, hiding and showing the button, and the refusals of all of these, like
+viewing public content. Signing in for it writes its `login` row as every
+sign-in does. A session the IdP ends writes its `idp_session_ended` row as on
+any other request, also when a widget call is the request that finds out:
+that row is kept three years, with the IP address. On a non-public site every
+page view is in the log already, one row per page (`docs/design.md` §16.13).
 
 `group_name` and `site_title` are about the display name of a group and the
 display title of a site (set on the Settings tab of each). `refs` carries
@@ -297,6 +344,17 @@ reach those any more.
 The row is written in its own transaction after the removal committed, and a
 failure to write it is logged without stopping the cleanup of the next site,
 as with every other fail-open audit write.
+
+The same job purges site feedback past its retention: resolved items
+`TOON_FEEDBACK_RESOLVED_RETENTION_DAYS` after they were resolved, the
+screenshots of resolved items `TOON_FEEDBACK_SCREENSHOT_RETENTION_DAYS` after,
+and items still new or seen `TOON_FEEDBACK_OPEN_RETENTION_DAYS` after they came
+in. That writes no row either: a row per item would keep, for three years, a
+trace of what the purge is there to remove. It logs one line per run at INFO,
+with the number of resolved items, screenshots and open items it removed,
+which a production process does not show: the server that
+`containers/toon/entrypoint.sh` starts leaves Toon's own loggers at Python's
+default level, WARNING (`docs/design.md` §16.12).
 
 ### CLI pairing (`toon login`)
 

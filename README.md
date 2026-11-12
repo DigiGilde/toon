@@ -74,6 +74,10 @@ platform is not ruled out.
   site, `0` keeps them all); a nightly job removes older ones.
 - **Preview**: a named temporary variant per ref (for example
   `pr-42`), pointing at a version with target `preview`.
+- **Feedback**: on a site whose admin turns it on, visitors point at a
+  spot or a text on a page and leave a remark, with a screenshot if they
+  want, and the site team handles it on the site's Feedback tab or with
+  `toon feedback` (§10 of `docs/publishing.md`).
 
 ## Access
 
@@ -114,7 +118,7 @@ root of the admin host, without a path prefix. See `docs/design.md` §4.
 | `/{group}/{site}/_version/{version-id}/...` | view an old version (site team only) |
 | `/` (admin host) | the SPA: landing page or site overview |
 | `/{group}` | group page (admin host). Other tabs: `/{group}/-/members`, `/{group}/-/settings` |
-| `/{group}/{site}` | site detail (admin host). Other tabs: `/previews`, `/versions`, `/access`, `/members`, `/deploy`, `/settings` |
+| `/{group}/{site}` | site detail (admin host). Other tabs: `/previews`, `/feedback`, `/versions`, `/access`, `/members`, `/deploy`, `/settings` |
 | `/-/groups`, `/-/platform`, `/-/sessions`, `/-/profile` | platform pages (admin host, `/-/platform` only for platform administrators) |
 | `/-/privacy`, `/-/accessibility`, `/-/about`, `/-/whats-new` | platform pages (publicly accessible, no login) |
 | `/cli-link` | where `toon login` sends you to approve a CLI session |
