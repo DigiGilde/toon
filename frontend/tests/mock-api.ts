@@ -10,6 +10,12 @@
 import type {
   CliSession,
   DeviceAuthorization,
+  FeedbackDetail,
+  FeedbackIdentity,
+  FeedbackItem,
+  FeedbackPage,
+  FeedbackReply,
+  FeedbackStatus,
   Group,
   GroupDetail,
   GroupMember,
@@ -253,6 +259,17 @@ interface MockSiteRole {
   role: Role;
 }
 
+/**
+ * A feedback item as the mock keeps it: the wire shape without what the
+ * backend derives on every answer from the site's current address and the
+ * replies (`page.url`, `highlightUrl`, `replyCount`).
+ */
+interface MockFeedback extends Omit<FeedbackDetail, 'page' | 'highlightUrl' | 'replyCount'> {
+  groupSlug: string;
+  siteSlug: string;
+  page: { path: string; title: string | null };
+}
+
 interface MockData {
   /** id of the logged-in member in `members`, or null for an anonymous visitor. */
   loggedInMemberId: string | null;
@@ -271,6 +288,8 @@ interface MockData {
   invitees: Invitee[];
   keys: Key[];
   repositories: SiteRepository[];
+  /** In no particular order; the list endpoint sorts. */
+  feedback: MockFeedback[];
   deviceAuthorizations: MockDeviceAuthorization[];
   cliSessions: CliSession[];
   /** The interface language on the logged-in account; null is "follow my browser". */
@@ -492,6 +511,10 @@ function defaultData(): MockData {
         lastPublishedAt: lastPublishedAt,
         previewCount: 1,
         previousSlugs: [],
+        feedbackEnabled: true,
+        feedbackIdentity: 'name',
+        feedbackLive: false,
+        openFeedbackCount: 2,
       },
     ],
     versions: [
@@ -587,6 +610,101 @@ function defaultData(): MockData {
         createdAt: firstDeploy,
       },
     ],
+    // One of every status, author kind and target, so a list in dev and the
+    // axe runs meet each of them.
+    feedback: [
+      {
+        id: 'fb-3',
+        groupSlug: 'team-aurora',
+        siteSlug: 'website',
+        kind: 'page',
+        status: 'resolved',
+        comment: 'Het telefoonnummer ontbreekt op deze pagina.',
+        quote: null,
+        page: { path: 'contact/', title: 'Contact' },
+        target: 'preview',
+        previewRef: 'pr-42',
+        versionId: null,
+        author: { kind: 'anonymous', name: null, email: null },
+        hasScreenshot: false,
+        createdAt: '2026-07-16T11:40:00.000Z',
+        statusChangedAt: '2026-07-17T08:00:00.000Z',
+        statusChangedBy: 'Bea Heerder',
+        anchor: null,
+        viewport: { width: 390, height: 844, dpr: 3 },
+        replies: [
+          {
+            id: 'reactie-1',
+            author: { kind: 'member', name: 'Bea Heerder' },
+            body: 'Toegevoegd, dank je.',
+            createdAt: '2026-07-17T08:00:00.000Z',
+          },
+        ],
+      },
+      {
+        id: 'fb-2',
+        groupSlug: 'team-aurora',
+        siteSlug: 'website',
+        kind: 'point',
+        status: 'seen',
+        comment: 'De knop onderaan valt over de tekst heen op mijn telefoon.',
+        quote: null,
+        page: { path: '', title: 'Team Aurora' },
+        target: 'live',
+        previewRef: null,
+        versionId: 'versie-1',
+        author: { kind: 'account', name: 'Ada Vermeer', email: 'ada@voorbeeld.nl' },
+        hasScreenshot: false,
+        createdAt: '2026-07-17T15:02:00.000Z',
+        statusChangedAt: '2026-07-18T07:30:00.000Z',
+        statusChangedBy: 'Bea Heerder',
+        anchor: {
+          selectors: [{ type: 'CssSelector', value: 'main > footer > a' }],
+          point: { x: 0.5, y: 0.5, pageX: 180, pageY: 1400 },
+        },
+        viewport: { width: 390, height: 844, dpr: 3 },
+        replies: [
+          {
+            id: 'reactie-2',
+            author: { kind: 'member', name: 'Bea Heerder' },
+            body: 'Welk toestel gebruik je?',
+            createdAt: '2026-07-18T07:30:00.000Z',
+          },
+          {
+            id: 'reactie-3',
+            author: { kind: 'giver', name: null },
+            body: 'Een iPhone 13 mini.',
+            createdAt: '2026-07-18T08:10:00.000Z',
+          },
+        ],
+      },
+      {
+        id: 'fb-1',
+        groupSlug: 'team-aurora',
+        siteSlug: 'website',
+        kind: 'text',
+        status: 'new',
+        comment: 'Klopt dit bedrag?\nIn de begroting staat 2,6 miljoen.',
+        quote: '2,4 miljoen',
+        page: { path: 'docs/', title: 'Documentatie' },
+        target: 'preview',
+        previewRef: 'pr-42',
+        versionId: 'versie-preview-42',
+        author: { kind: 'name', name: 'Jan', email: null },
+        hasScreenshot: true,
+        createdAt: '2026-07-18T09:15:00.000Z',
+        statusChangedAt: null,
+        statusChangedBy: null,
+        anchor: {
+          selectors: [
+            { type: 'TextQuoteSelector', exact: '2,4 miljoen', prefix: 'begroting van ', suffix: ' euro voor' },
+          ],
+          point: null,
+        },
+        viewport: { width: 1280, height: 800, dpr: 2 },
+        replies: [],
+      },
+    ],
     deviceAuthorizations: [
       {
         userCode: 'ABCD-EFGH',
@@ -636,8 +754,65 @@ function siteDerived(data: MockData, site: Site): Site {
   const previewCount = data.previews.filter(
     (p) => p.groupSlug === site.groupSlug && p.siteSlug === site.slug,
   ).length;
-  return { ...site, previewCount };
+  const openFeedbackCount = data.feedback.filter(
+    (f) => f.groupSlug === site.groupSlug && f.siteSlug === site.slug && f.status !== 'resolved',
+  ).length;
+  return { ...site, previewCount, openFeedbackCount };
 }
+
+/** The wire shape of one item, with what the backend derives from the site's address. */
+function feedbackDetailOf(row: MockFeedback, withEmail: boolean): FeedbackDetail {
+  const item = feedbackItemOf(row, withEmail);
+  return {
+    ...item,
+    anchor: row.anchor,
+    viewport: row.viewport,
+    highlightUrl: row.kind === 'page' ? null : `${item.page.url}#toon-feedback=${row.id}`,
+    replies: row.replies.map((reply) => ({ ...reply, author: { ...reply.author } })),
+  };
+}
+
+/** The same item as a row of the list carries it. */
+function feedbackItemOf(row: MockFeedback, withEmail: boolean): FeedbackItem {
+  const root =
+    row.target === 'live'
+      ? `/${row.groupSlug}/${row.siteSlug}/`
+      : `/${row.groupSlug}/${row.siteSlug}/_preview/${row.previewRef}/`;
+  return {
+    id: row.id,
+    kind: row.kind,
+    status: row.status,
+    comment: row.comment,
+    quote: row.quote,
+    page: { ...row.page, url: `${MOCK_CONTENT_BASE}${root}${row.page.path}` },
+    target: row.target,
+    previewRef: row.previewRef,
+    versionId: row.versionId,
+    // Like the backend: a reader of the site sees who, never their address.
+    author: withEmail ? { ...row.author } : { ...row.author, email: null },
+    hasScreenshot: row.hasScreenshot,
+    replyCount: row.replies.length,
+    createdAt: row.createdAt,
+    statusChangedAt: row.statusChangedAt,
+    statusChangedBy: row.statusChangedBy,
+  };
+}
+
+/** Which statuses each value of the list's `status` filter takes in. */
+const FEEDBACK_STATUS_FILTERS: Record<string, FeedbackStatus[]> = {
+  open: ['new', 'seen'],
+  new: ['new'],
+  seen: ['seen'],
+  resolved: ['resolved'],
+  all: ['new', 'seen', 'resolved'],
+};
+const FEEDBACK_TARGETS = ['all', 'live', 'preview'];
+const FEEDBACK_STATUSES: FeedbackStatus[] = ['new', 'seen', 'resolved'];
+const FEEDBACK_IDENTITIES: FeedbackIdentity[] = ['account', 'name', 'anonymous'];
+/** Mirrors the cap on a reply body in the backend. */
+const FEEDBACK_REPLY_MAX_LENGTH = 5000;
+/** Mirrors the backend's cap on the replies of one item, the team's and the submitter's together. */
+const FEEDBACK_MAX_REPLIES = 100;
 
 /** Narrowest first, as in the backend's Role enum. */
 const ROLE_ORDER: Role[] = ['reader', 'editor', 'admin'];
@@ -966,6 +1141,7 @@ export function makeMockBackend(seed: MockData = defaultData()): MockBackend {
         data.invitees = data.invitees.filter((g) => g.groupSlug !== groupSlug);
         data.keys = data.keys.filter((k) => k.groupSlug !== groupSlug);
         data.siteRoles = data.siteRoles.filter((r) => r.groupSlug !== groupSlug);
+        data.feedback = data.feedback.filter((f) => f.groupSlug !== groupSlug);
         return empty(204);
       }
 
@@ -1021,6 +1197,7 @@ export function makeMockBackend(seed: MockData = defaultData()): MockBackend {
           ...data.invitees,
           ...data.keys,
           ...data.repositories,
+          ...data.feedback,
         ]) {
           if (row.groupSlug === groupSlug) row.groupSlug = slug;
         }
@@ -1064,6 +1241,10 @@ export function makeMockBackend(seed: MockData = defaultData()): MockBackend {
           lastPublishedAt: null,
           previewCount: 0,
           previousSlugs: [],
+          feedbackEnabled: false,
+          feedbackIdentity: 'account',
+          feedbackLive: false,
+          openFeedbackCount: 0,
         };
         data.sites.push(created);
         return json(201, created);
@@ -1272,6 +1453,9 @@ export function makeMockBackend(seed: MockData = defaultData()): MockBackend {
         data.siteRoles = data.siteRoles.filter(
           (r) => !(r.groupSlug === groupSlug && r.siteSlug === siteSlug),
         );
+        data.feedback = data.feedback.filter(
+          (f) => !(f.groupSlug === groupSlug && f.siteSlug === siteSlug),
+        );
         return empty(204);
       }
 
@@ -1345,6 +1529,7 @@ export function makeMockBackend(seed: MockData = defaultData()): MockBackend {
           ...data.invitees,
           ...data.keys,
           ...data.repositories,
+          ...data.feedback,
         ]) {
           if (row.groupSlug === groupSlug && row.siteSlug === siteSlug) row.siteSlug = slug;
         }
@@ -1693,6 +1878,146 @@ export function makeMockBackend(seed: MockData = defaultData()): MockBackend {
         }
         if (wanted) linkedRepository.siteIdRequired = true;
         return json(200, linkedRepository);
+      }
+
+      // feedback, and the settings that decide who may give it. Like the
+      // backend, these check who asks: no session (401), no such site (404),
+      // no role on it (404, a platform admin is spared that), too narrow a
+      // role (403).
+      if (rest[3] === 'feedback' || (rest[3] === 'feedback-settings' && rest.length === 4)) {
+        const caller = loggedInMember();
+        if (!caller) return notLoggedIn();
+        if (!siteRow) return siteNotFound();
+        const roles = myRoles(data, caller);
+        const role =
+          roles.siteRoles.find((r) => r.groupSlug === groupSlug && r.siteSlug === siteSlug)?.effectiveRole ??
+          roles.groupRoles.find((r) => r.groupSlug === groupSlug)?.role ??
+          null;
+        if (role === null && caller.platformRole !== 'admin') return siteNotFound();
+        const atLeast = (wanted: Role): boolean =>
+          role !== null && ROLE_ORDER.indexOf(role) >= ROLE_ORDER.indexOf(wanted);
+        if (!atLeast('reader')) return insufficientRole();
+        const withEmail = atLeast('editor');
+        const ofSite = data.feedback.filter((f) => f.groupSlug === groupSlug && f.siteSlug === siteSlug);
+        const row = ofSite.find((f) => f.id === rest[4]);
+        const feedbackNotFound = (): Response =>
+          problem(404, 'Niet gevonden', 'Onbekende feedback.', 'FEEDBACK_NOT_FOUND');
+
+        // PUT /sites/{group}/{site}/feedback-settings
+        if (rest[3] === 'feedback-settings' && method === 'PUT') {
+          if (!atLeast('admin')) return insufficientRole();
+          const body = readJson();
+          if (!FEEDBACK_IDENTITIES.includes(body.identity as FeedbackIdentity)) {
+            return problem(422, 'Onverwerkbare invoer', 'Onbekende waarde voor identity.');
+          }
+          siteRow.feedbackEnabled = Boolean(body.enabled);
+          siteRow.feedbackIdentity = body.identity as FeedbackIdentity;
+          siteRow.feedbackLive = Boolean(body.live);
+          return json(200, siteDerived(data, siteRow));
+        }
+
+        // GET /sites/{group}/{site}/feedback
+        if (rest[3] === 'feedback' && rest.length === 4 && method === 'GET') {
+          const statuses = FEEDBACK_STATUS_FILTERS[url.searchParams.get('status') ?? 'open'];
+          const target = url.searchParams.get('target') ?? 'all';
+          const ref = url.searchParams.get('ref');
+          if (!statuses || !FEEDBACK_TARGETS.includes(target) || (ref !== null && target !== 'preview')) {
+            return problem(422, 'Onverwerkbare invoer', 'Ongeldig filter.');
+          }
+          const limit = Number(url.searchParams.get('limit') ?? '50');
+          const matching = ofSite
+            .filter((f) => statuses.includes(f.status))
+            .filter((f) => target === 'all' || f.target === target)
+            .filter((f) => ref === null || f.previewRef === ref)
+            .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
+          // The mock's cursor is the id of the last item handed out: opaque all the same.
+          const cursor = url.searchParams.get('cursor');
+          const start = cursor === null ? 0 : matching.findIndex((f) => f.id === cursor) + 1;
+          if (start === 0 && cursor !== null) {
+            return problem(
+              422,
+              'Onverwerkbare invoer',
+              'De cursor is onleesbaar. Vraag de eerste pagina opnieuw op.',
+              'CURSOR_INVALID',
+            );
+          }
+          const slice = matching.slice(start, start + limit);
+          const page: FeedbackPage = {
+            items: slice.map((f) => feedbackItemOf(f, withEmail)),
+            nextCursor: start + limit < matching.length ? slice[slice.length - 1]!.id : null,
+            counts: {
+              new: ofSite.filter((f) => f.status === 'new').length,
+              seen: ofSite.filter((f) => f.status === 'seen').length,
+              resolved: ofSite.filter((f) => f.status === 'resolved').length,
+            },
+          };
+          return json(200, page);
+        }
+
+        // GET /sites/{group}/{site}/feedback/{id}
+        if (rest.length === 5 && method === 'GET') {
+          if (!row) return feedbackNotFound();
+          return json(200, feedbackDetailOf(row, withEmail));
+        }
+
+        // DELETE /sites/{group}/{site}/feedback/{id}
+        if (rest.length === 5 && method === 'DELETE') {
+          if (!atLeast('admin')) return insufficientRole();
+          if (!row) return feedbackNotFound();
+          data.feedback = data.feedback.filter((f) => f !== row);
+          return empty(204);
+        }
+
+        // PUT /sites/{group}/{site}/feedback/{id}/status
+        if (rest.length === 6 && rest[5] === 'status' && method === 'PUT') {
+          if (!atLeast('editor')) return insufficientRole();
+          if (!row) return feedbackNotFound();
+          const status = readJson().status as FeedbackStatus;
+          if (!FEEDBACK_STATUSES.includes(status)) {
+            return problem(422, 'Onverwerkbare invoer', 'Onbekende status.');
+          }
+          // The same status again changes nothing, as in the backend.
+          if (status !== row.status) {
+            row.status = status;
+            row.statusChangedAt = now();
+            row.statusChangedBy = caller.name;
+          }
+          return json(200, feedbackDetailOf(row, withEmail));
+        }
+
+        // POST /sites/{group}/{site}/feedback/{id}/replies
+        if (rest.length === 6 && rest[5] === 'replies' && method === 'POST') {
+          if (!atLeast('editor')) return insufficientRole();
+          if (!row) return feedbackNotFound();
+          const body = String(readJson().body ?? '').trim();
+          if (body === '') {
+            return problem(422, 'Onverwerkbare invoer', "Veld 'body' mag niet leeg zijn.", 'FIELD_EMPTY');
+          }
+          if ([...body].length > FEEDBACK_REPLY_MAX_LENGTH) {
+            return problem(
+              422,
+              'Onverwerkbare invoer',
+              `Veld 'body' mag hoogstens ${FEEDBACK_REPLY_MAX_LENGTH} tekens lang zijn.`,
+              'FIELD_TOO_LONG',
+            );
+          }
+          if (row.replies.length >= FEEDBACK_MAX_REPLIES) {
+            return problem(
+              409,
+              'Conflict',
+              'Bij deze feedback kunnen geen reacties meer bij.',
+              'FEEDBACK_THREAD_FULL',
+            );
+          }
+          const reply: FeedbackReply = {
+            id: nextId('reactie'),
+            author: { kind: 'member', name: caller.name },
+            body,
+            createdAt: now(),
+          };
+          row.replies.push(reply);
+          return json(201, reply);
+        }
       }
 
       // storage

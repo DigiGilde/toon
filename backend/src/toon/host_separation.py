@@ -7,8 +7,11 @@ admin host the SPA is the fallback for the whole path space, with the app's
 own paths carved out of it (platform/spa.py). On the content host only content exists
 (`/{group}/{site}/...`), robots.txt, favicon.ico, .well-known, the redirect
 to the admin landing page on `/` (platform/pages.py) and of the platform namespace exactly
-four paths: the content login, its callback, the content logout and the code
-of a secret link shared without it (the segment `-` is never a slug).
+five things: the content login, its callback, the content logout, the code
+of a secret link shared without it (the segment `-` is never a slug), and
+everything under `/-/feedback/`: the site feedback widget, its API and its
+pages, whose routes check the host themselves and answer the rest of the
+prefix with the neutral 404.
 Everything else under `/-/` is refused there, the API included - without that
 rule moving the API from /beheer/api to /-/api would silently publish it on
 the content host; that includes `/-/healthz`, which only the admin host answers
@@ -29,6 +32,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from toon.constants import (
     PATH_CONTENT_CODE,
+    PATH_CONTENT_FEEDBACK_PREFIX,
     PATH_CONTENT_LOGIN,
     PATH_CONTENT_LOGOUT,
     PATH_CONTENT_OAUTH2_PREFIX,
@@ -53,12 +57,12 @@ def belongs_to_content(path: str) -> bool:
     # admin landing page (platform/pages.py). Everything the content world does not
     # own is carved out below; what is left over is content.
     if path_under(path, PLATFORM_PREFIX):
-        # Only the content login, its callback, logout and the code of a
-        # secret link live here. Everything else under /-/ belongs to the
-        # admin host alone; the API above all, which this branch is what
-        # keeps off the content host.
+        # Only the content login, its callback, logout, the code of a
+        # secret link and site feedback live here. Everything else under /-/
+        # belongs to the admin host alone; the API above all, which this
+        # branch is what keeps off the content host.
         return path in (PATH_CONTENT_LOGIN, PATH_CONTENT_LOGOUT, PATH_CONTENT_CODE) or path.startswith(
-            PATH_CONTENT_OAUTH2_PREFIX
+            (PATH_CONTENT_OAUTH2_PREFIX, PATH_CONTENT_FEEDBACK_PREFIX)
         )
     return True
 

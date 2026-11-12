@@ -247,6 +247,10 @@ describe('Done (reload and share)', () => {
       lastPublishedAt: '2026-07-17T14:32:00.000Z',
       previewCount: 0,
       previousSlugs: [],
+      feedbackEnabled: false,
+      feedbackIdentity: 'account',
+      feedbackLive: false,
+      openFeedbackCount: 0,
     });
     const wrapper = await mountComponent('/team-aurora/website/done');
     await flushPromises();

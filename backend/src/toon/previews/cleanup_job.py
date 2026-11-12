@@ -6,8 +6,9 @@ by an interrupted upsert/teardown), live versions older than the ones a
 site keeps (its own number, else TOON_LIVE_VERSIONS_KEPT; row and file tree),
 stale `_tmp` directories in the ContentStore, version and site directories that
 lost their row (set aside in `_reclaimed` first, removed a week later),
-expired CLI device authorizations and CLI sessions, and the old slugs of
-groups and sites whose redirect has ended, which frees them for anyone.
+expired CLI device authorizations and CLI sessions, the old slugs of groups
+and sites whose redirect has ended, which frees them for anyone, and site
+feedback past its retention.
 
 `delete_expired` is the core and can be called on its own by tests; main.py
 starts the background loop through `cleanup_job()`, an async context manager,
@@ -30,8 +31,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from toon.audit import vocabulary
 from toon.cli import service as cli
+from toon.constants import FeedbackStatus
 from toon.ingest.store import ContentStore, version_ref
 from toon.models.audit import ActorKind, AuditLogEntry
+from toon.models.feedback import FeedbackItem, FeedbackScreenshot
 from toon.models.identity import Group
 from toon.models.publication import Preview, Site, Version, VersionTarget
 from toon.models.slugs import GroupSlug, SiteSlug
@@ -62,6 +65,9 @@ class CleanupResult:
     held_directories: int = 0
     reclaimed_swept: int = 0
     released_slugs: int = 0
+    feedback_resolved_items: int = 0
+    feedback_screenshots: int = 0
+    feedback_open_items: int = 0
 
 
 async def _cleanup_expired_previews(
@@ -258,6 +264,72 @@ async def _release_retired_slugs(factory: async_sessionmaker[AsyncSession], now:
     return released
 
 
+async def _purge_feedback(
+    factory: async_sessionmaker[AsyncSession],
+    now: datetime,
+    *,
+    resolved_days: int,
+    screenshot_days: int,
+    open_days: int,
+) -> tuple[int, int, int]:
+    """Deletes site feedback past its retention, each term in days, 0 keeps:
+    resolved items after `resolved_days` since they were resolved, the
+    screenshots of resolved items after `screenshot_days`, and items still new
+    or seen after `open_days` since they came in. Returns the resolved items,
+    the screenshots and the open items it removed.
+
+    No audit row: a row per item would keep a trace of what this removes for
+    three years. One log line per run says that it ran and what it took."""
+    resolved_items = screenshots = open_items = 0
+    async with factory() as db, db.begin():
+        # Each a single statement that decides and deletes, so an item opened
+        # again while this runs is read again once that commits, and stays.
+        if resolved_days:
+            resolved = await db.scalars(
+                delete(FeedbackItem)
+                .where(
+                    FeedbackItem.status == FeedbackStatus.RESOLVED,
+                    FeedbackItem.resolved_at < now - timedelta(days=resolved_days),
+                )
+                .returning(FeedbackItem.id)
+            )
+            resolved_items = len(resolved.all())
+        if open_days:
+            stale = await db.scalars(
+                delete(FeedbackItem)
+                .where(
+                    FeedbackItem.status.in_((FeedbackStatus.NEW, FeedbackStatus.SEEN)),
+                    FeedbackItem.created_at < now - timedelta(days=open_days),
+                )
+                .returning(FeedbackItem.id)
+            )
+            open_items = len(stale.all())
+        if screenshot_days:
+            # The lock is what makes the item read again: the screenshot rows
+            # themselves are not what a reopening item locks.
+            resolved_long_ago = (
+                select(FeedbackItem.id)
+                .where(
+                    FeedbackItem.status == FeedbackStatus.RESOLVED,
+                    FeedbackItem.resolved_at < now - timedelta(days=screenshot_days),
+                )
+                .with_for_update(read=True)
+            )
+            gone = await db.scalars(
+                delete(FeedbackScreenshot)
+                .where(FeedbackScreenshot.item_id.in_(resolved_long_ago))
+                .returning(FeedbackScreenshot.item_id)
+            )
+            screenshots = len(gone.all())
+    _logger.info(
+        "Feedback purge removed %d resolved items, %d screenshots of resolved items and %d open items",
+        resolved_items,
+        screenshots,
+        open_items,
+    )
+    return resolved_items, screenshots, open_items
+
+
 async def delete_expired(
     factory: async_sessionmaker[AsyncSession],
     store: ContentStore,
@@ -265,11 +337,24 @@ async def delete_expired(
     *,
     tmp_older_than: timedelta = TMP_OLDER_THAN_DEFAULT,
     live_versions_kept: int = 0,
+    feedback_resolved_retention_days: int = 0,
+    feedback_screenshot_retention_days: int = 0,
+    feedback_open_retention_days: int = 0,
 ) -> CleanupResult:
     """Runs the full sweep once; callable straight from tests.
 
     `live_versions_kept` is the number for sites without their own, as
-    TOON_LIVE_VERSIONS_KEPT is; 0 keeps every live version of those sites."""
+    TOON_LIVE_VERSIONS_KEPT is; 0 keeps every live version of those sites.
+    The feedback retentions are the TOON_FEEDBACK_*_RETENTION_DAYS; 0 keeps."""
+    # First, before every step that touches the content volume: those raise
+    # on trouble there, and a retention must not wait for the volume.
+    feedback_resolved, feedback_screenshots, feedback_open = await _purge_feedback(
+        factory,
+        now,
+        resolved_days=feedback_resolved_retention_days,
+        screenshot_days=feedback_screenshot_retention_days,
+        open_days=feedback_open_retention_days,
+    )
     expired = await _cleanup_expired_previews(factory, store, now)
     orphans = await _cleanup_orphan_preview_versions(factory, store)
     old_live = await _cleanup_old_live_versions(factory, store, live_versions_kept)
@@ -289,6 +374,9 @@ async def delete_expired(
         held_directories=held_directories,
         reclaimed_swept=reclaimed_swept,
         released_slugs=released_slugs,
+        feedback_resolved_items=feedback_resolved,
+        feedback_screenshots=feedback_screenshots,
+        feedback_open_items=feedback_open,
     )
 
 
@@ -308,6 +396,9 @@ async def _run_daily(
     occurred_at: time,
     tmp_older_than: timedelta,
     live_versions_kept: int,
+    feedback_resolved_retention_days: int,
+    feedback_screenshot_retention_days: int,
+    feedback_open_retention_days: int,
     stop: asyncio.Event,
 ) -> None:
     while not stop.is_set():
@@ -323,6 +414,9 @@ async def _run_daily(
                 datetime.now(tz=UTC),
                 tmp_older_than=tmp_older_than,
                 live_versions_kept=live_versions_kept,
+                feedback_resolved_retention_days=feedback_resolved_retention_days,
+                feedback_screenshot_retention_days=feedback_screenshot_retention_days,
+                feedback_open_retention_days=feedback_open_retention_days,
             )
         except Exception:
             # A transient failure (DB hiccup, ...) must not end the loop: the
@@ -337,13 +431,16 @@ async def cleanup_job(
     store: ContentStore,
     *,
     live_versions_kept: int,
+    feedback_resolved_retention_days: int,
+    feedback_screenshot_retention_days: int,
+    feedback_open_retention_days: int,
     occurred_at: time = TIMESTAMP_DEFAULT,
     tmp_older_than: timedelta = TMP_OLDER_THAN_DEFAULT,
 ) -> AsyncIterator[asyncio.Task]:
     """Background task that runs the sweep daily at `occurred_at` (UTC).
 
     Meant to be opened inside the lifespan of main.py:
-    `async with cleanup_job(factory, store, live_versions_kept=...): yield`.
+    `async with cleanup_job(factory, store, live_versions_kept=..., ...): yield`.
     """
     stop = asyncio.Event()
     task = asyncio.create_task(
@@ -353,6 +450,9 @@ async def cleanup_job(
             occurred_at=occurred_at,
             tmp_older_than=tmp_older_than,
             live_versions_kept=live_versions_kept,
+            feedback_resolved_retention_days=feedback_resolved_retention_days,
+            feedback_screenshot_retention_days=feedback_screenshot_retention_days,
+            feedback_open_retention_days=feedback_open_retention_days,
             stop=stop,
         )
     )

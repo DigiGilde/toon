@@ -43,6 +43,7 @@ export const designSystemEn = {
   'designSystem.fileField.folderOneFile': '{folder} (1 file)',
   'designSystem.fileField.folderCountShort': '{folder} ({count})',
   'designSystem.fileField.showOptions': 'Show options',
+  'designSystem.image.error': 'The image did not load',
   'designSystem.linkHint.newTab': 'opens in a new tab',
   'designSystem.linkHint.external': 'other website',
   'designSystem.linkHint.externalNewTab': 'other website, opens in a new tab',

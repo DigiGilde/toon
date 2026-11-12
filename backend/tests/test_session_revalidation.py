@@ -25,11 +25,12 @@ from helpers_oidc import (
     set_content_session_cookie,
     set_session_cookie,
 )
+from starlette.requests import Request
 
 from toon.audit import vocabulary
 from toon.auth.oidc import RefreshRejectedError
-from toon.auth.revalidation import RECHECK_BACKOFF, idp_fault, revalidation_status
-from toon.auth.sessions import SessionStore
+from toon.auth.revalidation import RECHECK_BACKOFF, idp_fault, revalidate_session, revalidation_status
+from toon.auth.sessions import SessionKind, SessionStore
 from toon.models.audit import ActorKind
 
 pytestmark = pytest.mark.asyncio
@@ -413,6 +414,109 @@ async def test_the_login_stores_the_refresh_token_and_sid() -> None:
     assert len(sessions) == 1
     assert sessions[0].refresh_token == idp.refresh_token
     assert sessions[0].sid == idp.sid
+
+
+class TestACookielessCaller:
+    """`revalidate_session`, for the feedback widget API: it finds its
+    session through a page token instead of a cookie, so the middleware never
+    sees it, and asks for the same check itself."""
+
+    @staticmethod
+    def _content_session(app):
+        store: SessionStore = app.state.session_store
+        return store.create_session(
+            sub="gebruiker-1",
+            email="gebruiker@example.nl",
+            email_verified=True,
+            acr="urn:acr:hoog",
+            kind=SessionKind.CONTENT,
+            refresh_token="ververstoken-1",
+        )
+
+    @staticmethod
+    def _aged(app, session, *, seconds: int):
+        """The session as the store holds it once aged: what a caller reads
+        and hands in."""
+        _age(app, session, seconds=seconds)
+        return app.state.session_store.get_session(session.id)
+
+    @staticmethod
+    def _request(app) -> Request:
+        """A request that carries no cookie at all, as the widget sends it."""
+        return Request(
+            {
+                "type": "http",
+                "app": app,
+                "method": "POST",
+                "path": "/-/feedback/v1/items",
+                "headers": [],
+                "query_string": b"",
+                "client": ("127.0.0.1", 50000),
+            }
+        )
+
+    async def test_a_session_that_is_not_due_comes_back_unasked(self) -> None:
+        idp, app = _make()
+        session = self._aged(app, self._content_session(app), seconds=RECHECK_S - 60)
+
+        kept = await revalidate_session(self._request(app), session)
+
+        assert _refresh_grants(idp) == []
+        assert kept == app.state.session_store.get_session(session.id)
+
+    async def test_a_due_session_is_checked_and_comes_back_confirmed(self) -> None:
+        idp, app = _make()
+        idp.next_refresh_token = "ververstoken-2"
+        session = self._aged(app, self._content_session(app), seconds=RECHECK_S + 1)
+
+        kept = await revalidate_session(self._request(app), session)
+
+        assert len(_refresh_grants(idp)) == 1
+        assert kept is not None
+        assert kept.id == session.id
+        assert kept.refresh_token == "ververstoken-2"
+        assert kept.checked_at is not None and kept.checked_at > session.checked_at
+
+    async def test_a_session_the_idp_ended_is_gone_and_audited(self) -> None:
+        idp, app = _make()
+        idp.refresh_error = "invalid_grant"
+        idp.refresh_status = 400
+        recorder = install_audit_recorder(app)
+        session = self._aged(app, self._content_session(app), seconds=RECHECK_S + 1)
+
+        assert await revalidate_session(self._request(app), session) is None
+
+        assert app.state.session_store.get_session(session.id) is None
+        record = recorder.only()
+        assert record.reason_code == vocabulary.IDP_SESSION_ENDED
+        assert record.refs == {"kind": "content"}
+
+    async def test_a_soft_failure_keeps_the_session(self) -> None:
+        idp, app = _make()
+        idp.refresh_status = 503
+        session = self._aged(app, self._content_session(app), seconds=RECHECK_S + 1)
+
+        kept = await revalidate_session(self._request(app), session)
+
+        assert kept is not None
+        assert kept.recheck_not_before is not None
+
+    async def test_a_session_gone_already_comes_back_as_none(self) -> None:
+        idp, app = _make()
+        session = self._content_session(app)
+        app.state.session_store.delete_session(session.id)
+
+        assert await revalidate_session(self._request(app), session) is None
+        assert _refresh_grants(idp) == []
+
+    async def test_with_the_recheck_off_the_idp_is_never_asked(self) -> None:
+        idp, app = _make(idp_recheck_seconds=0)
+        session = self._aged(app, self._content_session(app), seconds=10 * RECHECK_S)
+
+        kept = await revalidate_session(self._request(app), session)
+
+        assert _refresh_grants(idp) == []
+        assert kept == app.state.session_store.get_session(session.id)
 
 
 class TestBrokenCoupling:

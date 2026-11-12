@@ -17,7 +17,7 @@ from starlette.types import Receive, Scope, Send
 
 from toon.constants import HEAD_SCOPE_KEY, AccessPolicy
 from toon.ingest import precompress
-from toon.serving import mime
+from toon.serving import feedback_inject, mime
 
 # Every content policy comes out of this one table, so the variants cannot
 # drift apart: each is this base plus the additions of the site switches that
@@ -65,7 +65,8 @@ EXTERNAL_SOURCES: dict[str, tuple[str, ...]] = {
 # and reach the gate with the site's credentials, but only because those
 # cookies are SameSite=None (auth/sessions.py). What cannot work here is what
 # the browser fetches in CORS mode: web fonts, module scripts and fetch/XHR
-# arrive with `Origin: null` and no cookie, and this app sets no CORS headers.
+# arrive with `Origin: null` and no cookie, and content answers carry no CORS
+# headers.
 # A site that needs those has to have the switch off.
 SANDBOX: dict[str, tuple[str, ...]] = {
     "sandbox": ("allow-scripts", "allow-forms", "allow-popups"),
@@ -196,10 +197,18 @@ def _base_headers(
     sandbox: bool,
     encoding: str | None,
     varies: bool,
+    fetch_dest_varies: bool,
+    no_store: bool,
 ) -> dict[str, str]:
+    vary = ["Service-Worker", "Accept-Encoding"] if varies else ["Service-Worker"]
+    if fetch_dest_varies:
+        # A page that only a navigation gets with the feedback widget in it
+        # (serving/feedback_inject.py): a cache must never hand a navigation
+        # the copy another request left.
+        vary.append("Sec-Fetch-Dest")
     headers = {
         "Content-Type": content_type,
-        "Cache-Control": cache_control(content_type, access, version_view=version_view),
+        "Cache-Control": "no-store" if no_store else cache_control(content_type, access, version_view=version_view),
         "ETag": etag_for(version_id, encoding),
         "X-Content-Type-Options": "nosniff",
         "Content-Security-Policy": content_csp(
@@ -215,7 +224,7 @@ def _base_headers(
         # (updateViaCache 'all'); without this, from what a plain request for
         # the same file left there, and the router never sees the refusal's
         # Service-Worker header.
-        "Vary": "Service-Worker, Accept-Encoding" if varies else "Service-Worker",
+        "Vary": ", ".join(vary),
     }
     if encoding is not None:
         headers["Content-Encoding"] = encoding
@@ -235,6 +244,7 @@ def make_304(
     sandbox: bool,
     encoding: str | None,
     varies: bool,
+    fetch_dest_varies: bool,
 ) -> Response:
     """304 on If-None-Match, by the app itself, without touching the store: the
     headers follow purely from path and decision.
@@ -257,6 +267,8 @@ def make_304(
         sandbox=sandbox,
         encoding=encoding,
         varies=varies,
+        fetch_dest_varies=fetch_dest_varies,
+        no_store=False,
     )
     del headers["Content-Type"]
     headers.pop("Content-Encoding", None)
@@ -318,6 +330,8 @@ def make_content_response(
     varies: bool,
     gunzip: bool = False,
     status_code: int = 200,
+    fetch_dest_varies: bool = False,
+    no_store: bool = False,
 ) -> Response:
     content_type = mime.determine(rel_path)
     headers = _base_headers(
@@ -330,7 +344,44 @@ def make_content_response(
         sandbox=sandbox,
         encoding=encoding,
         varies=varies,
+        fetch_dest_varies=fetch_dest_varies,
+        no_store=no_store,
     )
     if gunzip:
         return _GunzipResponse(file_path, status_code=status_code, headers=headers, media_type=content_type)
     return _ContentFileResponse(file_path, status_code=status_code, headers=headers, media_type=content_type)
+
+
+def make_injected_response(
+    *,
+    rel_path: str,
+    version_id: uuid.UUID,
+    access: AccessPolicy,
+    noindex: bool,
+    external_sources: bool,
+    sandbox: bool,
+    varies: bool,
+    injection: feedback_inject.Injection,
+) -> Response:
+    """A page with the feedback widget in it (serving/feedback_inject.py). The
+    headers of the file as published, but for what the token in it changes:
+    never stored, no ETag and so no Range, since these bytes are this answer's
+    alone, no Content-Encoding, since it goes out decoded, and the exact
+    length."""
+    content_type = mime.determine(rel_path)
+    headers = _base_headers(
+        content_type,
+        version_id,
+        access,
+        version_view=False,
+        noindex=noindex,
+        external_sources=external_sources,
+        sandbox=sandbox,
+        encoding=None,
+        varies=varies,
+        fetch_dest_varies=True,
+        no_store=True,
+    )
+    del headers["ETag"]
+    headers["Content-Length"] = str(injection.size + len(injection.tag))
+    return feedback_inject.InjectedResponse(injection, headers=headers, media_type=content_type)

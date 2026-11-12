@@ -5,6 +5,7 @@ import { createMemoryHistory, createRouter, type Router } from 'vue-router';
 import { makeMockBackend, type MockBackend } from '../../tests/mock-api';
 import { _resetCurrentMemberCache } from '@/composables/currentMember';
 import { serverErrorFetch, untilIdle } from '@/components/site/testHelpers';
+import { _setLocaleForTest } from '@/i18n';
 import CliLink from './CliLink.vue';
 
 let backend: MockBackend;
@@ -371,6 +372,27 @@ describe('CliLink: looking up the code via the url', () => {
     expect(wrapper.find('[data-testid="code-account"]').attributes('text')).toBe(
       `Je koppelt dit programma aan ${member.email}`,
     );
+  });
+
+  it('says what the linked program can do, the feedback included', async () => {
+    const { wrapper } = await makeWrapper('/cli-link?code=ABCD-EFGH');
+
+    expect(wrapper.find('[data-testid="code-account"]').attributes('supporting-text')).toBe(
+      'Het programma kan daarna met al jouw rollen alles wat de Toon-CLI kan, zoals publiceren, en de feedback op je sites lezen, afhandelen en beantwoorden, met namen, e-mailadressen en schermafbeeldingen. Dat blijft zo tot je het ontkoppelt.',
+    );
+  });
+
+  it('says what the linked program can do in English too', async () => {
+    _setLocaleForTest('en');
+    try {
+      const { wrapper } = await makeWrapper('/cli-link?code=ABCD-EFGH');
+
+      expect(wrapper.find('[data-testid="code-account"]').attributes('supporting-text')).toBe(
+        'After that the program can do everything the Toon CLI can with all of your roles, such as publishing, and reading, resolving and answering the feedback on your sites, with names, e-mail addresses and screenshots. That lasts until you unlink it.',
+      );
+    } finally {
+      _setLocaleForTest('nl');
+    }
   });
 
   it('shows no network line when the request carries no truncated address', async () => {

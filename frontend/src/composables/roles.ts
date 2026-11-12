@@ -6,6 +6,7 @@
 import type { Me, Role } from '@/api/types';
 
 const CAN_CREATE_SITE: readonly Role[] = ['editor', 'admin'];
+const EDITOR_OR_ADMIN: readonly Role[] = ['editor', 'admin'];
 
 /**
  * Whether `me` may create a site in this group right now: a group role of
@@ -33,6 +34,21 @@ export function isGroupAdmin(me: Me | null | undefined, groupSlug: string): bool
  */
 export function isGroupMember(me: Me | null | undefined, groupSlug: string): boolean {
   return me?.groupRoles.some((r) => r.groupSlug === groupSlug) ?? false;
+}
+
+/**
+ * Whether `me` is editor or admin of this site: the widest of the group role
+ * and the site role is one of those. Mirrors `effective_site_role` in the
+ * backend; no platform-admin bypass.
+ */
+export function isSiteEditor(me: Me | null | undefined, groupSlug: string, siteSlug: string): boolean {
+  return (
+    (me?.groupRoles.some((r) => r.groupSlug === groupSlug && EDITOR_OR_ADMIN.includes(r.role)) ||
+      me?.siteRoles.some(
+        (r) => r.groupSlug === groupSlug && r.siteSlug === siteSlug && EDITOR_OR_ADMIN.includes(r.effectiveRole),
+      )) ??
+    false
+  );
 }
 
 /**

@@ -10,11 +10,11 @@ Auth is one of three:
   which acts as its member with exactly that member's roles;
 - an admin session with CSRF, for the upload in the SPA.
 
-Bearer is accepted on these two endpoints, the two CLI session endpoints and
-the two creation endpoints of the admin API (`POST /groups`, `POST
-/groups/{group}/sites`, CLI token only) and nowhere else:
-`BearerOutsideDeploysMiddleware` rejects any other request carrying a Bearer
-Authorization header with a 401.
+Bearer is accepted on these two endpoints, the two CLI session endpoints and,
+with a CLI token only, on the admin routes that create a group or a site, link
+a repository, or read, mark or answer feedback (`accepts_bearer`), and nowhere
+else: `BearerOutsideDeploysMiddleware` rejects any other request carrying a
+Bearer Authorization header with a 401.
 main.py registers router and middleware; the app supplies on app.state:
 settings, session_factory, session_store, content_store and audit_log.
 
@@ -95,6 +95,16 @@ CLI_WHOAMI_PATH = "/-/api/v1/cli/whoami"
 GROUP_CREATE_PATH = "/-/api/v1/groups"
 _SITE_CREATE_PATH_RE = re.compile(r"^/-/api/v1/groups/[^/]+/sites$")
 _REPOSITORY_LINK_PATH_RE = re.compile(r"^/-/api/v1/sites/[^/]+/[^/]+/repository$")
+# Reading, marking and answering feedback (api/admin.py) take it too;
+# deleting an item and the feedback settings stay session only.
+_FEEDBACK_PATH = r"^/-/api/v1/sites/[^/]+/[^/]+/feedback"
+_FEEDBACK_CLI_ENDPOINTS = (
+    ("GET", re.compile(_FEEDBACK_PATH + r"$")),
+    ("GET", re.compile(_FEEDBACK_PATH + r"/[^/]+$")),
+    ("GET", re.compile(_FEEDBACK_PATH + r"/[^/]+/screenshot$")),
+    ("PUT", re.compile(_FEEDBACK_PATH + r"/[^/]+/status$")),
+    ("POST", re.compile(_FEEDBACK_PATH + r"/[^/]+/replies$")),
+)
 
 router = APIRouter(prefix="/-/api/v1")
 
@@ -261,13 +271,18 @@ def is_repository_link_endpoint(method_: str, path: str) -> bool:
     return method_ == "PUT" and bool(_REPOSITORY_LINK_PATH_RE.match(path))
 
 
+def is_feedback_cli_endpoint(method_: str, path: str) -> bool:
+    return any(method_ == method and pattern.match(path) for method, pattern in _FEEDBACK_CLI_ENDPOINTS)
+
+
 def accepts_bearer(method_: str, path: str) -> bool:
     """The deploy endpoints, the CLI's logout and whoami, group and site
-    creation, and linking a repository."""
+    creation, linking a repository, and the feedback routes the CLI uses."""
     if (
         is_deploy_endpoint(method_, path)
         or is_creation_endpoint(method_, path)
         or is_repository_link_endpoint(method_, path)
+        or is_feedback_cli_endpoint(method_, path)
     ):
         return True
     return (method_, path) in (("DELETE", CLI_SESSION_PATH), ("GET", CLI_WHOAMI_PATH))
@@ -709,8 +724,8 @@ def _deployer(auth: _DeployAuth) -> Deployer:
         "(`Authorization: Bearer tooncli_...`): it acts as the member who signed in, with exactly their "
         "roles. (3) An admin session plus CSRF header. With (2) and (3) the member must be active and have at "
         "least the `editor` role on this site. This endpoint and the preview teardown are, together with the "
-        "CLI session endpoints, the creation of a group or site and the linking of a repository, the only ones that "
-        "accept a Bearer token; elsewhere that header yields 401.\n\n"
+        "CLI session endpoints, the creation of a group or site, the linking of a repository and reading, marking "
+        "and answering feedback, the only ones that accept a Bearer token; elsewhere that header yields 401.\n\n"
         "**Flow:** authorization comes first, only then is the body read, so a refused "
         "request costs no upload. The upload streams to disk and is unpacked against the limits "
         "below. Every deploy, whether it succeeds or is refused, ends up in the audit log.\n\n"

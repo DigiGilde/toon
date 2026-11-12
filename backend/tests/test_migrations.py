@@ -11,16 +11,30 @@ import json
 import os
 import pathlib
 import uuid
-from datetime import timedelta
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime, timedelta
 
 import asyncpg
 import pytest
 from helpers_audit import insert_aged_audit_row
+from sqlalchemy import CheckConstraint
 
 from toon import i18n
 from toon.audit import vocabulary
-from toon.constants import RESERVED_SLUGS, ROLE_RANK, AccessBase, Role
+from toon.constants import (
+    RESERVED_SLUGS,
+    ROLE_RANK,
+    AccessBase,
+    FeedbackAuthor,
+    FeedbackIdentity,
+    FeedbackKind,
+    FeedbackReplyAuthor,
+    FeedbackStatus,
+    Role,
+)
+from toon.models.feedback import FeedbackItem, FeedbackReply, FeedbackScreenshot
 from toon.models.identity import MemberLanguage
+from toon.models.publication import VersionTarget
 
 pytestmark = pytest.mark.asyncio
 
@@ -123,6 +137,9 @@ async def test_all_core_tables_exist(db_connection: asyncpg.Connection) -> None:
         "audit_log_entries",
         "group_slugs",
         "site_slugs",
+        "feedback_items",
+        "feedback_replies",
+        "feedback_screenshots",
     }
     rows = await db_connection.fetch(
         "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
@@ -1623,3 +1640,561 @@ async def test_the_slug_namespace_takes_in_every_slug_and_goes_down_again(own_da
         )
     finally:
         await conn.close()
+
+
+# -- Site feedback (0008_feedback) ------------------------------------------
+
+_FEEDBACK_TABLES = ("feedback_items", "feedback_replies", "feedback_screenshots")
+_FEEDBACK_TYPES = ("feedback_identity", "feedback_kind", "feedback_author", "feedback_status", "feedback_reply_author")
+_FEEDBACK_SITE_COLUMNS = ("feedback_enabled", "feedback_identity", "feedback_live")
+
+_POINT_ANCHOR = json.dumps(
+    {
+        "selectors": [{"type": "CssSelector", "value": "main > p:nth-of-type(3)"}],
+        "point": {"x": 0.5, "y": 0.25, "pageX": 640, "pageY": 1200},
+    }
+)
+_TEXT_ANCHOR = json.dumps(
+    {
+        "selectors": [
+            {"type": "TextQuoteSelector", "exact": "2,4 miljoen", "prefix": "begroting van ", "suffix": " euro"}
+        ],
+        "point": None,
+    }
+)
+_POINT = {"kind": "point", "anchor": _POINT_ANCHOR}
+_TEXT = {"kind": "text", "anchor": _TEXT_ANCHOR, "quote": "2,4 miljoen"}
+_ACCOUNT = {"author_kind": "account", "author_sub": "sub-jan"}
+_VIEWPORT = {"width": 1280, "height": 800, "dpr": 2}
+_RESOLVED_AT = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
+
+# Stands for a real member id, which a parametrize list cannot hold.
+_A_MEMBER = object()
+
+# A PNG signature is enough here: the database checks the size, not the image.
+_PNG = b"\x89PNG\r\n\x1a\n"
+
+
+async def _insert(conn: asyncpg.Connection, table: str, values: dict[str, object]) -> None:
+    placeholders = ", ".join(f"${index}" for index in range(1, len(values) + 1))
+    # Table and column names come from this module, never from input.
+    statement = f"INSERT INTO {table} ({', '.join(values)}) VALUES ({placeholders})"  # noqa: S608
+    await conn.execute(statement, *values.values())
+
+
+async def _make_item(conn: asyncpg.Connection, site_id: uuid.UUID, **columns: object) -> uuid.UUID:
+    """A valid item on `site_id`, a whole-page remark on live without a name,
+    with `columns` put in place."""
+    item_id = uuid.uuid4()
+    values: dict[str, object] = {
+        "id": item_id,
+        "site_id": site_id,
+        "target": "live",
+        "page_path": "",
+        "kind": "page",
+        "comment": "Klopt dit bedrag?",
+        "author_kind": "anonymous",
+        **columns,
+    }
+    await _insert(conn, "feedback_items", values)
+    return item_id
+
+
+async def _make_reply(conn: asyncpg.Connection, item_id: uuid.UUID, **columns: object) -> uuid.UUID:
+    """A valid reply from the submitter, with `columns` put in place."""
+    reply_id = uuid.uuid4()
+    values = {"id": reply_id, "item_id": item_id, "author_kind": "giver", "body": "Dank je!", **columns}
+    await _insert(conn, "feedback_replies", values)
+    return reply_id
+
+
+async def _make_screenshot(conn: asyncpg.Connection, item_id: uuid.UUID, **columns: object) -> None:
+    data = columns.get("data", _PNG)
+    assert isinstance(data, bytes)
+    values = {
+        "item_id": item_id,
+        "media_type": "image/png",
+        "data": data,
+        "size_bytes": len(data),
+        "width": 1280,
+        "height": 800,
+        **columns,
+    }
+    await _insert(conn, "feedback_screenshots", values)
+
+
+async def _feedback_site(conn: asyncpg.Connection) -> uuid.UUID:
+    return await _make_site(conn, await _make_group(conn))
+
+
+async def _check_that_refuses(conn: asyncpg.Connection, insert: Callable[[], Awaitable[object]]) -> str:
+    """The CHECK constraint that refused `insert`; fails the test when the
+    row went in. Inside a savepoint, so the test's transaction stays usable."""
+    with pytest.raises(asyncpg.CheckViolationError) as refused:
+        async with conn.transaction():
+            await insert()
+    return refused.value.constraint_name
+
+
+@pytest.mark.parametrize(
+    ("type_name", "enum_class"),
+    [
+        ("feedback_kind", FeedbackKind),
+        ("feedback_author", FeedbackAuthor),
+        ("feedback_status", FeedbackStatus),
+        ("feedback_reply_author", FeedbackReplyAuthor),
+        ("feedback_identity", FeedbackIdentity),
+    ],
+)
+async def test_a_feedback_type_holds_the_application_values_in_their_order(
+    db_connection: asyncpg.Connection, type_name: str, enum_class: type
+) -> None:
+    """0008 writes the labels hardcoded. Their order is the sort order in SQL,
+    and for the identity setting it is the meaning: each level allows the
+    author kinds of the levels before it."""
+    assert await _enum_labels(db_connection, type_name) == [member.value for member in enum_class]
+
+
+async def test_the_feedback_target_uses_the_version_target_type(db_connection: asyncpg.Connection) -> None:
+    """Live or preview means the same on an item as on a version, so it is one
+    type, which 0008 uses and leaves alone."""
+    type_name = await db_connection.fetchval(
+        "SELECT udt_name FROM information_schema.columns WHERE table_name = 'feedback_items' AND column_name = 'target'"
+    )
+    assert type_name == "version_target"
+    assert await _enum_labels(db_connection, "version_target") == [target.value for target in VersionTarget]
+
+
+async def test_a_site_takes_no_feedback_until_an_admin_turns_it_on(db_connection: asyncpg.Connection) -> None:
+    """A site that never names the columns takes no feedback; switched on, it
+    would take it with an account only, and on previews only."""
+    site_id = await _feedback_site(db_connection)
+    row = await db_connection.fetchrow(
+        "SELECT feedback_enabled, feedback_identity, feedback_live FROM sites WHERE id = $1", site_id
+    )
+    assert tuple(row) == (False, FeedbackIdentity.ACCOUNT.value, False)
+
+
+@pytest.mark.parametrize("column", _FEEDBACK_SITE_COLUMNS)
+async def test_a_feedback_setting_of_a_site_is_never_null(db_connection: asyncpg.Connection, column: str) -> None:
+    site_id = await _feedback_site(db_connection)
+    with pytest.raises(asyncpg.NotNullViolationError):
+        async with db_connection.transaction():
+            # The column name comes from the parametrize list.
+            await db_connection.execute(f"UPDATE sites SET {column} = NULL WHERE id = $1", site_id)  # noqa: S608
+
+
+async def test_the_identity_setting_refuses_an_unknown_level(db_connection: asyncpg.Connection) -> None:
+    site_id = await _feedback_site(db_connection)
+    with pytest.raises(asyncpg.InvalidTextRepresentationError):
+        async with db_connection.transaction():
+            await db_connection.execute("UPDATE sites SET feedback_identity = 'iedereen' WHERE id = $1", site_id)
+
+
+async def test_an_item_comes_in_new(db_connection: asyncpg.Connection) -> None:
+    item_id = await _make_item(db_connection, await _feedback_site(db_connection))
+    row = await db_connection.fetchrow(
+        "SELECT status, status_changed_at, resolved_at, created_at FROM feedback_items WHERE id = $1", item_id
+    )
+    assert row["status"] == FeedbackStatus.NEW.value
+    assert (row["status_changed_at"], row["resolved_at"]) == (None, None)
+    assert row["created_at"] is not None
+
+
+@pytest.mark.parametrize(
+    "columns",
+    [
+        {},
+        {"target": "preview", "preview_ref": "pr-42"},
+        _POINT,
+        _TEXT,
+        {**_TEXT, "quote": "x" * 1000},
+        {"author_kind": "name", "author_name": "Jan"},
+        {"author_kind": "name", "author_name": "x" * 200},
+        _ACCOUNT,
+        {**_ACCOUNT, "author_name": "Jan Jansen", "author_email": "jan.jansen@example.org"},
+        {"page_path": "docs/", "page_title": "Documentatie"},
+        {"page_path": "x" * 2048, "page_title": "x" * 300, "comment": "x" * 5000},
+        {"comment": "x"},
+        {"viewport": json.dumps(_VIEWPORT)},
+        {"status": "seen"},
+        {"status": "resolved", "resolved_at": _RESOLVED_AT},
+    ],
+    ids=[
+        "page-live-anonymous",
+        "preview-with-ref",
+        "point",
+        "text",
+        "longest-quote",
+        "name",
+        "longest-name",
+        "account",
+        "account-with-name-and-email",
+        "relative-path-and-title",
+        "longest-path-title-and-comment",
+        "shortest-comment",
+        "viewport",
+        "seen",
+        "resolved",
+    ],
+)
+async def test_an_item_of_every_valid_shape_goes_in(db_connection: asyncpg.Connection, columns: dict) -> None:
+    item_id = await _make_item(db_connection, await _feedback_site(db_connection), **columns)
+    assert await db_connection.fetchval("SELECT count(*) FROM feedback_items WHERE id = $1", item_id) == 1
+
+
+@pytest.mark.parametrize(
+    ("constraint", "columns"),
+    [
+        ("ck_feedback_items_preview_ref", {"target": "preview"}),
+        ("ck_feedback_items_preview_ref", {"preview_ref": "pr-42"}),
+        ("ck_feedback_items_page_path", {"page_path": "x" * 2049}),
+        ("ck_feedback_items_page_path", {"page_path": "/docs/"}),
+        ("ck_feedback_items_page_title_length", {"page_title": "x" * 301}),
+        ("ck_feedback_items_anchor", {"anchor": _POINT_ANCHOR}),
+        ("ck_feedback_items_anchor", {"kind": "point"}),
+        ("ck_feedback_items_quote", {**_TEXT, "quote": None}),
+        ("ck_feedback_items_quote", {**_POINT, "quote": "2,4 miljoen"}),
+        ("ck_feedback_items_quote_length", {**_TEXT, "quote": "x" * 1001}),
+        ("ck_feedback_items_comment_length", {"comment": ""}),
+        ("ck_feedback_items_comment_length", {"comment": "x" * 5001}),
+        ("ck_feedback_items_author", {"author_kind": "account"}),
+        ("ck_feedback_items_author", {"author_kind": "name"}),
+        ("ck_feedback_items_author", {"author_kind": "name", "author_name": "Jan", "author_sub": "sub-jan"}),
+        ("ck_feedback_items_author", {"author_kind": "name", "author_name": "Jan", "author_email": "jan@example.org"}),
+        ("ck_feedback_items_author", {"author_sub": "sub-jan"}),
+        ("ck_feedback_items_author", {"author_name": "Jan"}),
+        ("ck_feedback_items_author", {"author_email": "jan@example.org"}),
+        ("ck_feedback_items_author_name_length", {"author_kind": "name", "author_name": "x" * 201}),
+        ("ck_feedback_items_author_email_lowercase", {**_ACCOUNT, "author_email": "Jan@Example.org"}),
+        ("ck_feedback_items_viewport", {"viewport": json.dumps({"width": 1280, "height": 800})}),
+        ("ck_feedback_items_viewport", {"viewport": json.dumps({**_VIEWPORT, "zoom": 1})}),
+        ("ck_feedback_items_viewport", {"viewport": json.dumps([1280, 800, 2])}),
+        ("ck_feedback_items_viewport", {"viewport": json.dumps(1280)}),
+        ("ck_feedback_items_resolved_at", {"status": "resolved"}),
+        ("ck_feedback_items_resolved_at", {"status": "seen", "resolved_at": _RESOLVED_AT}),
+    ],
+    ids=[
+        "preview-without-ref",
+        "live-with-ref",
+        "path-too-long",
+        "path-with-leading-slash",
+        "title-too-long",
+        "page-with-anchor",
+        "point-without-anchor",
+        "text-without-quote",
+        "point-with-quote",
+        "quote-too-long",
+        "empty-comment",
+        "comment-too-long",
+        "account-without-sub",
+        "name-without-name",
+        "name-with-sub",
+        "name-with-email",
+        "anonymous-with-sub",
+        "anonymous-with-name",
+        "anonymous-with-email",
+        "name-too-long",
+        "email-not-lowercase",
+        "viewport-missing-a-key",
+        "viewport-with-an-extra-key",
+        "viewport-array",
+        "viewport-number",
+        "resolved-without-resolved-at",
+        "seen-with-resolved-at",
+    ],
+)
+async def test_an_item_that_breaks_a_rule_is_refused(
+    db_connection: asyncpg.Connection, constraint: str, columns: dict
+) -> None:
+    site_id = await _feedback_site(db_connection)
+    assert await _check_that_refuses(db_connection, lambda: _make_item(db_connection, site_id, **columns)) == constraint
+
+
+@pytest.mark.parametrize(
+    "columns",
+    [
+        {},
+        {"body": "x" * 5000},
+        {"author_kind": "member", "member_id": _A_MEMBER, "author_name": "Jan Jansen"},
+        {"author_kind": "member", "member_id": _A_MEMBER, "author_name": "x" * 200},
+        {"author_kind": "member", "member_id": _A_MEMBER},
+        {"author_kind": "member"},
+    ],
+    ids=["giver", "longest-body", "member", "longest-name", "member-without-name", "member-gone"],
+)
+async def test_a_reply_of_every_valid_shape_goes_in(db_connection: asyncpg.Connection, columns: dict) -> None:
+    item_id = await _make_item(db_connection, await _feedback_site(db_connection))
+    if columns.get("member_id") is _A_MEMBER:
+        columns = {**columns, "member_id": await _make_member(db_connection)}
+    reply_id = await _make_reply(db_connection, item_id, **columns)
+    assert await db_connection.fetchval("SELECT count(*) FROM feedback_replies WHERE id = $1", reply_id) == 1
+
+
+@pytest.mark.parametrize(
+    ("constraint", "columns"),
+    [
+        ("ck_feedback_replies_giver", {"member_id": _A_MEMBER}),
+        ("ck_feedback_replies_giver", {"author_name": "Jan"}),
+        ("ck_feedback_replies_author_name_length", {"author_kind": "member", "author_name": "x" * 201}),
+        ("ck_feedback_replies_body_length", {"body": ""}),
+        ("ck_feedback_replies_body_length", {"body": "x" * 5001}),
+    ],
+    ids=["giver-with-member", "giver-with-name", "name-too-long", "empty-body", "body-too-long"],
+)
+async def test_a_reply_that_breaks_a_rule_is_refused(
+    db_connection: asyncpg.Connection, constraint: str, columns: dict
+) -> None:
+    item_id = await _make_item(db_connection, await _feedback_site(db_connection))
+    if columns.get("member_id") is _A_MEMBER:
+        columns = {**columns, "member_id": await _make_member(db_connection)}
+    refused_by = await _check_that_refuses(db_connection, lambda: _make_reply(db_connection, item_id, **columns))
+    assert refused_by == constraint
+
+
+@pytest.mark.parametrize("media_type", ["image/png", "image/jpeg", "image/webp"])
+async def test_a_screenshot_of_each_raster_type_goes_in(db_connection: asyncpg.Connection, media_type: str) -> None:
+    item_id = await _make_item(db_connection, await _feedback_site(db_connection))
+    await _make_screenshot(db_connection, item_id, media_type=media_type)
+    size = await db_connection.fetchval("SELECT size_bytes FROM feedback_screenshots WHERE item_id = $1", item_id)
+    assert size == len(_PNG)
+
+
+@pytest.mark.parametrize(
+    ("constraint", "columns"),
+    [
+        ("ck_feedback_screenshots_media_type", {"media_type": "image/gif"}),
+        ("ck_feedback_screenshots_media_type", {"media_type": "image/svg+xml"}),
+        ("ck_feedback_screenshots_media_type", {"media_type": "IMAGE/PNG"}),
+        ("ck_feedback_screenshots_size_bytes", {"data": b"", "size_bytes": 0}),
+        ("ck_feedback_screenshots_size_bytes", {"size_bytes": len(_PNG) - 1}),
+        ("ck_feedback_screenshots_size_bytes", {"size_bytes": len(_PNG) + 1}),
+        ("ck_feedback_screenshots_dimensions", {"width": 0}),
+        ("ck_feedback_screenshots_dimensions", {"height": 0}),
+        ("ck_feedback_screenshots_dimensions", {"width": -1, "height": -1}),
+    ],
+    ids=[
+        "gif",
+        "svg",
+        "upper-case",
+        "empty",
+        "size-below-data",
+        "size-above-data",
+        "no-width",
+        "no-height",
+        "negative",
+    ],
+)
+async def test_a_screenshot_that_breaks_a_rule_is_refused(
+    db_connection: asyncpg.Connection, constraint: str, columns: dict
+) -> None:
+    item_id = await _make_item(db_connection, await _feedback_site(db_connection))
+    refused_by = await _check_that_refuses(db_connection, lambda: _make_screenshot(db_connection, item_id, **columns))
+    assert refused_by == constraint
+
+
+async def test_an_item_has_at_most_one_screenshot(db_connection: asyncpg.Connection) -> None:
+    item_id = await _make_item(db_connection, await _feedback_site(db_connection))
+    await _make_screenshot(db_connection, item_id)
+    with pytest.raises(asyncpg.UniqueViolationError):
+        async with db_connection.transaction():
+            await _make_screenshot(db_connection, item_id)
+
+
+async def _feedback_counts(conn: asyncpg.Connection, item_id: uuid.UUID) -> tuple[int, int, int]:
+    return (
+        await conn.fetchval("SELECT count(*) FROM feedback_items WHERE id = $1", item_id),
+        await conn.fetchval("SELECT count(*) FROM feedback_replies WHERE item_id = $1", item_id),
+        await conn.fetchval("SELECT count(*) FROM feedback_screenshots WHERE item_id = $1", item_id),
+    )
+
+
+async def _item_with_reply_and_screenshot(conn: asyncpg.Connection, site_id: uuid.UUID) -> uuid.UUID:
+    item_id = await _make_item(conn, site_id)
+    await _make_reply(conn, item_id)
+    await _make_screenshot(conn, item_id)
+    return item_id
+
+
+async def test_deleting_a_site_takes_its_feedback_along(db_connection: asyncpg.Connection) -> None:
+    group_id = await _make_group(db_connection)
+    site_id, other_site_id = await _make_site(db_connection, group_id), await _make_site(db_connection, group_id)
+    item_id = await _item_with_reply_and_screenshot(db_connection, site_id)
+    other_item_id = await _item_with_reply_and_screenshot(db_connection, other_site_id)
+
+    await db_connection.execute("DELETE FROM sites WHERE id = $1", site_id)
+
+    assert await _feedback_counts(db_connection, item_id) == (0, 0, 0)
+    assert await _feedback_counts(db_connection, other_item_id) == (1, 1, 1)
+
+
+async def test_deleting_a_group_takes_the_feedback_of_its_sites_along(db_connection: asyncpg.Connection) -> None:
+    group_id = await _make_group(db_connection)
+    item_id = await _item_with_reply_and_screenshot(db_connection, await _make_site(db_connection, group_id))
+
+    await db_connection.execute("DELETE FROM groups WHERE id = $1", group_id)
+
+    assert await _feedback_counts(db_connection, item_id) == (0, 0, 0)
+
+
+async def test_deleting_an_item_takes_its_replies_and_screenshot_along(db_connection: asyncpg.Connection) -> None:
+    site_id = await _feedback_site(db_connection)
+    item_id = await _item_with_reply_and_screenshot(db_connection, site_id)
+    other_item_id = await _item_with_reply_and_screenshot(db_connection, site_id)
+
+    await db_connection.execute("DELETE FROM feedback_items WHERE id = $1", item_id)
+
+    assert await _feedback_counts(db_connection, item_id) == (0, 0, 0)
+    assert await _feedback_counts(db_connection, other_item_id) == (1, 1, 1)
+
+
+async def test_deleting_a_member_keeps_what_they_handled(db_connection: asyncpg.Connection) -> None:
+    """The member goes from the item they resolved and from their reply; the
+    status and the reply stay, and the reply is still the site team's."""
+    member_id = await _make_member(db_connection)
+    item_id = await _make_item(
+        db_connection,
+        await _feedback_site(db_connection),
+        status="resolved",
+        resolved_at=_RESOLVED_AT,
+        status_changed_at=_RESOLVED_AT,
+        status_changed_by=member_id,
+    )
+    reply_id = await _make_reply(
+        db_connection, item_id, author_kind="member", member_id=member_id, author_name="Jan Jansen"
+    )
+
+    await db_connection.execute("DELETE FROM members WHERE id = $1", member_id)
+
+    item = await db_connection.fetchrow(
+        "SELECT status, resolved_at, status_changed_by FROM feedback_items WHERE id = $1", item_id
+    )
+    assert tuple(item) == (FeedbackStatus.RESOLVED.value, _RESOLVED_AT, None)
+    reply = await db_connection.fetchrow("SELECT author_kind, member_id FROM feedback_replies WHERE id = $1", reply_id)
+    assert tuple(reply) == (FeedbackReplyAuthor.MEMBER.value, None)
+
+
+async def test_removing_a_version_keeps_the_feedback_given_on_it(db_connection: asyncpg.Connection) -> None:
+    """A redeploy, a preview teardown or the cleanup of old live versions
+    removes the version; the item stays and only loses the hint."""
+    site_id = await _feedback_site(db_connection)
+    version_id = await _make_version(db_connection, site_id, await _make_member(db_connection))
+    item_id = await _make_item(db_connection, site_id, target="preview", preview_ref="pr-42", version_id=version_id)
+
+    await db_connection.execute("DELETE FROM versions WHERE id = $1", version_id)
+
+    assert await db_connection.fetchval("SELECT version_id FROM feedback_items WHERE id = $1", item_id) is None
+    assert await _feedback_counts(db_connection, item_id) == (1, 0, 0)
+
+
+_FEEDBACK_INDEXES = {
+    "ix_feedback_items_site_id_status_created_at": "(site_id, status, created_at DESC)",
+    "ix_feedback_items_site_id_author_sub": "(site_id, author_sub)",
+    "ix_feedback_items_version_id": "(version_id)",
+    "ix_feedback_items_status_changed_by": "(status_changed_by)",
+    "ix_feedback_replies_item_id_created_at": "(item_id, created_at)",
+    "ix_feedback_replies_member_id": "(member_id)",
+}
+
+
+async def _feedback_indexes(conn: asyncpg.Connection) -> dict[str, str]:
+    rows = await conn.fetch(
+        "SELECT indexname, indexdef FROM pg_indexes WHERE indexname = ANY($1::text[])", list(_FEEDBACK_INDEXES)
+    )
+    return {row["indexname"]: row["indexdef"] for row in rows}
+
+
+async def test_feedback_is_indexed_for_its_lists_and_its_foreign_keys(db_connection: asyncpg.Connection) -> None:
+    """The lists read per site and status, newest first, and per submitter;
+    the replies per item, oldest first. The other two carry the SET NULL of a
+    removed version or member, which PostgreSQL does not index by itself."""
+    indexes = await _feedback_indexes(db_connection)
+    assert set(indexes) == set(_FEEDBACK_INDEXES)
+    for name, columns in _FEEDBACK_INDEXES.items():
+        assert indexes[name].endswith(columns), indexes[name]
+
+
+@pytest.mark.parametrize(
+    "model", [FeedbackItem, FeedbackReply, FeedbackScreenshot], ids=lambda model: model.__tablename__
+)
+async def test_the_feedback_models_name_the_checks_the_migration_made(
+    db_connection: asyncpg.Connection, model: type
+) -> None:
+    """Nothing compares the models with the migrations as a whole; for these
+    tables the names of the CHECKs at least stay in step."""
+    rows = await db_connection.fetch(
+        "SELECT conname FROM pg_constraint WHERE contype = 'c' AND conrelid = $1::regclass", model.__tablename__
+    )
+    declared = {
+        constraint.name for constraint in model.__table__.constraints if isinstance(constraint, CheckConstraint)
+    }
+    assert {row["conname"] for row in rows} == declared
+
+
+async def _feedback_schema(conn: asyncpg.Connection) -> tuple[set[str], set[str], set[str]]:
+    """Which of the feedback tables, types and site columns exist."""
+    tables = await conn.fetch(
+        "SELECT tablename FROM pg_tables WHERE tablename = ANY($1::text[])", list(_FEEDBACK_TABLES)
+    )
+    types = await conn.fetch("SELECT typname FROM pg_type WHERE typname = ANY($1::text[])", list(_FEEDBACK_TYPES))
+    columns = await conn.fetch(
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_name = 'sites' AND column_name = ANY($1::text[])",
+        list(_FEEDBACK_SITE_COLUMNS),
+    )
+    return (
+        {row["tablename"] for row in tables},
+        {row["typname"] for row in types},
+        {row["column_name"] for row in columns},
+    )
+
+
+async def test_the_feedback_migration_goes_down_and_up_again(postgres_container) -> None:
+    """Down takes the tables with every item in them, then the five types and
+    the three settings, and leaves the version_target type to the versions.
+    Up again, the tables are empty and an existing site takes no feedback."""
+    base = postgres_container.get_connection_url(driver=None)
+    name = f"feedback_{uuid.uuid4().hex[:8]}"
+    admin = await asyncpg.connect(base)
+    await admin.execute(f'CREATE DATABASE "{name}"')
+    dsn = f"{base.rsplit('/', 1)[0]}/{name}"
+    everything = (set(_FEEDBACK_TABLES), set(_FEEDBACK_TYPES), set(_FEEDBACK_SITE_COLUMNS))
+    try:
+        await asyncio.to_thread(_alembic, dsn, "upgrade", "head")
+        conn = await asyncpg.connect(dsn)
+        try:
+            assert await _feedback_schema(conn) == everything
+            site_id = await _feedback_site(conn)
+            await conn.execute(
+                "UPDATE sites SET feedback_enabled = true, feedback_identity = 'anonymous', feedback_live = true "
+                "WHERE id = $1",
+                site_id,
+            )
+            await _item_with_reply_and_screenshot(conn, site_id)
+        finally:
+            await conn.close()
+
+        await asyncio.to_thread(_alembic, dsn, "downgrade", "0007_drop_storage_ref")
+        conn = await asyncpg.connect(dsn)
+        try:
+            assert await _feedback_schema(conn) == (set(), set(), set())
+            assert await _enum_labels(conn, "version_target") == [target.value for target in VersionTarget]
+            assert await _feedback_indexes(conn) == {}
+        finally:
+            await conn.close()
+
+        await asyncio.to_thread(_alembic, dsn, "upgrade", "head")
+        conn = await asyncpg.connect(dsn)
+        try:
+            assert await _feedback_schema(conn) == everything
+            assert set(await _feedback_indexes(conn)) == set(_FEEDBACK_INDEXES)
+            row = await conn.fetchrow(
+                "SELECT feedback_enabled, feedback_identity, feedback_live FROM sites WHERE id = $1", site_id
+            )
+            assert tuple(row) == (False, FeedbackIdentity.ACCOUNT.value, False)
+            assert await conn.fetchval("SELECT count(*) FROM feedback_items") == 0
+        finally:
+            await conn.close()
+    finally:
+        await admin.execute(f'DROP DATABASE "{name}" WITH (FORCE)')
+        await admin.close()

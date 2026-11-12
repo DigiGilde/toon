@@ -57,6 +57,13 @@ from toon.main import create_app
 # Status codes where HTTP forbids a body: precisely there no schema belongs.
 WITHOUT_BODY = {"204", "304"}
 
+# The screenshot of a feedback item answers with the image itself, which is
+# what an <img> in the admin interface and `toon feedback show --screenshot`
+# need: wrapped in JSON it would take base64 and a decoder on both ends. Its
+# 200 has no JSON model and names the three image types with a binary schema
+# instead (TestBinaryResponse holds it to that).
+BINARY_RESPONSES = frozenset({("get", "/-/api/v1/sites/{group_slug}/{site_slug}/feedback/{item_id}/screenshot")})
+
 
 @pytest.fixture(scope="module")
 def app(tmp_path_factory) -> FastAPI:
@@ -126,6 +133,8 @@ class TestEveryEndpointIsDescribed:
         """A bare `-> dict` yields an empty schema; only a 204 may go without."""
         error = []
         for route in _routes(app):
+            if any((method_.lower(), route.path) in BINARY_RESPONSES for method_ in route.methods):
+                continue
             if route.status_code in (204, 304):
                 if route.response_model is not None:
                     error.append(f"{sorted(route.methods)} {route.path}: 204 with a response model")
@@ -157,6 +166,8 @@ class TestEveryEndpointIsDescribed:
         no body (204)."""
         error = []
         for method_, path, operation in _operations(schema):
+            if (method_, path) in BINARY_RESPONSES:
+                continue
             succeeded = {
                 code: response
                 for code, response in operation.get("responses", {}).items()
@@ -319,6 +330,31 @@ class TestDeployContract:
         assert response["description"]
 
 
+class TestBinaryResponse:
+    """The one operation BINARY_RESPONSES exempts still documents what it
+    sends: the image types it can answer with, each as binary, and nothing
+    that promises JSON."""
+
+    def test_the_screenshot_is_the_image_itself(self, schema) -> None:
+        [(method_, path)] = BINARY_RESPONSES
+        response = schema["paths"][path][method_]["responses"]["200"]
+        assert response["content"] == {
+            media_type: {"schema": {"type": "string", "format": "binary"}}
+            for media_type in ("image/png", "image/jpeg", "image/webp")
+        }
+        assert response["description"]
+
+    def test_its_errors_stay_problem_json(self, schema) -> None:
+        [(method_, path)] = BINARY_RESPONSES
+        errors = {
+            status: response
+            for status, response in schema["paths"][path][method_]["responses"].items()
+            if status.startswith(("4", "5"))
+        }
+        assert set(errors) >= {"401", "403", "404"}
+        assert all(list(response["content"]) == [PROBLEM_CONTENT_TYPE] for response in errors.values())
+
+
 class TestLocalisedSchema:
     def test_each_language_is_translated_once_and_then_kept(self, app) -> None:
         dutch = localised_openapi(app, "nl")
@@ -362,7 +398,10 @@ class TestSecurity:
             for method_, operation in path_part.items():
                 assert operation["security"], f"{method_} {path}"
 
-    def test_only_the_deploy_cli_session_creation_and_link_endpoints_accept_a_token(self, schema) -> None:
+    def test_only_the_deploy_cli_session_creation_link_and_cli_feedback_endpoints_accept_a_token(
+        self, schema
+    ) -> None:
+        feedback = "/-/api/v1/sites/{group_slug}/{site_slug}/feedback"
         with_token = {
             (path, method_)
             for path, path_part in schema["paths"].items()
@@ -377,7 +416,17 @@ class TestSecurity:
             ("/-/api/v1/groups", "post"),
             ("/-/api/v1/groups/{group_slug}/sites", "post"),
             ("/-/api/v1/sites/{group_slug}/{site_slug}/repository", "put"),
+            (feedback, "get"),
+            (f"{feedback}/{{item_id}}", "get"),
+            (f"{feedback}/{{item_id}}/screenshot", "get"),
+            (f"{feedback}/{{item_id}}/status", "put"),
+            (f"{feedback}/{{item_id}}/replies", "post"),
         }
+
+    def test_deleting_feedback_and_its_settings_stay_session_only(self, schema) -> None:
+        feedback = "/-/api/v1/sites/{group_slug}/{site_slug}/feedback"
+        assert schema["paths"][f"{feedback}/{{item_id}}"]["delete"]["security"] == [{SECURITY_SESSION: []}]
+        assert schema["paths"][f"{feedback}-settings"]["put"]["security"] == [{SECURITY_SESSION: []}]
 
     def test_the_documented_token_endpoints_are_exactly_the_ones_the_middleware_lets_through(
         self, schema
@@ -458,6 +507,12 @@ class TestErrorExamples:
         response = schema["paths"]["/-/api/v1/groups"]["post"]["responses"]["409"]
         assert response["content"][PROBLEM_CONTENT_TYPE]["example"]["code"] == "SLUG_EXISTS"
         assert "SLUG_EXISTS" in response["description"]
+
+    def test_a_reply_to_a_full_thread_is_a_documented_conflict(self, schema) -> None:
+        path = "/-/api/v1/sites/{group_slug}/{site_slug}/feedback/{item_id}/replies"
+        conflict = schema["paths"][path]["post"]["responses"]["409"]
+        assert self._errors(schema, path, "post")["409"]["code"] == "FEEDBACK_THREAD_FULL"
+        assert "100 replies" in conflict["description"]
 
     def test_no_example_carries_a_extension_field_that_there_not_belongs(self, schema) -> None:
         # indexCandidates belongs only to a refused bundle, and that is a case

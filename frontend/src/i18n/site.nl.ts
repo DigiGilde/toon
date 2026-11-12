@@ -14,6 +14,8 @@ export const siteNl = {
   'site.tabs.label': 'Siteonderdelen',
   'site.tabs.overview': 'Overzicht',
   'site.tabs.previews': 'Previews',
+  'site.tabs.feedback': 'Feedback',
+  'site.tabs.feedback.open': 'Feedback ({count})',
   'site.tabs.versions': 'Versies',
   'site.tabs.access': 'Toegang',
   'site.tabs.members': 'Leden',

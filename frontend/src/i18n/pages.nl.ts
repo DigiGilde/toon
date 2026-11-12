@@ -70,7 +70,7 @@ export const pagesNl = {
   'page.privacy.title':
     'Privacy',
   'page.privacy.intro':
-    'Deze verklaring beschrijft hoe deze installatie van Toon omgaat met persoonsgegevens en welke rechten je hebt, volgens de Algemene verordening gegevensbescherming (AVG). Toon verwerkt persoonsgegevens om toegang tot gepubliceerde sites te regelen: een e-mailadres bij inloggen via je organisatie, en eventueel een e-mailadres van een genodigde bij toegang op uitnodiging.',
+    'Deze verklaring beschrijft hoe deze installatie van Toon omgaat met persoonsgegevens en welke rechten je hebt, volgens de Algemene verordening gegevensbescherming (AVG). Toon verwerkt persoonsgegevens om toegang tot gepubliceerde sites te regelen: een e-mailadres bij inloggen via je organisatie, en eventueel een e-mailadres van een genodigde bij toegang op uitnodiging. Op sites die feedback verzamelen, verwerkt Toon ook wat bezoekers met de feedbackknop sturen: hun opmerking, eventueel een schermafbeelding en hun naam, en met een account ook hun e-mailadres. Zo kan het team van de site die feedback lezen en beantwoorden.',
   'page.privacy.standard':
     'Dit is de standaardverklaring van de software Toon. De organisatie die deze installatie beheert, vult haar aan met wat alleen die organisatie kan zeggen, zoals de grondslag en de Functionaris Gegevensbescherming.',
   'page.privacy.controller.heading':
@@ -88,29 +88,43 @@ export const pagesNl = {
   'page.privacy.data.audit':
     'Auditgegevens: wie wat wanneer publiceerde of wijzigde, en wie wanneer inlogde. Hernoem je een groep of site, dan staat ook de vorige naam of titel in die regel.',
   'page.privacy.data.visits':
-    "Bezoekgegevens: welke pagina's van een afgeschermde site je bekeek. Van openbare sites wordt niets bijgehouden.",
+    "Bezoekgegevens: welke pagina's van een afgeschermde site je bekeek, en wanneer je op een site inlogde, ook op een openbare site, bijvoorbeeld om feedback te geven met je account. Welke pagina's van een openbare site je bekijkt, houdt Toon niet bij.",
+  'page.privacy.data.feedback':
+    'Feedback: wat je met de feedbackknop over een pagina stuurt, met die pagina, de plek of de tekst waar het over gaat, de grootte en de pixelverhouding van je browservenster, de versie van de site en de schermafbeelding als je die meestuurt. Stuur je feedback met je account, dan ook je SSO-id, je naam en je geverifieerde e-mailadres. Met een naam bewaart Toon alleen die naam, zonder naam geen naam, SSO-id of e-mailadres. Je tekst of de schermafbeelding kan nog wel iets over je zeggen. Een schermafbeelding laat zien wat er op je scherm stond, dus soms ook gegevens van anderen of van jezelf.',
+  'page.privacy.data.feedbackTechnical':
+    'Bij feedback bewaart Toon geen IP-adres en niets van wat je browser over zichzelf meestuurt. Om misbruik te beperken telt Toon wel hoeveel feedback er per site binnenkomt: per account als je feedback met je account geeft of moest inloggen om de pagina te zien, en anders per IP-adres. Die telling staat alleen in het werkgeheugen. Ze loopt standaard over tien minuten en is uiterlijk even lang na afloop weg. Verberg je de feedbackknop tot je de browser sluit, dan onthoudt een cookie alleen dat, en niet langer dan 12 uur.',
+  'page.privacy.data.feedbackAnonymous':
+    'Feedback zonder naam is niet gekoppeld aan een bezoek. Op een afgeschermde site staat elk bezoek wel in het auditlog, dus een platformbeheerder zou de tijden naast elkaar kunnen leggen.',
   'page.privacy.data.content':
     'Gepubliceerde inhoud: kan persoonsgegevens bevatten, maar die zijn van de maker van de site. Toon leest, classificeert of filtert die inhoud niet. De publicerende organisatie is er zelf verantwoordelijk voor.',
   'page.privacy.purpose.heading':
     'Doel en grondslag',
   'page.privacy.purpose.body':
     'Deze gegevens worden verwerkt om gepubliceerde sites alleen te laten zien aan wie ze mag zien, en om het platform veilig te houden en misbruik te kunnen onderzoeken. Welke grondslag uit artikel 6 van de AVG geldt, hangt af van de organisatie die deze installatie beheert.',
+  'page.privacy.purpose.feedback':
+    'Feedback wordt verwerkt zodat het team van een site opmerkingen over die site kan lezen, beantwoorden en afhandelen. Of een site feedback aanneemt, en van wie, kiest de beheerder van die site.',
   'page.privacy.processors.heading':
     'Verwerkers en hosting',
   'page.privacy.processors.body':
     'Toon gebruikt zelf geen webstatistieken en deelt geen gegevens met andere partijen. Waar deze installatie draait en via welke inlogdienst je inlogt, bepaalt de organisatie die haar beheert.',
+  'page.privacy.processors.ai':
+    'Het team van een site kan feedback ook ophalen met de Toon-CLI, bijvoorbeeld om die in een AI-assistent te laden. Namen en e-mailadressen laat de CLI dan weg, tenzij erom gevraagd wordt. Wie feedback zo in een AI-assistent laadt, beslist zelf over die verwerker. Een schermafbeelding die het team zo ophaalt, en wat een AI-assistent van feedback in zijn eigen geschiedenis bewaart, zijn kopieën buiten Toon. De bewaartermijnen hieronder en het verwijderen door de indiener gelden daar niet voor, dus die kopieën opruimen is aan het team.',
   'page.privacy.retention.heading':
     'Bewaartermijn',
   'page.privacy.retention.body':
-    'Bezoekgegevens en inlogmomenten worden na 90 dagen verwijderd. Overige auditgegevens, zoals geweigerde toegang en beheerhandelingen, blijven drie jaar bewaard, omdat ze deel kunnen worden van het onderzoek naar een beveiligingsincident. Alleen een platformbeheerder kan ze inzien, en elke inzage wordt zelf vastgelegd, met een verplichte reden die voor elke platformbeheerder leesbaar is. Je naam en e-mailadres staan er niet leesbaar in. Previews en hun toegangsgegevens vervallen automatisch na dertig dagen zonder nieuwe deploy.',
+    'Bezoekgegevens en geslaagde inlogpogingen worden na 90 dagen verwijderd. Overige auditgegevens, zoals geweigerde toegang, mislukte of afgebroken inlogpogingen en beheerhandelingen, blijven drie jaar bewaard, omdat ze deel kunnen worden van het onderzoek naar een beveiligingsincident. Alleen een platformbeheerder kan ze inzien, en elke inzage wordt zelf vastgelegd, met een verplichte reden die voor elke platformbeheerder leesbaar is. Je naam en e-mailadres staan er niet leesbaar in. Previews en hun toegangsgegevens vervallen automatisch na dertig dagen zonder nieuwe deploy.',
   'page.privacy.retention.ip':
     'Bij elke auditregel hoort ook het IP-adres van waaraf iets gebeurde: een afgekapt netwerk (niet het volledige adres) staat gewoon in het log, even lang bewaard als de regel zelf. Het volledige adres staat er versleuteld naast, even lang bewaard, en alleen een platformbeheerder kan het opvragen, met dezelfde verplichte, vastgelegde reden.',
   'page.privacy.retention.session':
-    'Bekijk je afgeschermde content na inloggen met je organisatie, dan bewaart Toon je SSO-id en e-mailadres tot negentig dagen na je laatste keer inloggen. Dat is nodig om een regel in het auditlog bij een persoon te kunnen brengen, bijvoorbeeld bij het onderzoek naar een lek.',
+    'Log je op een site in met je organisatie, om afgeschermde content te bekijken of om feedback te geven met je account, dan bewaart Toon je SSO-id en e-mailadres tot negentig dagen na je laatste keer inloggen. Dat is nodig om een regel in het auditlog bij een persoon te kunnen brengen, bijvoorbeeld bij het onderzoek naar een lek.',
+  'page.privacy.retention.feedback':
+    'Feedback verdwijnt met de site of de groep, als een beheerder van de site of de indiener die verwijdert, en anders vanzelf: de schermafbeelding 30 dagen nadat de feedback is afgehandeld, de feedback zelf 90 dagen na het afhandelen, en feedback die open blijft na 365 dagen. Dat zijn de standaardtermijnen. De organisatie die deze installatie beheert, kan ze anders instellen.',
   'page.privacy.visibility.heading':
     'Wie kan wat zien',
   'page.privacy.visibility.body':
     'Het auditlog is alleen in te zien door een platformbeheerder. In de regels staan jouw naam en e-mailadres niet, maar een pseudoniem: een versleutelde weergave van je SSO-id. Een uitzondering is de vorige naam van een groep of de vorige titel van een site: die tekst staat er leesbaar in. Een platformbeheerder kan opzoeken welk pseudoniem bij een persoon hoort, en omgekeerd wie achter een pseudoniem zit. Dat kan alleen met een opgegeven reden, die zelf wordt vastgelegd, en er geldt een maximum aantal opzoekingen per dag. De beheerder van een site ziet dit alles niet.',
+  'page.privacy.visibility.feedback':
+    'Feedback ziet iedereen met een rol op de site: het siteteam. Het e-mailadres van wie feedback stuurde met een account, zien alleen redacteuren en beheerders van de site. Stuurde je feedback met je account, dan vind je je nieuwste feedback terug in de feedbackknop van de site, onder Mijn feedback, en kun je die daar verwijderen. Mijn feedback staat in de knop zolang je op die site feedback geeft met je account. Kom je later terug, dan kies je eerst Met je account versturen of Feedback geven met je account, log je in en zeg je opnieuw ja. Dat beëindig je daarna weer met Stoppen met je account. Oudere feedback, of feedback op een site waar de knop niet meer staat, kun je opvragen of laten verwijderen met een verzoek, zoals hieronder bij je rechten staat. Feedback met alleen een naam of zonder naam kun je later niet terugvinden. Reageert het siteteam op feedback die met een account is gestuurd, dan ziet de indiener bij die reactie de naam van wie reageerde, nooit een e-mailadres. Die naam blijft bij de reactie staan zolang de feedback bestaat.',
   'page.privacy.rights.heading':
     'Je rechten',
   'page.privacy.rights.body':
@@ -203,7 +217,7 @@ export const pagesNl = {
   'page.cliPair.confirm.question': 'Staat in je terminal dezelfde code?',
   'page.cliPair.confirm.account': 'Je koppelt dit programma aan {account}',
   'page.cliPair.confirm.accountHint':
-    'Het programma kan daarna publiceren met al jouw rollen, tot je het ontkoppelt.',
+    'Het programma kan daarna met al jouw rollen alles wat de Toon-CLI kan, zoals publiceren, en de feedback op je sites lezen, afhandelen en beantwoorden, met namen, e-mailadressen en schermafbeeldingen. Dat blijft zo tot je het ontkoppelt.',
   'page.cliPair.confirm.client': 'Programma, zoals het zichzelf noemt: "{name}"',
   'page.cliPair.confirm.requested': 'Aangevraagd: {time}',
   'page.cliPair.confirm.network': 'Vanaf netwerk {network}',

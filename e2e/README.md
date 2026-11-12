@@ -66,6 +66,51 @@ and on the usual Linux setups).
   and a run must not touch a contributor's own.
 - `tests/shared-origin.spec.ts`: a page of another site cannot read a
   restricted site from the browser cache (#152).
+- `tests/feedback.spec.ts`: site feedback across both origins on a
+  shielded preview with the real widget: page, point and text feedback,
+  a screenshot (of a scrolled page too, with the bar fixed at the top of
+  its window, of a page a window down whose root hides sideways
+  overflow, compared with the window, and of a page with images on a
+  preview only the team can see, which asks for none of them and leaves
+  no refusal in the audit log), consent for feedback with an
+  account (no press in the form's first second and none without its
+  tick, the POST, the login and the way back), "Mijn feedback" (a pin
+  under the open panel taking no press and no Tab, and clear of it
+  letting a press through to the link it marks), hiding the button, the
+  admin Feedback tab (a reply typed and not sent outlasting Escape), the
+  CLI (a reply from `--message-file` included, and a soft hyphen it names
+  before any request) and an axe audit of the open widget with
+  `@axe-core/playwright`. Also the keyboard (Tab inside the overlays and
+  the bottom sheet), a 320 px window for the widget and for the Feedback
+  tab, the overlays at 375x667, 320x256 and 320x180 (the way out on
+  screen, the bar off the crosshair and the frame), the button's place
+  beside mouse and keyboard focus, also inside a web component of the
+  page, a link to a place, announced in the page's own words and marked
+  with a ring that lets the click through and lies over the Feedback
+  button but under the open panel, also in a part of the page that
+  scrolls on its own, on a page whose root and body clip sideways only,
+  in a chart drawn as an svg inside an svg and in a link with an
+  overflow class (a place that a box does clip stays hidden), and right
+  of the middle of a page whose body hides sideways overflow, which
+  leaves the window where it is sideways, and opened with "Bekijk op de
+  pagina" for a point low on, and a quote near the end of, a listing
+  three windows high, a link to a place that is gone, whose note makes
+  way for keyboard focus, the open panel of a wide window moving
+  clear of keyboard focus on the page and staying put for the mouse,
+  Escape pressed on the page closing both, focus going back to the page
+  when the button hides for a minute, the privacy link that stays in the
+  tab, the menu of a site that takes feedback with an account only, a
+  site team member who never consented sending without a name on a
+  preview only the team can see, or going straight to the consent page,
+  a visitor let in by a secret link alone who signs in, says yes and
+  sends with their account while no page token goes into an address, a
+  page opened before its site got a new address, an emoji held together
+  by a zero-width joiner arriving whole from a visitor and from the team,
+  and an item whose preview is gone, which the Feedback tab learns
+  without a reload and can still filter on.
+- `helpers/feedback.ts`: locators for the widget inside its open shadow
+  root, waits and measurements the scenarios share, and helpers for the
+  admin feedback API.
 
 Scenarios that need the content origin login handoff (spec §4a, task
 6.3) detect whether it is present in the stack and otherwise skip with a

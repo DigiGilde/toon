@@ -124,6 +124,22 @@ async def revalidate_sessions(request: Request) -> None:
             await _revalidate(request, session, interval)
 
 
+async def revalidate_session(request: Request, session: Session) -> Session | None:
+    """Re-validates one session that a caller found without a cookie, when it
+    is due, and returns what the store holds for it afterwards: None when the
+    IdP ended it, or when it was gone already.
+
+    The middleware only sees the sessions a request's cookies point at. The
+    feedback widget API reads no cookie and finds its session through a page
+    token instead, so it has to ask for the same check here.
+    """
+    settings = request.app.state.settings
+    if settings.idp_recheck_seconds > 0:
+        await _revalidate(request, session, timedelta(seconds=settings.idp_recheck_seconds))
+    store: SessionStore = request.app.state.session_store
+    return store.get_session(session.id)
+
+
 def _due(session: Session, now: datetime, interval: timedelta) -> bool:
     if now - session.last_confirmed_at < interval:
         return False
@@ -238,6 +254,7 @@ __all__ = [
     "IdpRevalidationFault",
     "audit_session_ended",
     "idp_fault",
+    "revalidate_session",
     "revalidate_sessions",
     "revalidation_status",
 ]

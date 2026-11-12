@@ -44,21 +44,24 @@ function defaultDuration(variant: Variant): number {
 const notices = ref<Notice[]>([]);
 let nextId = 0;
 
+/** Shows a notification and returns its id, for `dismiss`. */
 function notify(
   variant: Variant,
   text: string,
   detail?: string,
   duration: number = defaultDuration(variant),
-): void {
+): number {
   nextId += 1;
   notices.value = [...notices.value, { id: nextId, variant, text, detail, duration }];
+  return nextId;
 }
 
+/** Takes a notification away; one already dismissed is left alone. */
 function close(id: number): void {
   notices.value = notices.value.filter((notice) => notice.id !== id);
 }
 
-defineExpose({ notify });
+defineExpose({ notify, dismiss: close });
 </script>
 
 <template>

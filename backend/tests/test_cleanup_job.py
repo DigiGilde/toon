@@ -9,6 +9,7 @@ session factory of their own), just like test_ingest_service.py.
 from __future__ import annotations
 
 import asyncio
+import errno
 import logging
 import os
 import re
@@ -27,11 +28,12 @@ from toon.api.docs import _ASSETS, _DOCS_HTML, DOCS_CSP, STATIC_DOCS_DIR
 from toon.audit import vocabulary
 from toon.cli import service as cli
 from toon.config import Settings
-from toon.constants import AccessBase
+from toon.constants import AccessBase, FeedbackAuthor, FeedbackKind, FeedbackReplyAuthor, FeedbackStatus
 from toon.ingest.service import Deployer, IngestError, IngestService
 from toon.ingest.store import ContentStore, version_ref
 from toon.models.audit import ActorKind, AuditLogEntry
 from toon.models.cli import CliDeviceAuthorization, CliSession
+from toon.models.feedback import FeedbackItem, FeedbackReply, FeedbackScreenshot
 from toon.models.identity import Group, Member, MemberStatus
 from toon.models.publication import Preview, Site, Version, VersionTarget
 from toon.models.slugs import GroupSlug, SiteSlug
@@ -836,6 +838,14 @@ class TestSecondsUntil:
         assert _seconds_until(time(3, 0), reference) == 17 * 3600
 
 
+# The platform defaults, for the loop tests that do not look at them.
+_RETENTIONS = {
+    "feedback_resolved_retention_days": 90,
+    "feedback_screenshot_retention_days": 30,
+    "feedback_open_retention_days": 365,
+}
+
+
 class TestRunDaily:
     """`_run_daily` must survive a sweep that raises, and its stop event must
     still end the loop without running another sweep."""
@@ -846,7 +856,7 @@ class TestRunDaily:
         calls: list[datetime] = []
         second_call = asyncio.Event()
 
-        async def fake_delete_expired(factory, store, now, *, tmp_older_than, live_versions_kept):
+        async def fake_delete_expired(factory, store, now, *, tmp_older_than, live_versions_kept, **retentions):
             calls.append(now)
             if len(calls) == 1:
                 raise RuntimeError("tijdelijke databankstoring")
@@ -866,6 +876,7 @@ class TestRunDaily:
                     occurred_at=TIMESTAMP_DEFAULT,
                     tmp_older_than=TMP_OLDER_THAN_DEFAULT,
                     live_versions_kept=5,
+                    **_RETENTIONS,
                     stop=stop,
                 )
             )
@@ -898,6 +909,7 @@ class TestRunDaily:
                 occurred_at=TIMESTAMP_DEFAULT,
                 tmp_older_than=TMP_OLDER_THAN_DEFAULT,
                 live_versions_kept=5,
+                **_RETENTIONS,
                 stop=stop,
             )
         )
@@ -907,18 +919,25 @@ class TestRunDaily:
 
         assert called is False
 
-    async def test_the_kept_number_reaches_the_sweep(self, environment: Environment, monkeypatch):
-        received: asyncio.Queue[int] = asyncio.Queue()
+    async def test_the_kept_number_and_the_feedback_retentions_reach_the_sweep(
+        self, environment: Environment, monkeypatch
+    ):
+        received: asyncio.Queue[dict[str, int]] = asyncio.Queue()
 
-        async def fake_delete_expired(factory, store, now, *, tmp_older_than, live_versions_kept):
-            received.put_nowait(live_versions_kept)
+        async def fake_delete_expired(factory, store, now, *, tmp_older_than, **numbers):
+            received.put_nowait(numbers)
             return CleanupResult(expired_previews=0, orphan_versions=0, tmp_swept=0)
 
         monkeypatch.setattr("toon.previews.cleanup_job.delete_expired", fake_delete_expired)
         monkeypatch.setattr("toon.previews.cleanup_job._seconds_until", lambda occurred_at, reference: 0.0)
 
-        async with cleanup_job(environment.session_factory, environment.store, live_versions_kept=3):
-            assert await asyncio.wait_for(received.get(), timeout=5) == 3
+        retentions = {
+            "feedback_resolved_retention_days": 91,
+            "feedback_screenshot_retention_days": 31,
+            "feedback_open_retention_days": 366,
+        }
+        async with cleanup_job(environment.session_factory, environment.store, live_versions_kept=3, **retentions):
+            assert await asyncio.wait_for(received.get(), timeout=5) == {"live_versions_kept": 3, **retentions}
 
     async def test_stop_already_set_before_the_first_tick_runs_no_sweep(
         self, environment: Environment, monkeypatch
@@ -940,6 +959,7 @@ class TestRunDaily:
                 occurred_at=TIMESTAMP_DEFAULT,
                 tmp_older_than=TMP_OLDER_THAN_DEFAULT,
                 live_versions_kept=5,
+                **_RETENTIONS,
                 stop=stop,
             ),
             timeout=5,
@@ -1134,3 +1154,373 @@ class TestReleasedSlugs:
         slugs = await _slugs(environment)
         assert slugs[old_group] is False
         assert slugs[f"{old_group}-nieuw"] is True
+
+
+# A PNG signature is enough here: the database checks the size, not the image.
+_PNG = b"\x89PNG\r\n\x1a\n"
+
+
+async def _make_feedback(
+    environment: Environment,
+    *,
+    created_at: datetime,
+    status: FeedbackStatus = FeedbackStatus.NEW,
+    resolved_at: datetime | None = None,
+) -> uuid.UUID:
+    """A point remark on a preview, with a reply from the site team and a
+    screenshot."""
+    item_id = uuid.uuid4()
+    async with environment.session_factory() as session, session.begin():
+        session.add(
+            FeedbackItem(
+                id=item_id,
+                site_id=environment.site.id,
+                target=VersionTarget.PREVIEW,
+                preview_ref="pr-1",
+                page_path="docs/",
+                kind=FeedbackKind.POINT,
+                anchor={
+                    "selectors": [{"type": "CssSelector", "value": "main"}],
+                    "point": {"x": 0.5, "y": 0.5, "pageX": 640, "pageY": 400},
+                },
+                comment="Klopt dit bedrag?",
+                author_kind=FeedbackAuthor.ANONYMOUS,
+                viewport={"width": 1280, "height": 800, "dpr": 2},
+                status=status,
+                resolved_at=resolved_at,
+                created_at=created_at,
+            )
+        )
+        await session.flush()
+        session.add_all(
+            [
+                FeedbackReply(
+                    item_id=item_id,
+                    author_kind=FeedbackReplyAuthor.MEMBER,
+                    member_id=environment.member.id,
+                    author_name="Testlid",
+                    body="Aangepast, dank je.",
+                ),
+                FeedbackScreenshot(
+                    item_id=item_id, media_type="image/png", data=_PNG, size_bytes=len(_PNG), width=1280, height=800
+                ),
+            ]
+        )
+    return item_id
+
+
+async def _feedback_left(environment: Environment) -> dict[uuid.UUID, tuple[bool, int]]:
+    """Every item left, with whether it still has its screenshot and how many
+    replies it has."""
+    async with environment.session_factory() as session:
+        items = set(await session.scalars(select(FeedbackItem.id)))
+        with_screenshot = set(await session.scalars(select(FeedbackScreenshot.item_id)))
+        replies = list(await session.scalars(select(FeedbackReply.item_id)))
+    return {item: (item in with_screenshot, replies.count(item)) for item in items}
+
+
+async def _feedback_rows(environment: Environment) -> tuple[int, int, int]:
+    async with environment.session_factory() as session:
+        return (
+            len(list(await session.scalars(select(FeedbackItem.id)))),
+            len(list(await session.scalars(select(FeedbackReply.id)))),
+            len(list(await session.scalars(select(FeedbackScreenshot.item_id)))),
+        )
+
+
+def _purged(result: CleanupResult) -> tuple[int, int, int]:
+    return result.feedback_resolved_items, result.feedback_screenshots, result.feedback_open_items
+
+
+class TestFeedbackPurge:
+    """Site feedback past its retention goes in the nightly sweep: each term
+    in days, 0 keeps, and an item exactly on its term still stays."""
+
+    async def test_feedback_stays_without_a_retention(self, environment: Environment):
+        """delete_expired keeps feedback unless it is given a term, as it keeps
+        every live version unless it is given a number."""
+        now_ = datetime.now(tz=UTC)
+        long_ago = now_ - timedelta(days=3650)
+        items = {
+            await _make_feedback(environment, created_at=long_ago),
+            await _make_feedback(environment, created_at=long_ago, status=FeedbackStatus.SEEN),
+            await _make_feedback(
+                environment, created_at=long_ago, status=FeedbackStatus.RESOLVED, resolved_at=long_ago
+            ),
+        }
+
+        result = await delete_expired(environment.session_factory, environment.store, now_)
+
+        assert _purged(result) == (0, 0, 0)
+        assert await _feedback_left(environment) == dict.fromkeys(items, (True, 1))
+
+    @pytest.mark.parametrize(
+        ("age", "goes"), [(timedelta(days=90), False), (timedelta(days=90, seconds=1), True)], ids=["on", "past"]
+    )
+    async def test_a_resolved_item_goes_once_its_term_since_resolving_has_passed(
+        self, environment: Environment, age: timedelta, goes: bool
+    ):
+        """The term counts from resolving: the item came in long before."""
+        now_ = datetime.now(tz=UTC)
+        item = await _make_feedback(
+            environment,
+            created_at=now_ - timedelta(days=1000),
+            status=FeedbackStatus.RESOLVED,
+            resolved_at=now_ - age,
+        )
+
+        result = await delete_expired(
+            environment.session_factory, environment.store, now_, feedback_resolved_retention_days=90
+        )
+
+        assert _purged(result) == ((1, 0, 0) if goes else (0, 0, 0))
+        assert await _feedback_left(environment) == ({} if goes else {item: (True, 1)})
+
+    async def test_a_resolved_item_takes_its_replies_and_screenshot_along(self, environment: Environment):
+        now_ = datetime.now(tz=UTC)
+        await _make_feedback(
+            environment,
+            created_at=now_ - timedelta(days=200),
+            status=FeedbackStatus.RESOLVED,
+            resolved_at=now_ - timedelta(days=100),
+        )
+        assert await _feedback_rows(environment) == (1, 1, 1)
+
+        await delete_expired(environment.session_factory, environment.store, now_, **_RETENTIONS)
+
+        assert await _feedback_rows(environment) == (0, 0, 0)
+
+    async def test_zero_keeps_resolved_items(self, environment: Environment):
+        now_ = datetime.now(tz=UTC)
+        long_ago = now_ - timedelta(days=3650)
+        item = await _make_feedback(
+            environment, created_at=long_ago, status=FeedbackStatus.RESOLVED, resolved_at=long_ago
+        )
+
+        result = await delete_expired(
+            environment.session_factory,
+            environment.store,
+            now_,
+            **{**_RETENTIONS, "feedback_resolved_retention_days": 0, "feedback_screenshot_retention_days": 0},
+        )
+
+        assert _purged(result) == (0, 0, 0)
+        assert await _feedback_left(environment) == {item: (True, 1)}
+
+    @pytest.mark.parametrize(
+        ("age", "goes"), [(timedelta(days=30), False), (timedelta(days=30, seconds=1), True)], ids=["on", "past"]
+    )
+    async def test_the_screenshot_of_a_resolved_item_goes_sooner_than_the_item(
+        self, environment: Environment, age: timedelta, goes: bool
+    ):
+        now_ = datetime.now(tz=UTC)
+        item = await _make_feedback(
+            environment,
+            created_at=now_ - timedelta(days=1000),
+            status=FeedbackStatus.RESOLVED,
+            resolved_at=now_ - age,
+        )
+
+        result = await delete_expired(environment.session_factory, environment.store, now_, **_RETENTIONS)
+
+        assert _purged(result) == ((0, 1, 0) if goes else (0, 0, 0))
+        assert await _feedback_left(environment) == {item: (not goes, 1)}
+
+    async def test_zero_keeps_the_screenshots(self, environment: Environment):
+        now_ = datetime.now(tz=UTC)
+        item = await _make_feedback(
+            environment,
+            created_at=now_ - timedelta(days=100),
+            status=FeedbackStatus.RESOLVED,
+            resolved_at=now_ - timedelta(days=89),
+        )
+
+        result = await delete_expired(
+            environment.session_factory,
+            environment.store,
+            now_,
+            **{**_RETENTIONS, "feedback_screenshot_retention_days": 0},
+        )
+
+        assert _purged(result) == (0, 0, 0)
+        assert await _feedback_left(environment) == {item: (True, 1)}
+
+    @pytest.mark.parametrize("status", [FeedbackStatus.NEW, FeedbackStatus.SEEN])
+    async def test_an_item_nobody_resolved_keeps_its_screenshot(self, environment: Environment, status):
+        """The screenshot term counts from resolving, and only a resolved item
+        has a moment it was resolved."""
+        now_ = datetime.now(tz=UTC)
+        item = await _make_feedback(environment, created_at=now_ - timedelta(days=364), status=status)
+
+        result = await delete_expired(environment.session_factory, environment.store, now_, **_RETENTIONS)
+
+        assert _purged(result) == (0, 0, 0)
+        assert await _feedback_left(environment) == {item: (True, 1)}
+
+    @pytest.mark.parametrize("status", [FeedbackStatus.NEW, FeedbackStatus.SEEN])
+    @pytest.mark.parametrize(
+        ("age", "goes"), [(timedelta(days=365), False), (timedelta(days=365, seconds=1), True)], ids=["on", "past"]
+    )
+    async def test_an_open_item_goes_once_its_term_since_coming_in_has_passed(
+        self, environment: Environment, status: FeedbackStatus, age: timedelta, goes: bool
+    ):
+        now_ = datetime.now(tz=UTC)
+        item = await _make_feedback(environment, created_at=now_ - age, status=status)
+
+        result = await delete_expired(
+            environment.session_factory, environment.store, now_, feedback_open_retention_days=365
+        )
+
+        assert _purged(result) == ((0, 0, 1) if goes else (0, 0, 0))
+        assert await _feedback_left(environment) == ({} if goes else {item: (True, 1)})
+
+    async def test_a_resolved_item_does_not_count_as_open(self, environment: Environment):
+        """It came in ten years ago and was resolved yesterday: its terms run
+        from yesterday."""
+        now_ = datetime.now(tz=UTC)
+        item = await _make_feedback(
+            environment,
+            created_at=now_ - timedelta(days=3650),
+            status=FeedbackStatus.RESOLVED,
+            resolved_at=now_ - timedelta(days=1),
+        )
+
+        result = await delete_expired(environment.session_factory, environment.store, now_, **_RETENTIONS)
+
+        assert _purged(result) == (0, 0, 0)
+        assert await _feedback_left(environment) == {item: (True, 1)}
+
+    async def test_zero_keeps_open_items(self, environment: Environment):
+        now_ = datetime.now(tz=UTC)
+        item = await _make_feedback(environment, created_at=now_ - timedelta(days=3650))
+
+        result = await delete_expired(
+            environment.session_factory,
+            environment.store,
+            now_,
+            **{**_RETENTIONS, "feedback_open_retention_days": 0},
+        )
+
+        assert _purged(result) == (0, 0, 0)
+        assert await _feedback_left(environment) == {item: (True, 1)}
+
+    async def test_the_purge_says_what_it_took_in_one_log_line_and_writes_no_audit_row(
+        self, environment: Environment, caplog
+    ):
+        now_ = datetime.now(tz=UTC)
+        await _make_feedback(
+            environment,
+            created_at=now_ - timedelta(days=200),
+            status=FeedbackStatus.RESOLVED,
+            resolved_at=now_ - timedelta(days=100),
+        )
+        recently_resolved = await _make_feedback(
+            environment,
+            created_at=now_ - timedelta(days=200),
+            status=FeedbackStatus.RESOLVED,
+            resolved_at=now_ - timedelta(days=40),
+        )
+        await _make_feedback(environment, created_at=now_ - timedelta(days=400), status=FeedbackStatus.SEEN)
+
+        with caplog.at_level(logging.INFO, logger="toon.previews.cleanup_job"):
+            result = await delete_expired(environment.session_factory, environment.store, now_, **_RETENTIONS)
+
+        assert _purged(result) == (1, 1, 1)
+        assert await _feedback_left(environment) == {recently_resolved: (False, 1)}
+        lines = [record for record in caplog.records if record.getMessage().startswith("Feedback purge")]
+        assert [(record.levelno, record.getMessage()) for record in lines] == [
+            (
+                logging.INFO,
+                "Feedback purge removed 1 resolved items, 1 screenshots of resolved items and 1 open items",
+            )
+        ]
+        async with environment.session_factory() as session:
+            assert list(await session.scalars(select(AuditLogEntry))) == []
+
+    async def test_a_content_volume_that_refuses_every_change_does_not_hold_it_up(
+        self, environment: Environment, monkeypatch, caplog
+    ):
+        """A volume remounted read-only fails every step that deletes from it,
+        night after night while pages are still served from it. The purge
+        touches only the database, so it has run by the time the first of
+        those steps fails the sweep."""
+        now_ = datetime.now(tz=UTC)
+        await _make_feedback(
+            environment,
+            created_at=now_ - timedelta(days=200),
+            status=FeedbackStatus.RESOLVED,
+            resolved_at=now_ - timedelta(days=100),
+        )
+        await _make_feedback(environment, created_at=now_ - timedelta(days=400))
+        await _make_preview_version(environment, expires_at=now_ - timedelta(days=1), ref="pr-1")
+
+        def read_only(*_args: object) -> None:
+            raise OSError(errno.EROFS, "Read-only file system")
+
+        for step in ("delete_version", "sweep_tmp", "reclaim", "sweep_reclaimed"):
+            monkeypatch.setattr(environment.store, step, read_only)
+
+        with caplog.at_level(logging.INFO, logger="toon.previews.cleanup_job"), pytest.raises(OSError) as failed:
+            await delete_expired(environment.session_factory, environment.store, now_, **_RETENTIONS)
+
+        assert failed.value.errno == errno.EROFS
+        assert await _feedback_left(environment) == {}
+        assert "Feedback purge removed 1 resolved items, 0 screenshots of resolved items and 1 open items" in [
+            record.getMessage() for record in caplog.records
+        ]
+
+    async def test_a_run_with_nothing_to_purge_still_says_so(self, environment: Environment, caplog):
+        """The log line is the only trace that the retention runs at all."""
+        with caplog.at_level(logging.INFO, logger="toon.previews.cleanup_job"):
+            await delete_expired(environment.session_factory, environment.store, datetime.now(tz=UTC), **_RETENTIONS)
+
+        assert "Feedback purge removed 0 resolved items, 0 screenshots of resolved items and 0 open items" in [
+            record.getMessage() for record in caplog.records
+        ]
+
+    @pytest.mark.parametrize(
+        "retention",
+        [{"feedback_resolved_retention_days": 90}, {"feedback_screenshot_retention_days": 30}],
+        ids=["item", "screenshot"],
+    )
+    async def test_an_item_opened_again_while_the_purge_waits_keeps_everything(
+        self, environment: Environment, retention: dict[str, int]
+    ):
+        """The site team opens the item again and commits only once the purge
+        is blocked on it: the purge must read the item as it is now."""
+        now_ = datetime.now(tz=UTC)
+        item = await _make_feedback(
+            environment,
+            created_at=now_ - timedelta(days=200),
+            status=FeedbackStatus.RESOLVED,
+            resolved_at=now_ - timedelta(days=100),
+        )
+        commit_gate = asyncio.Event()
+        reopen_ready = asyncio.Event()
+
+        async def reopen() -> None:
+            async with environment.session_factory() as db:
+                def hold_before_commit(_session: object) -> None:
+                    reopen_ready.set()
+                    await_only(commit_gate.wait())
+
+                event.listen(db.sync_session, "before_commit", hold_before_commit)
+                await db.execute(
+                    update(FeedbackItem)
+                    .where(FeedbackItem.id == item)
+                    .values(status=FeedbackStatus.NEW, resolved_at=None, status_changed_at=now_)
+                )
+                await db.commit()
+
+        reopening = asyncio.create_task(reopen())
+        await asyncio.wait_for(reopen_ready.wait(), timeout=10)
+        sweep = asyncio.create_task(
+            delete_expired(environment.session_factory, environment.store, now_, **retention)
+        )
+        await _wait_for_a_lock_wait(environment)
+        commit_gate.set()
+        await reopening
+        result = await sweep
+
+        assert _purged(result) == (0, 0, 0)
+        assert await _feedback_left(environment) == {item: (True, 1)}

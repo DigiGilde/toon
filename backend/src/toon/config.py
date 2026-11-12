@@ -33,6 +33,10 @@ AUDIT_IP_KEY_BYTES = 32
 OIDC_CLIENT_AUTH_METHODS = ("private_key_jwt", "client_secret_post", "client_secret_basic")
 OIDC_DISCOVERY_SUFFIX = "/.well-known/openid-configuration"
 
+# What a feedback create may carry besides its screenshot: the item and the
+# multipart framing around both.
+FEEDBACK_BODY_ALLOWANCE = 64 * 1024
+
 OPERATOR_EMAIL_MAX_LENGTH = 254
 # Besides whitespace and control or format characters: what would end the
 # address inside the mailto: link the SPA builds from it, or add a second
@@ -237,6 +241,48 @@ class Settings(BaseSettings):
     # Only true for an installation inside the Dutch central government.
     security_txt_ncsc: bool = False
 
+    # Site feedback. An HTML page whose decoded size is above this gets no
+    # widget: every page the widget goes into is decoded in this process on
+    # every view, and is sent uncompressed.
+    feedback_inject_max_bytes: int = Field(default=2 * 1024 * 1024, ge=1)
+    # One screenshot. The widget API holds a whole request in memory, at most
+    # this plus 64 KiB, so the ceiling stays low.
+    feedback_screenshot_max_bytes: int = Field(default=2 * 1024 * 1024, ge=1, le=16 * 1024 * 1024)
+    # Screenshots live in the database: what those of one site may take
+    # together, and those of every site on the platform.
+    feedback_site_screenshot_max_bytes: int = Field(default=50 * 1024 * 1024, ge=1)
+    feedback_total_screenshot_max_bytes: int = Field(default=500 * 1024 * 1024, ge=1)
+    # Items still new or seen on one site; past this the site takes no more
+    # until its team resolves some.
+    feedback_site_max_open: int = Field(default=500, ge=1)
+    # Retention in days, for the nightly cleanup; 0 keeps. A resolved item
+    # goes this long after it was resolved and its screenshot sooner, an item
+    # nobody resolved this long after it came in.
+    feedback_resolved_retention_days: int = Field(default=90, ge=0, le=3650)
+    feedback_screenshot_retention_days: int = Field(default=30, ge=0, le=3650)
+    feedback_open_retention_days: int = Field(default=365, ge=0, le=3650)
+    # Accepted writes through the widget API per window: per person on a
+    # site (a consented session, or a session for the gate alone under a key
+    # of its own), per client address on a site for a visitor without
+    # either, which many people behind one network can share, and per site.
+    feedback_writes_per_author: int = Field(default=30, ge=1)
+    feedback_writes_per_address: int = Field(default=150, ge=1)
+    feedback_writes_per_site: int = Field(default=300, ge=1)
+    feedback_writes_window_s: int = Field(default=600, ge=1)
+    # The widget API bodies this process holds at once, in bytes: each chunk
+    # takes its room before it is parsed, and a body holds what it took until
+    # its request is done. At least one whole create (validated below), and
+    # well under the memory of the pod, which also holds about an eighth more
+    # that the parts reserve as they grow and two copies of the one
+    # screenshot being written.
+    feedback_body_budget_bytes: int = Field(default=64 * 1024 * 1024, ge=1, le=1024 * 1024 * 1024)
+    # Widget API bodies one client (its IP, IPv6 by the /64) has in flight
+    # at once, so one client cannot hold the whole budget.
+    feedback_bodies_per_client: int = Field(default=4, ge=1)
+    # How long reading one body may take in all: a client that trickles its
+    # body holds its share of the budget no longer than this.
+    feedback_body_deadline_seconds: int = Field(default=60, ge=1, le=600)
+
     ratelimit_login_max: int = Field(default=10)
     ratelimit_login_window_s: int = Field(default=60)
     ratelimit_login_global_max: int = Field(default=1000)
@@ -252,6 +298,14 @@ class Settings(BaseSettings):
     ratelimit_code_max: int = Field(default=10)
     ratelimit_code_window_s: int = Field(default=900)
     ratelimit_code_global_max: int = Field(default=500)
+    # Everything under /-/feedback/ on the content host: the widget, its API
+    # and the pages around it. The widget's API calls send no cookies, so they
+    # count per client IP. A request that carries a content session cookie
+    # (the consent, stop and show pages) counts per SSO sub, like every
+    # signed-in request, and a preflight counts like any other request.
+    ratelimit_feedback_max: int = Field(default=300, ge=1)
+    ratelimit_feedback_window_s: int = Field(default=60, ge=1)
+    ratelimit_feedback_global_max: int = Field(default=10000, ge=1)
 
     @field_validator("ci_forgejo_hosts")
     @classmethod
@@ -353,6 +407,17 @@ class Settings(BaseSettings):
             raise ValueError(
                 "TOON_AUDIT_IP_KEY and TOON_AUDIT_IP_KEY_PREVIOUS hold two keys with the same key id; "
                 "generate a new TOON_AUDIT_IP_KEY"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _feedback_body_budget_holds_a_create(self) -> Settings:
+        # Below that, a create with a screenshot at the limit is refused as
+        # busy every time, and nothing says why.
+        if self.feedback_body_budget_bytes < self.feedback_screenshot_max_bytes + FEEDBACK_BODY_ALLOWANCE:
+            raise ValueError(
+                "TOON_FEEDBACK_BODY_BUDGET_BYTES must hold at least one whole feedback create: "
+                f"TOON_FEEDBACK_SCREENSHOT_MAX_BYTES plus {FEEDBACK_BODY_ALLOWANCE}"
             )
         return self
 

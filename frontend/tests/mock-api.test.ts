@@ -643,3 +643,239 @@ describe('mockFetch: unmatched methods fall through to the route 404', () => {
     expect(body.title).toBe('Onbekend eindpunt');
   });
 });
+
+describe('feedback: who may ask', () => {
+  const LIST = '/-/api/v1/sites/team-aurora/website/feedback';
+
+  it('refuses without a session', async () => {
+    const backend = makeMockBackend();
+    backend.data.loggedInMemberId = null;
+
+    expect((await backend.fetch(LIST)).status).toBe(401);
+  });
+
+  it('answers an unknown site and a site without a role on it with the same 404', async () => {
+    const backend = makeMockBackend();
+
+    expect((await backend.fetch('/-/api/v1/sites/team-aurora/geen-site/feedback')).status).toBe(404);
+
+    backend.data.loggedInMemberId = 'lid-6';
+    const response = await backend.fetch(LIST);
+    expect(response.status).toBe(404);
+    expect(((await response.json()) as { code: string }).code).toBe('UNKNOWN_SITE');
+  });
+
+  it('refuses a platform admin without a role on the site with a 403', async () => {
+    const backend = makeMockBackend();
+    backend.data.members.find((member) => member.id === 'lid-6')!.platformRole = 'admin';
+    backend.data.loggedInMemberId = 'lid-6';
+
+    expect((await backend.fetch(LIST)).status).toBe(403);
+  });
+
+  it('refuses a reply to a reader', async () => {
+    const backend = makeMockBackend();
+    backend.data.siteRoles.push({
+      groupSlug: 'team-aurora',
+      siteSlug: 'website',
+      identifier: 'sanne@voorbeeld.nl',
+      role: 'reader',
+    });
+    backend.data.loggedInMemberId = 'lid-6';
+
+    const response = await backend.fetch(`${LIST}/fb-1/replies`, {
+      method: 'POST',
+      body: JSON.stringify({ body: 'Hallo' }),
+    });
+
+    expect(response.status).toBe(403);
+  });
+});
+
+describe('feedback: the list', () => {
+  const LIST = '/-/api/v1/sites/team-aurora/website/feedback';
+
+  it.each([
+    ['an unknown status', '?status=weg'],
+    ['an unknown target', '?target=elders'],
+    ['a ref without the preview target', '?ref=pr-42'],
+  ])('refuses %s', async (_name, query) => {
+    const backend = makeMockBackend();
+
+    expect((await backend.fetch(`${LIST}${query}`)).status).toBe(422);
+  });
+
+  it('refuses a cursor it never handed out', async () => {
+    const backend = makeMockBackend();
+
+    const response = await backend.fetch(`${LIST}?cursor=weg`);
+
+    expect(response.status).toBe(422);
+    expect(((await response.json()) as { code: string }).code).toBe('CURSOR_INVALID');
+  });
+
+  it('orders items of the same moment by id, the highest first', async () => {
+    const backend = makeMockBackend();
+    const twin = backend.data.feedback.find((item) => item.id === 'fb-1')!;
+    backend.data.feedback.push({ ...twin, id: 'fb-0', replies: [] });
+
+    const body = (await (await backend.fetch(LIST)).json()) as { items: { id: string }[] };
+
+    expect(body.items.map((item) => item.id)).toEqual(['fb-1', 'fb-0', 'fb-2']);
+  });
+});
+
+describe('feedback: one item', () => {
+  const ITEM = '/-/api/v1/sites/team-aurora/website/feedback';
+
+  it.each([
+    ['PUT', '/weg/status', { status: 'seen' }],
+    ['POST', '/weg/replies', { body: 'Hallo' }],
+    ['DELETE', '/weg', undefined],
+  ])('answers %s on an unknown item with FEEDBACK_NOT_FOUND', async (method, path, body) => {
+    const backend = makeMockBackend();
+
+    const response = await backend.fetch(`${ITEM}${path}`, {
+      method,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+
+    expect(response.status).toBe(404);
+    expect(((await response.json()) as { code: string }).code).toBe('FEEDBACK_NOT_FOUND');
+  });
+
+  it('refuses an unknown status', async () => {
+    const backend = makeMockBackend();
+
+    const response = await backend.fetch(`${ITEM}/fb-1/status`, {
+      method: 'PUT',
+      body: JSON.stringify({ status: 'weg' }),
+    });
+
+    expect(response.status).toBe(422);
+  });
+
+  it('changes nothing for the status an item already has', async () => {
+    const backend = makeMockBackend();
+
+    const response = await backend.fetch(`${ITEM}/fb-2/status`, {
+      method: 'PUT',
+      body: JSON.stringify({ status: 'seen' }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(((await response.json()) as { statusChangedAt: string }).statusChangedAt).toBe(
+      '2026-07-18T07:30:00.000Z',
+    );
+  });
+
+  it('refuses a reply without a body and one that is too long', async () => {
+    const backend = makeMockBackend();
+    const reply = (body?: string) =>
+      backend.fetch(`${ITEM}/fb-1/replies`, {
+        method: 'POST',
+        body: JSON.stringify(body === undefined ? {} : { body }),
+      });
+
+    const missing = await reply();
+    expect(((await missing.json()) as { code: string }).code).toBe('FIELD_EMPTY');
+    const long = await reply('a'.repeat(5001));
+    expect(long.status).toBe(422);
+    expect(((await long.json()) as { code: string }).code).toBe('FIELD_TOO_LONG');
+    expect((await reply('a'.repeat(5000))).status).toBe(201);
+  });
+
+  it('takes the hundredth reply of an item and refuses the next with FEEDBACK_THREAD_FULL', async () => {
+    const backend = makeMockBackend();
+    const item = backend.data.feedback.find((feedback) => feedback.id === 'fb-2')!;
+    const reply = () =>
+      backend.fetch(`${ITEM}/fb-2/replies`, { method: 'POST', body: JSON.stringify({ body: 'Nog een' }) });
+    // The submitter's replies count as well.
+    while (item.replies.length < 99) item.replies.push({ ...item.replies.at(-1)!, id: `r-${item.replies.length}` });
+
+    expect((await reply()).status).toBe(201);
+    const full = await reply();
+
+    expect(full.status).toBe(409);
+    expect(await full.json()).toMatchObject({
+      code: 'FEEDBACK_THREAD_FULL',
+      detail: 'Bij deze feedback kunnen geen reacties meer bij.',
+    });
+    expect(item.replies).toHaveLength(100);
+  });
+
+  it('refuses settings without a known identity', async () => {
+    const backend = makeMockBackend();
+
+    const response = await backend.fetch('/-/api/v1/sites/team-aurora/website/feedback-settings', {
+      method: 'PUT',
+      body: JSON.stringify({ enabled: true, identity: 'iedereen', live: false }),
+    });
+
+    expect(response.status).toBe(422);
+  });
+
+  it.each([
+    ['GET', '/-/api/v1/sites/team-aurora/website/feedback-settings'],
+    ['POST', '/-/api/v1/sites/team-aurora/website/feedback'],
+    ['GET', '/-/api/v1/sites/team-aurora/website/feedback/fb-1/status'],
+    ['GET', '/-/api/v1/sites/team-aurora/website/feedback/fb-1/replies'],
+    ['PUT', '/-/api/v1/sites/team-aurora/website/feedback/fb-1/anders'],
+    ['PUT', '/-/api/v1/sites/team-aurora/website/feedback/fb-1'],
+  ])('answers %s %s, which is no route, with the route 404', async (method, path) => {
+    const backend = makeMockBackend();
+
+    const response = await backend.fetch(path, { method });
+
+    expect(response.status).toBe(404);
+    expect(((await response.json()) as { title: string }).title).toBe('Onbekend eindpunt');
+  });
+});
+
+describe('feedback: follows its site', () => {
+  it('goes with its site and its group, and moves along with a new address', async () => {
+    const backend = makeMockBackend();
+
+    await backend.fetch('/-/api/v1/sites/team-aurora/website/slug', {
+      method: 'PUT',
+      body: JSON.stringify({ slug: 'site' }),
+    });
+    const moved = (await (await backend.fetch('/-/api/v1/sites/team-aurora/site/feedback')).json()) as {
+      items: { page: { url: string } }[];
+    };
+    expect(moved.items[0]!.page.url).toBe('https://sites.toon.test/team-aurora/site/_preview/pr-42/docs/');
+
+    await backend.fetch('/-/api/v1/groups/team-aurora/slug', {
+      method: 'PUT',
+      body: JSON.stringify({ slug: 'aurora' }),
+    });
+    expect(backend.data.feedback.every((item) => item.groupSlug === 'aurora')).toBe(true);
+
+    await backend.fetch('/-/api/v1/sites/aurora/site', { method: 'DELETE' });
+    expect(backend.data.feedback).toEqual([]);
+  });
+
+  it('goes with its group', async () => {
+    const backend = makeMockBackend();
+
+    await backend.fetch('/-/api/v1/groups/team-aurora', { method: 'DELETE' });
+
+    expect(backend.data.feedback).toEqual([]);
+  });
+
+  it('starts a new site without feedback', async () => {
+    const backend = makeMockBackend();
+
+    const response = await backend.fetch('/-/api/v1/groups/team-aurora/sites', {
+      method: 'POST',
+      body: JSON.stringify({ slug: 'nieuw', title: 'Nieuw' }),
+    });
+
+    expect(await response.json()).toMatchObject({
+      feedbackEnabled: false,
+      feedbackIdentity: 'account',
+      feedbackLive: false,
+      openFeedbackCount: 0,
+    });
+  });
+});

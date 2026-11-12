@@ -50,6 +50,7 @@ description:
       - "Five access levels: public, secret link, SSO Rijk, group members, invitees"
       - Bilingual (Dutch and English) admin for groups, sites, access and members
       - Publish from your own computer with the Toon CLI
+      - Visitor feedback on a site's pages, with a screenshot, handled in the admin or with the Toon CLI
       - Reusable GitHub/Forgejo action that publishes from CI, signed in with an OIDC token
   nl:
     localisedName: Toon
@@ -69,4 +70,5 @@ description:
       - "Vijf toegangsniveaus: publiek, geheime link, SSO Rijk, groepsleden, genodigden"
       - Tweetalige (Nederlands en Engels) beheer-SPA voor groepen, sites, toegang en leden
       - Publiceren vanuit de eigen computer met de Toon-CLI
+      - Feedback van bezoekers op pagina's, met schermafbeelding, af te handelen in de beheer-SPA en de CLI
       - Herbruikbare GitHub/Forgejo-action voor publicatie in CI, aangemeld met een OIDC-token

@@ -3,6 +3,7 @@ share, access levels and roles."""
 
 import enum
 import re
+import uuid
 from dataclasses import dataclass
 
 SLUG_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
@@ -85,7 +86,7 @@ PATH_LOGOUT = f"/{PLATFORM_SEGMENT}/logout"
 
 # Where the OP delivers a back-channel logout token (OIDC Back-Channel Logout
 # 1.0, platform/backchannel.py). Admin host only: belongs_to_content() refuses
-# everything under /-/ that is not one of the four content paths.
+# everything under /-/ that is not a content path or under the feedback prefix.
 PATH_BACKCHANNEL_LOGOUT = f"/{PLATFORM_SEGMENT}/oidc/backchannel-logout"
 
 PATH_CONTENT_LOGIN = f"/{PLATFORM_SEGMENT}/login"
@@ -93,9 +94,41 @@ PATH_CONTENT_OAUTH2_PREFIX = f"/{PLATFORM_SEGMENT}/oauth2/"
 PATH_CONTENT_LOGOUT = f"/{PLATFORM_SEGMENT}/logout"
 
 # Where the code of a secret link shared without it is handed in
-# (serving/code_page.py). The only POST the content host has, so host
-# separation and rate limiting both single this path out.
+# (serving/code_page.py). Host separation and rate limiting both single this
+# path out.
 PATH_CONTENT_CODE = f"/{PLATFORM_SEGMENT}/code"
+
+# Site feedback on the content host: the widget bundle, its API, the consent
+# page for feedback with an account and hiding the button. Host separation
+# admits the prefix; every route under it checks the host itself, because on
+# the admin host every /-/ path reaches the routes.
+PATH_CONTENT_FEEDBACK_PREFIX = f"/{PLATFORM_SEGMENT}/feedback/"
+PATH_FEEDBACK_API_PREFIX = f"{PATH_CONTENT_FEEDBACK_PREFIX}v1/"
+PATH_FEEDBACK_WIDGET_PREFIX = f"{PATH_CONTENT_FEEDBACK_PREFIX}widget."
+PATH_FEEDBACK_HIDE = f"{PATH_CONTENT_FEEDBACK_PREFIX}hide"
+PATH_FEEDBACK_SHOW = f"{PATH_CONTENT_FEEDBACK_PREFIX}show"
+PATH_FEEDBACK_ACCOUNT = f"{PATH_CONTENT_FEEDBACK_PREFIX}account"
+PATH_FEEDBACK_ACCOUNT_STOP = f"{PATH_CONTENT_FEEDBACK_PREFIX}account/stop"
+
+# Set on a site's path while a visitor has hidden the feedback button. Its
+# value is a sealed hide mark for that one site that lasts twelve hours
+# (serving/feedback_token.py). While a request carries a valid one, Toon
+# injects nothing into that site's pages.
+FEEDBACK_HIDE_COOKIE = "__Secure-toon-feedback-off"
+
+# The replies one feedback item takes: from the visitor who sent it, and in
+# all, the site team's included. The widget API and the admin API count them
+# under the lock of `feedback_item_lock_key`.
+FEEDBACK_MAX_GIVER_REPLIES = 20
+FEEDBACK_MAX_REPLIES = 100
+
+
+def feedback_item_lock_key(item_id: uuid.UUID) -> str:
+    """What both reply routes hash for the transaction-scoped advisory lock on
+    an item, taken before they count its replies: concurrent replies count
+    one after the other, so neither cap is overshot."""
+    return f"toon-feedback-item:{item_id}"
+
 
 # Public liveness answer, admin host only (platform/health.py).
 PATH_HEALTHZ = f"/{PLATFORM_SEGMENT}/healthz"
@@ -168,3 +201,63 @@ class Role(enum.StrEnum):
 # 'editor' < 'admin' is false. So never compare two roles with < or >, always
 # through this rank (access/roles.py).
 ROLE_RANK: dict[Role, int] = {Role.READER: 1, Role.EDITOR: 2, Role.ADMIN: 3}
+
+
+# Site feedback. The migration that creates the PostgreSQL types freezes these
+# value lists, in this order; test_migrations.py holds the two together.
+
+
+class FeedbackKind(enum.StrEnum):
+    """What a feedback item is about: the whole page, a point on it, or a
+    text selection."""
+
+    PAGE = "page"
+    POINT = "point"
+    TEXT = "text"
+
+
+class FeedbackAuthor(enum.StrEnum):
+    """Who stands behind an item: a consented SSO account, a name the
+    submitter typed (not verified), or nobody."""
+
+    ACCOUNT = "account"
+    NAME = "name"
+    ANONYMOUS = "anonymous"
+
+
+class FeedbackStatus(enum.StrEnum):
+    NEW = "new"
+    SEEN = "seen"
+    RESOLVED = "resolved"
+
+
+class FeedbackReplyAuthor(enum.StrEnum):
+    MEMBER = "member"
+    GIVER = "giver"
+
+
+class FeedbackIdentity(enum.StrEnum):
+    """A site's setting for who may give feedback. Ordered: each level allows
+    the author kinds of the levels before it."""
+
+    ACCOUNT = "account"
+    NAME = "name"
+    ANONYMOUS = "anonymous"
+
+
+_IDENTITY_RANK: dict[FeedbackIdentity, int] = {
+    FeedbackIdentity.ACCOUNT: 1,
+    FeedbackIdentity.NAME: 2,
+    FeedbackIdentity.ANONYMOUS: 3,
+}
+
+_AUTHOR_NEEDS: dict[FeedbackAuthor, FeedbackIdentity] = {
+    FeedbackAuthor.ACCOUNT: FeedbackIdentity.ACCOUNT,
+    FeedbackAuthor.NAME: FeedbackIdentity.NAME,
+    FeedbackAuthor.ANONYMOUS: FeedbackIdentity.ANONYMOUS,
+}
+
+
+def identity_allows(identity: FeedbackIdentity, author: FeedbackAuthor) -> bool:
+    """Whether a site set to `identity` accepts an item from `author`."""
+    return _IDENTITY_RANK[identity] >= _IDENTITY_RANK[_AUTHOR_NEEDS[author]]

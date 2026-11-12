@@ -1,0 +1,1 @@
+- With "Allow feedback" on the new "Feedback" tab, visitors of a site point at a spot or a text on a page and send a remark with a screenshot, which the site team reads, answers and resolves there, with `toon feedback` or through the `toon-feedback` skill of the `toon` plugin.

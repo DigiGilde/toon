@@ -259,7 +259,10 @@ Then do not go on until the terminal shows "Logged in as ...".
    answer for someone who is not allowed to look. Say that instead of starting
    to guess.
 5. **Report**: the preview address, that the live site is unchanged, and what
-   still has to happen to go live.
+   still has to happen to go live. When feedback is on for the site, its
+   previews carry Toon's feedback button, so colleagues can leave remarks on
+   the preview itself. The `toon-feedback` skill works through them with the
+   user.
 6. **Live, only on request**: build again with the live base path and publish
    the same directory without `--preview`.
 7. **Clean up the preview** once it has done its work:

@@ -1601,3 +1601,157 @@ describe('upload', () => {
     expect(response.status).toBe(422);
   });
 });
+
+describe('feedback', () => {
+  /** Signs in as Sanne, who has only the given role, on this site alone. */
+  function signInWithSiteRole(role: 'reader' | 'editor'): void {
+    backend.data.siteRoles.push({
+      groupSlug: 'team-aurora',
+      siteSlug: 'website',
+      identifier: 'sanne@voorbeeld.nl',
+      role,
+    });
+    backend.data.loggedInMemberId = 'lid-6';
+  }
+
+  it('lists the open items newest first, with the counts of the whole site', async () => {
+    const page = await toon.feedbackList('team-aurora', 'website');
+
+    expect(page.items.map((item) => item.id)).toEqual(['fb-1', 'fb-2']);
+    expect(page.counts).toEqual({ new: 1, seen: 1, resolved: 1 });
+    expect(page.nextCursor).toBeNull();
+    expect(page.items[0]!.page.url).toBe('https://sites.toon.test/team-aurora/website/_preview/pr-42/docs/');
+    expect(page.items[1]!.author.email).toBe('ada@voorbeeld.nl');
+  });
+
+  it('puts the filters in the query, and leaves out what is not set', async () => {
+    const spy = vi.fn(backend.fetch);
+    vi.stubGlobal('fetch', spy);
+
+    const page = await toon.feedbackList('team-aurora', 'website', {
+      status: 'all',
+      target: 'preview',
+      ref: 'pr-42',
+      cursor: undefined,
+    });
+
+    expect(spy.mock.calls[0]![0]).toBe(
+      '/-/api/v1/sites/team-aurora/website/feedback?status=all&target=preview&ref=pr-42',
+    );
+    expect(page.items.map((item) => item.id)).toEqual(['fb-1', 'fb-3']);
+  });
+
+  it('pages through the list with the cursor it hands out', async () => {
+    const first = await toon.feedbackList('team-aurora', 'website', { status: 'all', limit: 2 });
+    expect(first.items.map((item) => item.id)).toEqual(['fb-1', 'fb-2']);
+    expect(first.nextCursor).not.toBeNull();
+
+    const second = await toon.feedbackList('team-aurora', 'website', {
+      status: 'all',
+      limit: 2,
+      cursor: first.nextCursor!,
+    });
+    expect(second.items.map((item) => item.id)).toEqual(['fb-3']);
+    expect(second.nextCursor).toBeNull();
+  });
+
+  it('keeps the address of a sender from a reader of the site', async () => {
+    signInWithSiteRole('reader');
+
+    const page = await toon.feedbackList('team-aurora', 'website');
+    const detail = await toon.feedbackDetail('team-aurora', 'website', 'fb-2');
+
+    expect(page.items[1]!.author).toEqual({ kind: 'account', name: 'Ada Vermeer', email: null });
+    expect(detail.author.email).toBeNull();
+  });
+
+  it('shows one item with its thread and the link to its place', async () => {
+    const detail = await toon.feedbackDetail('team-aurora', 'website', 'fb-2');
+
+    expect(detail.replies.map((reply) => reply.author.kind)).toEqual(['member', 'giver']);
+    expect(detail.highlightUrl).toBe('https://sites.toon.test/team-aurora/website/#toon-feedback=fb-2');
+    expect(detail.viewport).toEqual({ width: 390, height: 844, dpr: 3 });
+  });
+
+  it('refuses an item that is not there', async () => {
+    const error = await refusedWith(toon.feedbackDetail('team-aurora', 'website', 'fb-weg'));
+
+    expect(error.problem.status).toBe(404);
+    expect(error.problem.code).toBe('FEEDBACK_NOT_FOUND');
+  });
+
+  it('marks an item and says who did', async () => {
+    const updated = await toon.setFeedbackStatus('team-aurora', 'website', 'fb-1', 'resolved');
+
+    expect(updated.status).toBe('resolved');
+    expect(updated.statusChangedBy).toBe('Bea Heerder');
+    expect((await toon.group('team-aurora')).sites[0]!.openFeedbackCount).toBe(1);
+  });
+
+  it('refuses a status change by a reader', async () => {
+    signInWithSiteRole('reader');
+
+    const error = await refusedWith(toon.setFeedbackStatus('team-aurora', 'website', 'fb-1', 'seen'));
+
+    expect(error.problem.status).toBe(403);
+  });
+
+  it('adds a reply of the site team', async () => {
+    const reply = await toon.addFeedbackReply('team-aurora', 'website', 'fb-1', '  Dank je, klopt.  ');
+
+    expect(reply.author).toEqual({ kind: 'member', name: 'Bea Heerder' });
+    expect(reply.body).toBe('Dank je, klopt.');
+    expect((await toon.feedbackDetail('team-aurora', 'website', 'fb-1')).replyCount).toBe(1);
+  });
+
+  it('refuses an empty reply', async () => {
+    const error = await refusedWith(toon.addFeedbackReply('team-aurora', 'website', 'fb-1', '   '));
+
+    expect(error.problem.code).toBe('FIELD_EMPTY');
+  });
+
+  it('deletes an item for an admin, and refuses it to an editor', async () => {
+    await toon.deleteFeedback('team-aurora', 'website', 'fb-3');
+    expect(backend.data.feedback.map((item) => item.id)).not.toContain('fb-3');
+
+    signInWithSiteRole('editor');
+    const error = await refusedWith(toon.deleteFeedback('team-aurora', 'website', 'fb-1'));
+    expect(error.problem.status).toBe(403);
+  });
+
+  it('saves the three settings in one call and answers with the site', async () => {
+    const spy = vi.fn(backend.fetch);
+    vi.stubGlobal('fetch', spy);
+
+    const site = await toon.setFeedbackSettings('team-aurora', 'website', {
+      enabled: true,
+      identity: 'anonymous',
+      live: true,
+    });
+
+    const [path, init] = spy.mock.calls[0]!;
+    expect(path).toBe('/-/api/v1/sites/team-aurora/website/feedback-settings');
+    expect(init?.method).toBe('PUT');
+    expect(JSON.parse(String(init?.body))).toEqual({ enabled: true, identity: 'anonymous', live: true });
+    expect(site).toMatchObject({ feedbackEnabled: true, feedbackIdentity: 'anonymous', feedbackLive: true });
+  });
+
+  it('refuses the settings to an editor', async () => {
+    signInWithSiteRole('editor');
+
+    const error = await refusedWith(
+      toon.setFeedbackSettings('team-aurora', 'website', { enabled: false, identity: 'account', live: false }),
+    );
+
+    expect(error.problem.status).toBe(403);
+  });
+
+  it('builds the address of a screenshot on this origin, every part encoded', () => {
+    expect(toon.feedbackScreenshotUrl('team-aurora', 'website', 'fb-1')).toBe(
+      '/-/api/v1/sites/team-aurora/website/feedback/fb-1/screenshot',
+    );
+    expect(toon.feedbackScreenshotUrl('team-aurora', 'website', 'a/b')).toBe(
+      '/-/api/v1/sites/team-aurora/website/feedback/a%2Fb/screenshot',
+    );
+  });
+});

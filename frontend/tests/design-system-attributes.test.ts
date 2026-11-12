@@ -75,6 +75,9 @@ const UNDECLARED: Record<string, Record<string, string>> = {
     // only the server can judge; the control itself only carries it.
     unmet: 'read by nldd-validation-list, not by the field',
   },
+  'nldd-multi-line-text-field': {
+    unmet: 'read by nldd-validation-list, not by the field',
+  },
 };
 
 function vueFiles(dir: string): string[] {

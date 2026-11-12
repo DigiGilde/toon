@@ -58,6 +58,10 @@ const site: Site = {
   lastPublishedAt: null,
   previewCount: 0,
   previousSlugs: [],
+  feedbackEnabled: false,
+  feedbackIdentity: 'account',
+  feedbackLive: false,
+  openFeedbackCount: 0,
 };
 
 type Wrapper = ReturnType<typeof mount>;
