@@ -103,7 +103,7 @@ async def test_every_row_gets_a_chain_position(connection: asyncpg.Connection) -
 
 
 async def test_each_retention_term_has_chains_of_its_own(connection: asyncpg.Connection) -> None:
-    """A chain holds rows of one term only: 90-day rows in chains 0 to 15,
+    """A chain holds rows of one term only: 180-day rows in chains 0 to 15,
     three-year rows in 16 to 31. Mixed, the purge would cut the short rows out
     from between the long ones."""
     for _ in range(6):
@@ -328,7 +328,7 @@ async def test_a_purged_front_is_not_a_break(
     migrated_dsn: str, connection: asyncpg.Connection, caplog: pytest.LogCaptureFixture
 ) -> None:
     """What the retention purge leaves behind on every environment older than
-    ninety days: a chain that no longer starts at position 1. Reporting that as
+    180 days: a chain that no longer starts at position 1. Reporting that as
     a break would make the check cry wolf as a matter of routine, and the first
     real break would be read as "the purge again"."""
     shard = await _fill_one_shard(connection, count=4)
@@ -402,11 +402,11 @@ async def test_only_a_published_line_sees_a_truncated_front_at_all(
 
 
 async def test_the_purge_leaves_every_chain_verifiable(migrated_dsn: str, connection: asyncpg.Connection) -> None:
-    """Rows of both terms, written over two hundred days. The purge takes the
-    expired 90-day rows and nothing else, and because each term has chains of
+    """Rows of both terms, written over four hundred days. The purge takes the
+    expired 180-day rows and nothing else, and because each term has chains of
     its own that is always the front of a chain: every chain still verifies,
     and a line published before the purge finds nothing but what aged out."""
-    for days_ago in range(200, 0, -5):
+    for days_ago in range(400, 0, -5):
         await insert_chained_audit_row(connection, "site_create", "allowed", timedelta(days=days_ago))
         await insert_chained_audit_row(connection, "login", "allowed", timedelta(days=days_ago, hours=-1))
     assert await chain.verify(migrated_dsn) == []
@@ -414,11 +414,11 @@ async def test_the_purge_leaves_every_chain_verifiable(migrated_dsn: str, connec
 
     deleted = await retention.purge(migrated_dsn)
 
-    expired = len(range(200, 90, -5))
+    expired = len(range(400, 180, -5))
     assert deleted == expired
     counts = dict(await connection.fetch("SELECT action, count(*) FROM audit_log_entries GROUP BY action"))
-    assert counts["site_create"] == 40
-    assert counts["login"] == 40 - expired
+    assert counts["site_create"] == 80
+    assert counts["login"] == 80 - expired
     assert await chain.verify(migrated_dsn) == []
     findings = await checkpoint.compare(migrated_dsn, published)
     assert findings
@@ -432,9 +432,9 @@ async def test_a_chain_purged_to_nothing_continues_where_it_stood(
     """A quiet chain whose rows all age out: the next row takes the next
     position and chains onto the hash that was published for the last one,
     so no position is handed out twice and no published line goes stale."""
-    first = await insert_chained_audit_row(connection, "login", "allowed", timedelta(days=120))
+    first = await insert_chained_audit_row(connection, "login", "allowed", timedelta(days=210))
     shard = await connection.fetchval("SELECT chain_shard FROM audit_log_entries WHERE id = $1", first)
-    for days_ago in (110, 100):
+    for days_ago in (200, 190):
         await insert_chained_audit_row(
             connection,
             "login",
@@ -532,8 +532,8 @@ async def test_a_chain_purged_to_nothing_is_not_a_break(
     migrated_dsn: str, connection: asyncpg.Connection
 ) -> None:
     """The purge took every row, head row last, after its deadline."""
-    await insert_chained_audit_row(connection, "login", "allowed", timedelta(days=120))
-    await insert_chained_audit_row(connection, "logout", "allowed", timedelta(days=100))
+    await insert_chained_audit_row(connection, "login", "allowed", timedelta(days=210))
+    await insert_chained_audit_row(connection, "logout", "allowed", timedelta(days=190))
     await retention.purge(migrated_dsn)
     empty_heads = await connection.fetchval(
         """

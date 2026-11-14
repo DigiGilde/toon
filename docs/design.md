@@ -832,7 +832,7 @@ and the `site_team` route; the other ways in do not depend on member status.
 
 Because a viewer has no member row, an SSO viewer of protected content is
 recorded in `content_viewers` instead, upserted on every successful content-host
-login, purged after 90 days without one. Without it the audit log would have
+login, purged after 180 days without one. Without it the audit log would have
 nothing to resolve such an actor to.
 
 Code: `auth/members.py`, `auth/content_viewers.py`. Guarded by:
@@ -1285,7 +1285,7 @@ Rules that live in the database rather than only in the application:
 Append-only on the audit log rests on triggers: `audit_log_no_update` refuses
 every UPDATE always, `audit_log_delete_after_retention` refuses the DELETE of a
 row that has not reached its retention, and `content_viewer_delete_after_retention`
-does the same at 90 days. The retention itself is a SQL function
+does the same at 180 days. The retention itself is a SQL function
 (`audit_log_retention`), so shortening a term costs a schema change rather than
 a setting, and the purge job asks the database what has expired instead of
 carrying a term of its own. `guard_last_group_admin` keeps a group from losing

@@ -102,11 +102,11 @@ export const pagesNl = {
   'page.privacy.retention.heading':
     'Bewaartermijn',
   'page.privacy.retention.body':
-    'Bezoekgegevens en inlogmomenten worden na 90 dagen verwijderd. Overige auditgegevens, zoals geweigerde toegang en beheerhandelingen, blijven drie jaar bewaard, omdat ze deel kunnen worden van het onderzoek naar een beveiligingsincident. Alleen een platformbeheerder kan ze inzien, en elke inzage wordt zelf vastgelegd, met een verplichte reden die voor elke platformbeheerder leesbaar is. Je naam en e-mailadres staan er niet leesbaar in. Previews en hun toegangsgegevens vervallen automatisch na dertig dagen zonder nieuwe deploy.',
+    'Bezoekgegevens en inlogmomenten worden na 180 dagen verwijderd. Overige auditgegevens, zoals geweigerde toegang en beheerhandelingen, blijven drie jaar bewaard, omdat ze deel kunnen worden van het onderzoek naar een beveiligingsincident. Alleen een platformbeheerder kan ze inzien, en elke inzage wordt zelf vastgelegd, met een verplichte reden die voor elke platformbeheerder leesbaar is. Je naam en e-mailadres staan er niet leesbaar in. Previews en hun toegangsgegevens vervallen automatisch na dertig dagen zonder nieuwe deploy.',
   'page.privacy.retention.ip':
     'Bij elke auditregel hoort ook het IP-adres van waaraf iets gebeurde: een afgekapt netwerk (niet het volledige adres) staat gewoon in het log, even lang bewaard als de regel zelf. Het volledige adres staat er versleuteld naast, even lang bewaard, en alleen een platformbeheerder kan het opvragen, met dezelfde verplichte, vastgelegde reden.',
   'page.privacy.retention.session':
-    'Bekijk je afgeschermde content na inloggen met je organisatie, dan bewaart Toon je SSO-id en e-mailadres tot negentig dagen na je laatste keer inloggen. Dat is nodig om een regel in het auditlog bij een persoon te kunnen brengen, bijvoorbeeld bij het onderzoek naar een lek.',
+    'Bekijk je afgeschermde content na inloggen met je organisatie, dan bewaart Toon je SSO-id en e-mailadres tot 180 dagen na je laatste keer inloggen. Dat is nodig om een regel in het auditlog bij een persoon te kunnen brengen, bijvoorbeeld bij het onderzoek naar een lek.',
   'page.privacy.visibility.heading':
     'Wie kan wat zien',
   'page.privacy.visibility.body':

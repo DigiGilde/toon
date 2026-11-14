@@ -167,11 +167,12 @@ CI_REASONS: Final = frozenset(
     }
 )
 
-# Retention, in days. The database is authoritative: audit_log_retention() in
-# 0001_base is what the delete guard and the purge enforce, and
+# Retention, in days. The database is authoritative: audit_log_retention()
+# (0001_base, the short term from 0008) is what the delete guard and the purge
+# enforce, and
 # test_migrations.py holds these two numbers to it. 1096 days is three years
 # with a leap day, so the long term never falls short of three calendar years.
-SHORT_RETENTION_DAYS: Final = 90
+SHORT_RETENTION_DAYS: Final = 180
 LONG_RETENTION_DAYS: Final = 1096
 
 # (action, result) pairs that are about looking and presence rather than about

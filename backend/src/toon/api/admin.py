@@ -1632,7 +1632,7 @@ class ActorPseudonymOut(ApiModel):
     resolved_as: Literal["member", "content_viewer", "ci", "unknown"] = Field(
         description=(
             "What the identifier belonged to: `member` (translated to their SSO subject), `content_viewer` "
-            "(an SSO viewer of protected content, seen in the last 90 days), `ci` "
+            "(an SSO viewer of protected content, seen in the last 180 days), `ci` "
             "(a repository linked to a site) or `unknown` (pseudonymised as given, only for an "
             "identifier that is not an e-mail address: an e-mail address that belongs to nothing gives a 404)."
         )
@@ -5007,7 +5007,7 @@ def make_admin_router() -> APIRouter:
             "to this pseudonym. Several causes are possible: the pepper has been rotated since that row was "
             "written and the previous pepper is no longer configured; the actor only ever visited content "
             "through the content-host SSO and that visit was "
-            "more than 90 days ago (`content_viewers` is then cleaned up, like the related "
+            "more than 180 days ago (`content_viewers` is then cleaned up, like the related "
             "`content_access` rows); or the repository has since been unlinked, or deleted along with its "
             "site or group (`ON DELETE CASCADE`).\n\n"
             "That this is a POST and not a query parameter is deliberate, as with the other side of this "
@@ -5029,7 +5029,7 @@ def make_admin_router() -> APIRouter:
                 404: (
                     "No member, content viewer or linked repository pseudonymises to this value "
                     "(`PSEUDONYM_UNKNOWN`): the pepper has been rotated and the previous one is no longer "
-                    "configured, the content viewer was cleaned up after 90 days without a visit, or the "
+                    "configured, the content viewer was cleaned up after 180 days without a visit, or the "
                     "repository was unlinked or deleted along with its site."
                 )
             },

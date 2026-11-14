@@ -62,7 +62,7 @@ class TestRunOnce:
     async def test_the_line_names_the_front_the_purge_then_takes(
         self, migrated_dsn: str, db_connection: asyncpg.Connection, caplog
     ):
-        expired, shard, seq = await _aged_row(migrated_dsn, "content_access", "allowed", timedelta(days=91))
+        expired, shard, seq = await _aged_row(migrated_dsn, "content_access", "allowed", timedelta(days=181))
         recent, _, _ = await _aged_row(migrated_dsn, "content_access", "allowed", timedelta(days=7))
 
         with caplog.at_level(logging.INFO):
@@ -84,7 +84,7 @@ class TestRunOnce:
     async def test_a_failing_checkpoint_is_logged_and_the_purge_still_runs(
         self, migrated_dsn: str, db_connection: asyncpg.Connection, monkeypatch, caplog
     ):
-        expired, _, _ = await _aged_row(migrated_dsn, "logout", "allowed", timedelta(days=91))
+        expired, _, _ = await _aged_row(migrated_dsn, "logout", "allowed", timedelta(days=181))
 
         async def broken_collect(dsn: str):
             raise RuntimeError("database unreachable")
@@ -100,7 +100,7 @@ class TestRunOnce:
     async def test_a_failing_purge_is_logged_after_the_line_went_out(
         self, migrated_dsn: str, db_connection: asyncpg.Connection, monkeypatch, caplog
     ):
-        expired, _, _ = await _aged_row(migrated_dsn, "logout", "allowed", timedelta(days=91))
+        expired, _, _ = await _aged_row(migrated_dsn, "logout", "allowed", timedelta(days=181))
 
         async def broken_purge(dsn: str, **kwargs):
             raise RuntimeError("database unreachable")
@@ -116,7 +116,7 @@ class TestRunOnce:
     async def test_a_paused_purge_still_publishes_and_says_it_is_paused(
         self, migrated_dsn: str, db_connection: asyncpg.Connection, caplog
     ):
-        expired, shard, seq = await _aged_row(migrated_dsn, "content_access", "allowed", timedelta(days=91))
+        expired, shard, seq = await _aged_row(migrated_dsn, "content_access", "allowed", timedelta(days=181))
 
         with caplog.at_level(logging.INFO):
             await run_once(migrated_dsn, purge_paused=True)

@@ -59,7 +59,7 @@ class ContentViewer(IDMixin, Base):
     them at all.
 
     Upserted on every successful content-host SSO login; purged by
-    `audit/retention.py` once `last_seen_at` is more than 90 days old, the
+    `audit/retention.py` once `last_seen_at` is more than 180 days old, the
     same term as `content_access`/`allowed`.
     """
 
