@@ -121,8 +121,6 @@ export const adminEn: Record<keyof typeof adminNl, string> = {
   'admin.volume.used': 'Used',
   'admin.volume.used.value': '{used} of {total}',
   'admin.volume.free': 'Free',
-  'admin.volume.reserve': 'Reserve',
-  'admin.volume.reserve.off': 'Off',
   'admin.volume.low.title': 'Little room left on the content volume',
   'admin.volume.low.detail':
     'A deploy of the maximum size ({maxDeploy}) would take the volume below the reserve of {reserve}. Free up space or enlarge the volume.',

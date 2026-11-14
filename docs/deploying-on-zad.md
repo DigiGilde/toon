@@ -346,8 +346,8 @@ row than with one. That is the line to alarm on after restoring a database
 backup or changing `TOON_DB_URL`.
 
 A platform administrator sees the whole volume in the admin SPA, on
-"Platformbeheer" (`/-/platform`), below the member list: size, used, free and
-the reserve, without any group or site. It is backed by
+"Platformbeheer" (`/-/platform`), below the member list: size, used and
+free, without any group or site. It is backed by
 `GET /-/api/v1/platform/storage` (platform administrators only) and turns red
 under the same threshold as `storage`.
 

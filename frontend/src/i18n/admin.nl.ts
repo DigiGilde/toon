@@ -122,8 +122,6 @@ export const adminNl = {
   'admin.volume.used': 'In gebruik',
   'admin.volume.used.value': '{used} van {total}',
   'admin.volume.free': 'Vrij',
-  'admin.volume.reserve': 'Reserve',
-  'admin.volume.reserve.off': 'Uit',
   'admin.volume.low.title': 'Weinig ruimte over op het contentvolume',
   'admin.volume.low.detail':
     'Een deploy van de maximale omvang ({maxDeploy}) zou het volume onder de reserve van {reserve} brengen. Maak ruimte vrij of vergroot het volume.',
