@@ -725,7 +725,7 @@ describe('App', () => {
 
     const region = wrapper.find('[data-testid="route-announcer"]');
     expect(region.attributes('role')).toBe('status');
-    expect(region.classes()).toContain('visually-hidden');
+    expect(region.element.localName).toBe('nldd-visually-hidden');
   });
 
   describe('document title', () => {

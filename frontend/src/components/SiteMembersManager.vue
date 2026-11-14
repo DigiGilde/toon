@@ -369,7 +369,6 @@ async function onRemove(row: Row): Promise<void> {
         </nldd-text>
 
         <nldd-table
-          class="member-table"
           :accessible-label="t('admin.siteMembers.inherited.table')"
           data-testid="members-via-group-list"
           :columns="COLUMNS_INHERITED"
@@ -395,7 +394,6 @@ async function onRemove(row: Row): Promise<void> {
 
     <nldd-container layout="stack" gap="16">
       <nldd-table
-        class="member-table"
         :accessible-label="t('admin.siteMembers.table')"
         data-testid="members-list"
         :columns="COLUMNS"
@@ -413,7 +411,7 @@ async function onRemove(row: Row): Promise<void> {
                one icon button says nothing, and a columnheader without a name
                is an axe violation. -->
           <nldd-text-cell horizontal-alignment="right">
-            <span class="visually-hidden">{{ t('admin.column.actions') }}</span>
+            <nldd-visually-hidden>{{ t('admin.column.actions') }}</nldd-visually-hidden>
           </nldd-text-cell>
         </nldd-table-row>
         <nldd-inline-dialog
@@ -496,10 +494,3 @@ async function onRemove(row: Row): Promise<void> {
     ></nldd-button>
   </nldd-notification>
 </template>
-
-<style scoped>
-/* Same cap as the group's member table, see global.css. */
-.member-table {
-  max-width: var(--toon-table-max-width);
-}
-</style>

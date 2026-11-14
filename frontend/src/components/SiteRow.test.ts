@@ -141,7 +141,7 @@ describe('SiteRow', () => {
     // reader, and the site's own page carries the whole sentence.
     const full = base === 'public' ? 'Publiek' : expect.stringContaining('geheime links');
     expect(cell.getAttribute('title')).toEqual(full);
-    expect(cell.querySelector('.visually-hidden')?.textContent).toEqual(full);
+    expect(cell.querySelector('nldd-visually-hidden')?.textContent).toEqual(full);
     // Said once: the badge repeating the base would be heard before it.
     expect(badge?.hasAttribute('decorative')).toBe(true);
 

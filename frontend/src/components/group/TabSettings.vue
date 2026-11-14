@@ -229,13 +229,13 @@ function toggle(field: 'keys' | 'invitees', event: Event): void {
 
         <!-- The field keeps the focus or has lost it already: this is what a
              screen reader hears of the verdict. -->
-        <div v-if="nameVerdict" role="alert" class="visually-hidden" data-testid="group-name-alert">
+        <nldd-visually-hidden v-if="nameVerdict" role="alert" data-testid="group-name-alert">
           {{ nameVerdict }}
-        </div>
+        </nldd-visually-hidden>
 
         <!-- The check mark in the field is what a sighted member sees of a
              save; this is what a screen reader hears of it. -->
-        <div role="status" class="visually-hidden" data-testid="group-name-notice">{{ nameNotice }}</div>
+        <nldd-visually-hidden role="status" data-testid="group-name-notice">{{ nameNotice }}</nldd-visually-hidden>
       </template>
 
       <nldd-rich-text v-else>

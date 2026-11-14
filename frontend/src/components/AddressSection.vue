@@ -576,14 +576,13 @@ async function change(): Promise<void> {
                   <!-- After Enter the field has the focus already, so focusing it says
                        nothing. A field that was left has lost it. This is what a
                        screen reader hears of the verdict. -->
-                  <div
+                  <nldd-visually-hidden
                     v-if="verdict ?? leftVerdict"
                     role="alert"
-                    class="visually-hidden"
                     :data-testid="`${testPrefix}-alert`"
                   >
                     {{ verdict ?? leftVerdict }}
-                  </div>
+                  </nldd-visually-hidden>
                 </nldd-container>
               </nldd-page>
             </nldd-sheet>

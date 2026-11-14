@@ -407,7 +407,7 @@ onMounted(() => {
              name is an axe violation (empty-table-header) and leaves a screen
              reader announcing the menu cell with no column to hang it on. -->
         <nldd-text-cell horizontal-alignment="right">
-          <span class="visually-hidden">{{ t('admin.column.actions') }}</span>
+          <nldd-visually-hidden>{{ t('admin.column.actions') }}</nldd-visually-hidden>
         </nldd-text-cell>
       </nldd-table-row>
 

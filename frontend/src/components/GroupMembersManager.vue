@@ -275,7 +275,6 @@ async function onRemove(row: Row, siteRoles: 'keep' | 'remove'): Promise<void> {
 <template>
   <nldd-container layout="stack" gap="16">
     <nldd-table
-      class="member-table"
       :accessible-label="t('group.members.table.label')"
       data-testid="members-list"
       :columns="COLUMNS"
@@ -293,7 +292,7 @@ async function onRemove(row: Row, siteRoles: 'keep' | 'remove'): Promise<void> {
              button says nothing, and a columnheader without a name is an axe
              violation. -->
         <nldd-text-cell horizontal-alignment="right">
-          <span class="visually-hidden">{{ t('group.members.column.actions') }}</span>
+          <nldd-visually-hidden>{{ t('group.members.column.actions') }}</nldd-visually-hidden>
         </nldd-text-cell>
       </nldd-table-row>
       <nldd-inline-dialog
@@ -390,13 +389,3 @@ async function onRemove(row: Row, siteRoles: 'keep' | 'remove'): Promise<void> {
     ></nldd-button>
   </nldd-notification>
 </template>
-
-<style scoped>
-/* Measured in Chromium (root font 16 px): the three columns together need
-   619 px at their widest content (a full name 241, a long email address 232,
-   action 105, plus 2x8 px column gap and 2x12 px row padding). That is the
-   number behind the shared cap in global.css. */
-.member-table {
-  max-width: var(--toon-table-max-width);
-}
-</style>
