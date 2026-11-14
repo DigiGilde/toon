@@ -200,6 +200,17 @@ updates:
     cooldown:
       default-days: 7
 
+  # Not in the group `tooling`: merging this bump obliges a rollout on ZAD
+  # (docs/deploying-on-zad.md §12), which a grouped pull request hides.
+  # Monthly, because the image gets a tag almost every day when it moves.
+  - package-ecosystem: docker
+    directory: /deploy/old-hosts-redirect
+    schedule:
+      interval: monthly
+      timezone: Europe/Amsterdam
+    cooldown:
+      default-days: 7
+
   - package-ecosystem: docker-compose
     directories:
       - /dev

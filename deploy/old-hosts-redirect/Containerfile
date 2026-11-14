@@ -1,0 +1,5 @@
+# The image the deployments `oud` and `beheer` run on ZAD. Never built.
+# A Containerfile so Dependabot bumps the tag and the digest together.
+# Merging a bump changes nothing on ZAD: docs/deploying-on-zad.md §12 has the
+# commands. Roll out when you merge, so this line stays what runs.
+FROM ghcr.io/rijksictgilde/haproxy-redirect:2026.10.24@sha256:aaa29f56e3aa039f576d9f90ab43f5cb38542707aa211f88c464d57c96d87775
