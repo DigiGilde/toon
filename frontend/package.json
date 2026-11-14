@@ -14,7 +14,7 @@
     "coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@nldd/design-system": "0.23.0",
+    "@nldd/design-system": "0.24.0",
     "vue": "^3.5.45",
     "vue-router": "^5.4.0"
   },
