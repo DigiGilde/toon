@@ -904,6 +904,52 @@ def test_an_unusable_host_with_credentials_does_not_print_them(no_request, token
 
 
 @pytest.mark.parametrize(
+    "bad_host",
+    [
+        pytest.param("https://user:12345#@beheer.toon.rijks.app", id="hash-ends-the-authority"),
+        pytest.param("https://user:12345/@beheer.toon.rijks.app", id="slash-ends-the-authority"),
+        pytest.param("https://user:12345?@beheer.toon.rijks.app", id="question-mark-ends-the-authority"),
+        pytest.param("user:12345/@beheer.toon.rijks.app", id="no-scheme"),
+    ],
+)
+def test_a_password_of_digits_is_not_taken_for_a_port(no_request, token_env, capsys, bad_host):
+    """Both parsers take these: the authority ends before the @, and the
+    digits pass for a port of the host `user`. Every message that names the
+    host would print them."""
+    assert cli.main(["whoami", "--host", bad_host]) == 2
+
+    captured = capsys.readouterr()
+    assert captured.err == f"Error: {NOT_A_VALID_HOST}\n"
+    assert "12345" not in captured.out + captured.err
+
+
+@pytest.mark.parametrize(
+    "bad_host",
+    [
+        pytest.param("https://beheer.toon.rijks.app?next=/", id="query"),
+        pytest.param("https://beheer.toon.rijks.app?", id="empty-query"),
+        pytest.param("https://beheer.toon.rijks.app#top", id="fragment"),
+        pytest.param("https://beheer.toon.rijks.app#", id="empty-fragment"),
+        pytest.param("https://beheer.toon.rijks.app/@team", id="at-after-the-authority"),
+    ],
+)
+def test_a_host_with_a_query_a_fragment_or_a_stray_at_is_refused(no_request, token_env, capsys, bad_host):
+    """Every request is the host with a path appended, so a query or a
+    fragment would swallow that path."""
+    assert cli.main(["whoami", "--host", bad_host]) == 2
+
+    assert capsys.readouterr().err == f"Error: {NOT_A_VALID_HOST}\n"
+
+
+def test_credentials_in_the_userinfo_still_get_their_own_message(no_request, token_env, capsys):
+    assert cli.main(["whoami", "--host", "https://user:12345@beheer.toon.rijks.app"]) == 2
+
+    captured = capsys.readouterr()
+    assert captured.err == "Error: Do not put a username or password in --host\n"
+    assert "12345" not in captured.err
+
+
+@pytest.mark.parametrize(
     "good_host",
     [
         "https://beheer.toon.rijks.app",
@@ -2702,6 +2748,38 @@ def test_login_rejects_a_verification_uri_that_is_not_same_origin(
     assert host in error_output
     assert "evil.example" not in error_output
     assert "/etc/passwd" not in error_output
+    assert not cli._hosts_path().exists()
+
+
+@pytest.mark.parametrize("port", ["99999", "abc"], ids=["above-65535", "no-number"])
+def test_login_rejects_a_verification_uri_whose_port_cannot_be_read(
+    stub_server, host, isolated_cwd, capsys, port
+):
+    """Same scheme and hostname as the host, so only the port decides, and
+    urllib raises when it reads one like this."""
+    uri = f"http://{urllib.parse.urlsplit(host).hostname}:{port}/device?user_code=ABCD-1234"
+    stub_server.responder = _sequence_responder(
+        {
+            "/-/api/v1/cli/device-authorizations": [
+                _json_step(
+                    200,
+                    {
+                        "deviceCode": "devicecode-1",
+                        "userCode": "ABCD-1234",
+                        "verificationUri": uri,
+                        "verificationUriComplete": uri,
+                        "expiresIn": 60,
+                        "interval": 0,
+                    },
+                )
+            ],
+        }
+    )
+
+    code = cli.main(["login", "--host", host, "--no-open"])
+
+    assert code == 1
+    assert "returned a login URL that does not belong to" in capsys.readouterr().err
     assert not cli._hosts_path().exists()
 
 
@@ -5065,6 +5143,43 @@ def test_site_link_refuses_what_is_not_a_repository(
     assert stub_server.requests == []
 
 
+NOT_A_VALID_REPOSITORY_URL = "The repository URL is not valid (the argument or the git remote 'origin')"
+
+# URLs that urllib refuses outright, with a message that can quote them.
+_UNPARSEABLE_REPOSITORY_URLS = [
+    pytest.param("https://[::1/minbzk/website", id="bracket-never-closed"),
+    pytest.param("https://[forge]/minbzk/website", id="brackets-around-no-address"),
+    pytest.param("https://for＃ge.example/minbzk/website", id="fullwidth-hash-in-the-host"),
+]
+
+
+@pytest.mark.parametrize("reference", _UNPARSEABLE_REPOSITORY_URLS)
+def test_site_link_refuses_a_repository_url_no_parser_takes_in_one_line(
+    stub_server, host, token_env, fake_run, capsys, reference
+):
+    code = cli.main(["site", "link", "team/docs", reference, "--host", host])
+
+    assert code == 2
+    assert capsys.readouterr().err == f"Error: {NOT_A_VALID_REPOSITORY_URL}\n"
+    assert stub_server.requests == []
+
+
+@pytest.mark.parametrize("reference", _UNPARSEABLE_REPOSITORY_URLS)
+def test_site_link_does_not_print_an_origin_url_no_parser_takes(
+    stub_server, host, token_env, fake_run, capsys, reference
+):
+    """The remote 'origin' can carry a token in its URL."""
+    fake_run.outcomes["git"] = _completed(reference.replace("://", "://x-access-token:s3cret@") + "\n")
+
+    code = cli.main(["site", "link", "team/docs", "--host", host])
+
+    assert code == 2
+    captured = capsys.readouterr()
+    assert captured.err == f"Error: {NOT_A_VALID_REPOSITORY_URL}\n"
+    assert "s3cret" not in captured.out + captured.err
+    assert stub_server.requests == []
+
+
 @pytest.mark.parametrize(
     "origin",
     [
@@ -6116,8 +6231,10 @@ def test_a_look_alike_never_gets_the_session_of_the_new_host(moved_instance, iso
     assert cli.main(["whoami", "--host", given]) == 2
 
     assert moved_instance.requests == []
-    # With a line break there is no URL left to look a session up for.
-    assert (NOT_A_VALID_HOST if "\n" in given else "toon login") in capsys.readouterr().err
+    # With a line break, a query or a fragment there is no host left to look
+    # a session up for.
+    refused = any(character in given for character in "\n?#")
+    assert (NOT_A_VALID_HOST if refused else "toon login") in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(

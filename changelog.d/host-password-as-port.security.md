@@ -1,0 +1,1 @@
+- The CLI refuses a host with a query, a fragment or an `@` after the host name, so a password of digits, as in `https://user:12345#@host`, no longer passes for the port and ends up in every message that names the host.

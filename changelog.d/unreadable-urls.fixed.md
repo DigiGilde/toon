@@ -1,0 +1,2 @@
+- `toon site link` stops with an error line and exit code 2 instead of a traceback for a repository URL that cannot be parsed, such as one with a bracket that is never closed.
+- `toon login` stops with an error line instead of a traceback when the server's sign-in URL has a port that cannot be read.
