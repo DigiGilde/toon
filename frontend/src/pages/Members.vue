@@ -33,6 +33,7 @@ import {
   setPlatformRole,
 } from '../api/toon';
 import type { Member, MemberStatus } from '../api/types';
+import AuditPurgeHold from '../components/AuditPurgeHold.vue';
 import RowActions, { type RowAction } from '../components/RowActions.vue';
 import VolumeUsage from '../components/VolumeUsage.vue';
 import { setBreadcrumbs } from '../composables/breadcrumbs';
@@ -448,6 +449,8 @@ onMounted(() => {
 
     <nldd-spacer size="32"></nldd-spacer>
     <VolumeUsage />
+    <nldd-spacer size="32"></nldd-spacer>
+    <AuditPurgeHold />
 
     <nldd-notification
       v-for="notice in notices"

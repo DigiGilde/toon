@@ -15,17 +15,16 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from datetime import datetime
 
-from pydantic import TypeAdapter, ValidationError
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from toon.audit import vocabulary
 from toon.db import make_session_factory
-from toon.models.audit import ActorKind, AuditLogEntry
+from toon.models.audit import ActorKind, AuditLogEntry, AuditPurgeHold
 
 DB_URL_VAR = "TOON_DB_URL"
-PAUSED_VAR = "TOON_AUDIT_PURGE_PAUSED"
 BATCH_DEFAULT = 10_000
 
 _logger = logging.getLogger(__name__)
@@ -64,6 +63,19 @@ _DELETE_CONTENT_VIEWERS_BATCH = text(
 )
 
 
+_OPEN_HOLD = select(AuditPurgeHold.started_at).where(AuditPurgeHold.ended_at.is_(None))
+
+
+async def hold_started_at(dsn: str) -> datetime | None:
+    """When the open hold on the purge began, or None when there is none."""
+    engine = create_async_engine(dsn, hide_parameters=True)
+    try:
+        async with make_session_factory(engine)() as session:
+            return await session.scalar(_OPEN_HOLD)
+    finally:
+        await engine.dispose()
+
+
 async def _delete_in_batches(session, statement, *, batch: int) -> tuple[int, Exception | None]:
     """Runs the batched delete, returning what it managed even if a later
     batch fails: each batch already commits on its own, so a partial count is
@@ -85,11 +97,16 @@ async def purge(dsn: str, *, batch: int = BATCH_DEFAULT) -> int:
     """Deletes expired audit rows and content_viewers rows, and records that
     it did. The two run independently: a failure purging one table does not
     stop the other, and whatever either one deleted still lands in the
-    audit_purge row."""
+    audit_purge row. While a hold is open it deletes and records nothing:
+    the delete guards would refuse every row anyway."""
     engine = create_async_engine(dsn, hide_parameters=True)
     factory = make_session_factory(engine)
     try:
         async with factory() as session:
+            async with session.begin():
+                held = await session.scalar(_OPEN_HOLD) is not None
+            if held:
+                return 0
             deleted_audit, audit_error = await _delete_in_batches(session, _DELETE_BATCH, batch=batch)
             if audit_error is not None:
                 _logger.error("Purging audit_log_entries failed", exc_info=audit_error)
@@ -118,19 +135,13 @@ async def purge(dsn: str, *, batch: int = BATCH_DEFAULT) -> int:
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    # TypeAdapter(bool) is the parse Settings applies, so the app and this
-    # command agree on every spelling of true and false.
-    try:
-        paused = TypeAdapter(bool).validate_python(os.environ.get(PAUSED_VAR, "false"))
-    except ValidationError:
-        _logger.error("%s is neither true nor false. Not purging.", PAUSED_VAR)
-        return 1
-    if paused:
-        _logger.error("%s is set: the purge is paused during an incident. Not purging.", PAUSED_VAR)
-        return 1
     dsn = os.environ.get(DB_URL_VAR)
     if not dsn:
         _logger.error("%s is not set; the purge does not know which database to talk to.", DB_URL_VAR)
+        return 1
+    held_since = asyncio.run(hold_started_at(dsn))
+    if held_since is not None:
+        _logger.error("The audit purge is on hold since %s. Not purging.", held_since.date().isoformat())
         return 1
     deleted = asyncio.run(purge(dsn))
     _logger.info("Audit log purged: %d rows deleted", deleted)

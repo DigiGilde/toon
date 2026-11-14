@@ -30,6 +30,7 @@ import asyncio
 import base64
 import hmac
 import math
+import re
 import shutil
 import time
 import unicodedata
@@ -104,7 +105,7 @@ from toon.db import request_db, violated_constraint
 from toon.expiry import MAX_VALIDITY, ExpiryError
 from toon.ingest.service import IngestError, IngestService
 from toon.ingest.store import version_ref
-from toon.models.audit import ActorKind, AuditLogEntry, ContentViewer
+from toon.models.audit import ActorKind, AuditLogEntry, AuditPurgeHold, ContentViewer
 from toon.models.ci import CiProvider, SiteRepository
 from toon.models.identity import (
     Group,
@@ -286,10 +287,18 @@ _ERROR_IDENTIFIER_AMBIGUOUS = {
 _ERROR_REASON = {
     422: (
         "`reason` is missing, is shorter than 10 or longer than 500 characters (after stripping spaces), "
-        "contains a control or formatting character, or contains an `@` (not an e-mail address; give a "
-        "case or ticket number)."
+        "contains a control or formatting character, or contains an e-mail address (give a case or ticket "
+        "number)."
     )
 }
+_ERROR_HOLD_REASON = {
+    422: (
+        "`reason` is missing, empty or longer than 10000 characters (after stripping spaces), contains a "
+        "control or formatting character other than a line break, or contains an e-mail address."
+    )
+}
+_ERROR_ALREADY_ON_HOLD = {409: "The audit purge is already on hold (`AUDIT_PURGE_ALREADY_ON_HOLD`)."}
+_ERROR_NOT_ON_HOLD = {409: "The audit purge is not on hold (`AUDIT_PURGE_NOT_ON_HOLD`)."}
 _ERROR_LOOKUP_LIMIT = {
     429: (
         "The daily limit on audit lookups by this platform administrator has been reached "
@@ -1435,6 +1444,8 @@ AUDIT_PAGE_MAX = 200
 AUDIT_PSEUDONYM_LENGTH = 64
 REASON_MIN_LENGTH = 10
 REASON_MAX_LENGTH = 500
+HOLD_REASON_MAX_LENGTH = 10_000
+_EMAIL_ADDRESS = re.compile(r"[^\s@]+@[^\s@]+\.[^\s@]+")
 
 
 class AuditFilters(ApiModel):
@@ -1567,6 +1578,30 @@ class AuditPage(ApiModel):
     )
 
 
+def _validated_reason(value: str) -> str:
+    normalised = value.strip()
+    if not (REASON_MIN_LENGTH <= len(normalised) <= REASON_MAX_LENGTH):
+        raise ValueError(
+            f"reason must be {REASON_MIN_LENGTH} to {REASON_MAX_LENGTH} characters after stripping whitespace"
+        )
+    if _has_forbidden_characters(normalised):
+        raise ValueError("reason must not contain control or formatting characters")
+    if _EMAIL_ADDRESS.search(normalised):
+        raise ValueError("give a case or ticket number in reason, not an email address")
+    return normalised
+
+
+def _validated_hold_reason(value: str) -> str:
+    normalised = value.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not (1 <= len(normalised) <= HOLD_REASON_MAX_LENGTH):
+        raise ValueError(f"reason must be 1 to {HOLD_REASON_MAX_LENGTH} characters after stripping whitespace")
+    if _has_forbidden_characters(normalised.replace("\n", " ")):
+        raise ValueError("reason must not contain control or formatting characters other than line breaks")
+    if _EMAIL_ADDRESS.search(normalised):
+        raise ValueError("give a case or ticket number in reason, not an email address")
+    return normalised
+
+
 class ReasonField(ApiModel):
     """Mandatory justification when re-identifying a pseudonym or IP address (spec §12): ends up unchanged
     in the audit row of that re-identification (visible to every platform administrator who reads the
@@ -1584,16 +1619,7 @@ class ReasonField(ApiModel):
     @field_validator("reason")
     @classmethod
     def _reason_length(cls, value: str) -> str:
-        normalised = value.strip()
-        if not (REASON_MIN_LENGTH <= len(normalised) <= REASON_MAX_LENGTH):
-            raise ValueError(
-                f"reason must be {REASON_MIN_LENGTH} to {REASON_MAX_LENGTH} characters after stripping whitespace"
-            )
-        if _has_forbidden_characters(normalised):
-            raise ValueError("reason must not contain control or formatting characters")
-        if "@" in normalised:
-            raise ValueError("give a case or ticket number in reason, not an email address")
-        return normalised
+        return _validated_reason(value)
 
 
 class ActorLookup(ReasonField):
@@ -1716,6 +1742,45 @@ class IpRevealOut(ApiModel):
     """The full IP address behind one audit row."""
 
     ip: str = Field(description="The full IP address as stored with this audit row.")
+
+
+class PurgeHoldReason(ApiModel):
+    """Why the audit purge is put on hold, or why the hold ends."""
+
+    model_config = ConfigDict(json_schema_extra={"examples": [{"reason": "incident 2026-091"}]})
+
+    reason: str = Field(
+        description=(
+            "Why, at least one character. Line breaks are allowed. Give a case or ticket number, not an e-mail "
+            "address or other personal data: this field ends up readable in the audit log, for every platform "
+            "administrator."
+        ),
+        examples=["incident 2026-091"],
+    )
+
+    @field_validator("reason")
+    @classmethod
+    def _reason_length(cls, value: str) -> str:
+        return _validated_hold_reason(value)
+
+
+class PurgeHoldOut(ApiModel):
+    """The open hold on the audit purge."""
+
+    reason: str = Field(description="Why the hold was started.")
+    started_at: str = Field(description="When the hold was started.", json_schema_extra=_timestamp_schema())
+    started_by_name: str = Field(
+        description="Who started the hold: their name, or their e-mail address if no name is known."
+    )
+
+
+class PurgeHoldStatus(ApiModel):
+    """Whether the nightly audit purge is on hold, and since when."""
+
+    on_hold: bool = Field(
+        description="`true` while a hold is open: nothing is purged, not even rows past their retention."
+    )
+    hold: PurgeHoldOut | None = Field(default=None, description="The open hold, or `null` when there is none.")
 
 
 # -- Serialization ----------------------------------------------------------
@@ -2681,6 +2746,32 @@ async def _audit_strict_limited(request: Request, member: Member, action: str, r
         raise ApiError(429, "LOOKUP_LIMIT_REACHED") from error
     except Exception as error:
         raise ApiError(503, "AUDIT_UNAVAILABLE") from error
+
+
+# The partial unique index on audit_purge_holds (0010_audit_purge_hold): at
+# most one hold without an end.
+_OPEN_HOLD_INDEX = "uq_audit_purge_holds_open"
+
+
+async def _purge_hold_status(db: AsyncSession) -> PurgeHoldStatus:
+    row = (
+        await db.execute(
+            select(AuditPurgeHold, Member)
+            .join(Member, Member.id == AuditPurgeHold.started_by)
+            .where(AuditPurgeHold.ended_at.is_(None))
+        )
+    ).first()
+    if row is None:
+        return PurgeHoldStatus(on_hold=False, hold=None)
+    hold, starter = row
+    return PurgeHoldStatus(
+        on_hold=True,
+        hold=PurgeHoldOut(
+            reason=hold.reason,
+            started_at=iso_utc(hold.started_at) or "",
+            started_by_name=starter.name or starter.email,
+        ),
+    )
 
 
 SEARCH_MINIMUM = 2
@@ -5148,6 +5239,87 @@ def make_admin_router() -> APIRouter:
         if ip is None:
             raise ApiError(404, "AUDIT_IP_UNKNOWN")
         return IpRevealOut(ip=ip)
+
+    @router.get(
+        "/platform/audit/purge-hold",
+        tags=[TAG_AUDIT],
+        summary="Whether the audit purge is on hold",
+        response_description="Whether a hold is open, and if so why, since when and by whom.",
+        description=(
+            "The nightly purge deletes audit rows and content viewers past their retention. During a "
+            "(suspected) security incident a platform administrator puts it on hold, so the logging of the "
+            "incident stays for the three years BIO2 5.28.01 asks.\n\n"
+            "**Who can call this:** only a platform administrator."
+        ),
+        responses=_errors(_ERROR_ADMIN),
+    )
+    async def audit_purge_hold(member: PlatformAdmin, db: Db) -> PurgeHoldStatus:
+        return await _purge_hold_status(db)
+
+    @router.post(
+        "/platform/audit/purge-hold",
+        status_code=201,
+        tags=[TAG_AUDIT],
+        summary="Put the audit purge on hold",
+        response_description="The open hold.",
+        description=(
+            "From now on nothing is purged from the audit log or from the content viewers, not even rows past "
+            "their retention: the database refuses every delete while the hold is open. It takes effect at "
+            "once, without a restart. The nightly job keeps publishing the chain head and logs a warning "
+            "every night the purge is on hold. Starting the hold is audited, with the reason.\n\n"
+            "**Who can call this:** only a platform administrator, with a valid CSRF header and a `reason`. It "
+            "does not count towards the daily limit on audit lookups."
+        ),
+        responses=_errors(_ERROR_CSRF, _ERROR_ADMIN, _ERROR_HOLD_REASON, _ERROR_ALREADY_ON_HOLD),
+    )
+    async def start_audit_purge_hold(
+        request: Request, body: PurgeHoldReason, _csrf: Csrf, member: PlatformAdmin, db: Db
+    ) -> PurgeHoldStatus:
+        hold = AuditPurgeHold(reason=body.reason, started_by=member.id)
+        db.add(hold)
+        try:
+            await db.commit()
+        except IntegrityError as error:
+            await db.rollback()
+            if violated_constraint(error) != _OPEN_HOLD_INDEX:
+                raise
+            raise ApiError(409, "AUDIT_PURGE_ALREADY_ON_HOLD") from error
+        await _audit(
+            request, member, vocabulary.AUDIT_PURGE_HOLD_STARTED, {"hold": str(hold.id), "reason": body.reason}
+        )
+        return await _purge_hold_status(db)
+
+    @router.post(
+        "/platform/audit/purge-hold/end",
+        tags=[TAG_AUDIT],
+        summary="End the hold on the audit purge",
+        response_description="The purge is no longer on hold.",
+        description=(
+            "Ends the open hold. The next nightly run purges everything that passed its retention in the "
+            "meantime. Ending the hold is audited, with the reason.\n\n"
+            "**Who can call this:** only a platform administrator, with a valid CSRF header and a `reason`."
+        ),
+        responses=_errors(_ERROR_CSRF, _ERROR_ADMIN, _ERROR_HOLD_REASON, _ERROR_NOT_ON_HOLD),
+    )
+    async def end_audit_purge_hold(
+        request: Request, body: PurgeHoldReason, _csrf: Csrf, member: PlatformAdmin, db: Db
+    ) -> PurgeHoldStatus:
+        # Of two admins ending at once, the second waits on the row lock and
+        # then no longer matches `ended_at IS NULL`: a 409, not an error.
+        hold_id = await db.scalar(
+            update(AuditPurgeHold)
+            .where(AuditPurgeHold.ended_at.is_(None))
+            .values(ended_at=func.now(), ended_by=member.id, end_reason=body.reason)
+            .returning(AuditPurgeHold.id)
+        )
+        if hold_id is None:
+            await db.rollback()
+            raise ApiError(409, "AUDIT_PURGE_NOT_ON_HOLD")
+        await db.commit()
+        await _audit(
+            request, member, vocabulary.AUDIT_PURGE_HOLD_ENDED, {"hold": str(hold_id), "reason": body.reason}
+        )
+        return PurgeHoldStatus(on_hold=False, hold=None)
 
     # -- Site members ---------------------------------------------------------
 

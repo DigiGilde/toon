@@ -364,6 +364,20 @@ export interface Volume {
   maxDeployBytes: number;
 }
 
+/**
+ * Response of `GET /platform/audit/purge-hold` (platform admins only): whether
+ * the nightly purge of expired audit rows is paused, and the open pause.
+ */
+export interface AuditPurgeHold {
+  onHold: boolean;
+  hold: {
+    reason: string;
+    /** RFC 3339 */
+    startedAt: string;
+    startedByName: string;
+  } | null;
+}
+
 /** Response of `GET /operator`: who runs this installation, for everyone to read. */
 export interface Operator {
   /** `TOON_OPERATOR_NAME`; null when the installation names none. */

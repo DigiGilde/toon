@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import enum
+import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, LargeBinary, String, func
+from sqlalchemy import DateTime, ForeignKey, LargeBinary, String, Text, func
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Mapped, mapped_column
@@ -73,3 +74,25 @@ class ContentViewer(IDMixin, Base):
     # forward lookup (api/admin.py) only matches on a verified one.
     email_verified: Mapped[bool] = mapped_column(nullable=False, default=False)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class AuditPurgeHold(IDMixin, Base):
+    """A pause on the audit purge during a (suspected) incident (BIO2 5.28.01,
+    `docs/audit-log.md`). While one has no `ended_at`, the delete guards of
+    `audit_log_entries` and `content_viewers` refuse every delete. A partial
+    unique index allows one open hold at a time, and a trigger refuses every
+    change but ending an open hold once (0010_audit_purge_hold).
+    """
+
+    __tablename__ = "audit_purge_holds"
+
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    started_by: Mapped[uuid.UUID] = mapped_column(
+        postgresql.UUID(as_uuid=True), ForeignKey("members.id"), nullable=False
+    )
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ended_by: Mapped[uuid.UUID | None] = mapped_column(
+        postgresql.UUID(as_uuid=True), ForeignKey("members.id"), nullable=True
+    )
+    end_reason: Mapped[str | None] = mapped_column(Text, nullable=True)

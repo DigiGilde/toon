@@ -140,13 +140,14 @@ async def db_connection(migrated_dsn: str) -> AsyncIterator[asyncpg.Connection]:
 
 # All data tables, child to parent (CASCADE covers the FK order anyway).
 _DATA_TABLES = (
-    "audit_log_entries, audit_log_chain_heads, content_viewers, previews, versions, access_keys, invitees, "
-    "site_repositories, cli_refresh_tokens, cli_sessions, cli_device_authorizations, site_members, site_slugs, "
-    "sites, group_members, group_slugs, groups, members"
+    "audit_log_entries, audit_log_chain_heads, content_viewers, audit_purge_holds, previews, versions, access_keys, "
+    "invitees, site_repositories, cli_refresh_tokens, cli_sessions, cli_device_authorizations, site_members, "
+    "site_slugs, sites, group_members, group_slugs, groups, members"
 )
 
-# The tables whose BEFORE TRUNCATE guard (0001_base) the cleanup switches off.
-_TRUNCATE_GUARDED = ("audit_log_entries", "audit_log_chain_heads", "content_viewers")
+# The tables whose BEFORE TRUNCATE guard (0001_base, 0010_audit_purge_hold)
+# the cleanup switches off.
+_TRUNCATE_GUARDED = ("audit_log_entries", "audit_log_chain_heads", "content_viewers", "audit_purge_holds")
 
 # Fixtures that use the migrated test database; when a test asks for one of
 # them we clean up beforehand. That way container-free tests (test_config,

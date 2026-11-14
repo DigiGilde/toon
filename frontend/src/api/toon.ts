@@ -7,6 +7,7 @@
  */
 import { ApiError, request, sendJson } from './client';
 import type {
+  AuditPurgeHold,
   CliSession,
   DeviceAuthorization,
   Group,
@@ -436,6 +437,20 @@ export function setPlatformRole(memberId: string, platformRole: PlatformRole): P
 
 export function platformStorage(): Promise<Volume> {
   return request<Volume>(`${BASE}/platform/storage`);
+}
+
+// -- Audit purge hold (platform admins only) -------------------------------------
+
+export function auditPurgeHold(): Promise<AuditPurgeHold> {
+  return request<AuditPurgeHold>(`${BASE}/platform/audit/purge-hold`);
+}
+
+export function startAuditPurgeHold(reason: string): Promise<AuditPurgeHold> {
+  return sendJson<AuditPurgeHold>('POST', `${BASE}/platform/audit/purge-hold`, { reason });
+}
+
+export function endAuditPurgeHold(reason: string): Promise<AuditPurgeHold> {
+  return sendJson<AuditPurgeHold>('POST', `${BASE}/platform/audit/purge-hold/end`, { reason });
 }
 
 // -- Versions and rollback --------------------------------------------------

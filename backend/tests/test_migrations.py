@@ -16,7 +16,7 @@ from datetime import timedelta
 
 import asyncpg
 import pytest
-from helpers_audit import insert_aged_audit_row
+from helpers_audit import insert_aged_audit_row, insert_purge_hold
 
 from toon import i18n
 from toon.audit import vocabulary
@@ -122,6 +122,7 @@ async def test_all_core_tables_exist(db_connection: asyncpg.Connection) -> None:
         "cli_sessions",
         "cli_refresh_tokens",
         "audit_log_entries",
+        "audit_purge_holds",
         "group_slugs",
         "site_slugs",
     }
@@ -1486,7 +1487,8 @@ def _without_messages(sources: dict[str, str]) -> dict[str, str]:
 
 async def test_the_english_messages_migration_goes_down_to_dutch_and_up_again(postgres_container) -> None:
     """The messages flip, and nothing else in a function body does: going down
-    gives back the functions exactly as 0008 left them."""
+    gives back the functions exactly as 0008 left them. Up to 0009 only, as
+    0010 adds the hold to two of these bodies."""
     base = postgres_container.get_connection_url(driver=None)
     name = f"berichten_{uuid.uuid4().hex[:8]}"
     admin = await asyncpg.connect(base)
@@ -1506,7 +1508,7 @@ async def test_the_english_messages_migration_goes_down_to_dutch_and_up_again(po
         refusals, audit_id, group_id, dutch = await _probe()
         assert refusals == _expected_refusals(1, audit_id, group_id)
 
-        await asyncio.to_thread(_alembic, dsn, "upgrade", "head")
+        await asyncio.to_thread(_alembic, dsn, "upgrade", _ENGLISH_MESSAGES)
         refusals, audit_id, group_id, english = await _probe()
         assert refusals == _expected_refusals(0, audit_id, group_id)
         assert english != dutch
@@ -1517,7 +1519,7 @@ async def test_the_english_messages_migration_goes_down_to_dutch_and_up_again(po
         assert refusals == _expected_refusals(1, audit_id, group_id)
         assert back == dutch
 
-        await asyncio.to_thread(_alembic, dsn, "upgrade", "head")
+        await asyncio.to_thread(_alembic, dsn, "upgrade", _ENGLISH_MESSAGES)
         refusals, audit_id, group_id, again = await _probe()
         assert refusals == _expected_refusals(0, audit_id, group_id)
         assert again == english
@@ -1835,3 +1837,201 @@ async def test_the_slug_namespace_takes_in_every_slug_and_goes_down_again(own_da
         )
     finally:
         await conn.close()
+
+
+_PURGE_HOLD = "0010_audit_purge_hold"
+_ON_HOLD = "the audit purge is on hold"
+_ONLY_ENDED = "an audit purge hold is only ever ended, once"
+
+
+async def _expired_viewer(conn: asyncpg.Connection) -> uuid.UUID:
+    return await conn.fetchval(
+        """
+        INSERT INTO content_viewers (id, sso_subject, email, last_seen_at)
+        VALUES ($1, $2, 'viewer@example.nl', now() - interval '181 days')
+        RETURNING id
+        """,
+        uuid.uuid4(),
+        f"sub-{uuid.uuid4().hex}",
+    )
+
+
+async def test_a_held_purge_refuses_an_expired_row_in_either_table(db_connection: asyncpg.Connection) -> None:
+    """The guards themselves refuse, so a hold stops every way a row can be
+    deleted, not only the nightly job."""
+    audit_id = await _audit_row(db_connection, "content_access", "allowed", timedelta(days=181))
+    viewer_id = await _expired_viewer(db_connection)
+    await insert_purge_hold(db_connection)
+
+    assert f"{_ON_HOLD}: {audit_id} may not be deleted now" in await _refusal(
+        db_connection, "DELETE FROM audit_log_entries WHERE id = $1", audit_id
+    )
+    assert f"{_ON_HOLD}: {viewer_id} may not be deleted now" in await _refusal(
+        db_connection, "DELETE FROM content_viewers WHERE id = $1", viewer_id
+    )
+
+
+async def test_a_held_purge_still_names_the_retention_of_a_row_within_it(
+    db_connection: asyncpg.Connection,
+) -> None:
+    audit_id = await _audit_row(db_connection, "content_access", "allowed", timedelta(days=7))
+    await insert_purge_hold(db_connection)
+
+    assert "is still within its retention" in await _refusal(
+        db_connection, "DELETE FROM audit_log_entries WHERE id = $1", audit_id
+    )
+
+
+@pytest.mark.parametrize("hold", ["none", "ended"])
+async def test_without_an_open_hold_an_expired_row_goes(db_connection: asyncpg.Connection, hold: str) -> None:
+    if hold == "ended":
+        await insert_purge_hold(db_connection, ended=True)
+    audit_id = await _audit_row(db_connection, "content_access", "allowed", timedelta(days=181))
+    viewer_id = await _expired_viewer(db_connection)
+
+    await db_connection.execute("DELETE FROM audit_log_entries WHERE id = $1", audit_id)
+    await db_connection.execute("DELETE FROM content_viewers WHERE id = $1", viewer_id)
+
+    assert await db_connection.fetchval("SELECT count(*) FROM audit_log_entries WHERE id = $1", audit_id) == 0
+    assert await db_connection.fetchval("SELECT count(*) FROM content_viewers WHERE id = $1", viewer_id) == 0
+
+
+async def test_a_second_open_hold_is_refused(db_connection: asyncpg.Connection) -> None:
+    await insert_purge_hold(db_connection)
+
+    with pytest.raises(asyncpg.UniqueViolationError) as excinfo:
+        async with db_connection.transaction():
+            await insert_purge_hold(db_connection)
+    assert excinfo.value.constraint_name == "uq_audit_purge_holds_open"
+
+
+async def test_a_new_hold_may_follow_an_ended_one(db_connection: asyncpg.Connection) -> None:
+    await insert_purge_hold(db_connection, ended=True)
+    await insert_purge_hold(db_connection, ended=True)
+    await insert_purge_hold(db_connection)
+
+    assert await db_connection.fetchval("SELECT count(*) FROM audit_purge_holds") == 3
+
+
+async def test_a_hold_is_never_deleted(db_connection: asyncpg.Connection) -> None:
+    open_id, _ = await insert_purge_hold(db_connection)
+
+    assert f"{_ONLY_ENDED}: DELETE is not allowed" in await _refusal(
+        db_connection, "DELETE FROM audit_purge_holds WHERE id = $1", open_id
+    )
+    assert f"{_ONLY_ENDED}: TRUNCATE is not allowed" in await _refusal(db_connection, "TRUNCATE audit_purge_holds")
+    assert f"{_ONLY_ENDED}: TRUNCATE is not allowed" in await _refusal(
+        db_connection, "TRUNCATE members RESTART IDENTITY CASCADE"
+    )
+    assert await db_connection.fetchval("SELECT count(*) FROM audit_purge_holds") == 1
+
+
+_ENDING = "ended_at = now(), ended_by = started_by, end_reason = 'incident closed'"
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "reason = 'something else'",
+        "started_at = now() - interval '1 day'",
+        f"{_ENDING}, reason = 'something else'",
+        f"{_ENDING}, started_at = now() - interval '1 day'",
+        f"{_ENDING}, id = gen_random_uuid()",
+        "ended_at = now(), ended_by = started_by",
+        "ended_at = now(), end_reason = 'incident closed'",
+        "ended_by = started_by, end_reason = 'incident closed'",
+    ],
+)
+async def test_an_open_hold_is_only_ever_ended(db_connection: asyncpg.Connection, change: str) -> None:
+    hold_id, _ = await insert_purge_hold(db_connection)
+
+    assert f"{_ONLY_ENDED}: UPDATE is not allowed" in await _refusal(
+        db_connection, f"UPDATE audit_purge_holds SET {change} WHERE id = $1", hold_id  # noqa: S608 - literals
+    )
+    assert await db_connection.fetchval("SELECT ended_at FROM audit_purge_holds WHERE id = $1", hold_id) is None
+
+
+async def test_ending_changes_the_starter_of_a_hold_never(db_connection: asyncpg.Connection) -> None:
+    hold_id, _ = await insert_purge_hold(db_connection)
+    other = await _make_member(db_connection)
+
+    assert f"{_ONLY_ENDED}: UPDATE is not allowed" in await _refusal(
+        db_connection,
+        f"UPDATE audit_purge_holds SET {_ENDING}, started_by = $2 WHERE id = $1",  # noqa: S608 - literals
+        hold_id,
+        other,
+    )
+
+
+@pytest.mark.parametrize("change", [_ENDING, "end_reason = 'rewritten'", "ended_at = NULL"])
+async def test_an_ended_hold_is_never_changed_again(db_connection: asyncpg.Connection, change: str) -> None:
+    hold_id, _ = await insert_purge_hold(db_connection, ended=True)
+
+    assert f"{_ONLY_ENDED}: UPDATE is not allowed" in await _refusal(
+        db_connection, f"UPDATE audit_purge_holds SET {change} WHERE id = $1", hold_id  # noqa: S608 - literals
+    )
+
+
+async def test_an_open_hold_ends_once(db_connection: asyncpg.Connection) -> None:
+    hold_id, _ = await insert_purge_hold(db_connection)
+
+    await db_connection.execute(f"UPDATE audit_purge_holds SET {_ENDING} WHERE id = $1", hold_id)  # noqa: S608
+
+    row = await db_connection.fetchrow("SELECT * FROM audit_purge_holds WHERE id = $1", hold_id)
+    assert row["ended_at"] is not None
+    assert row["ended_by"] == row["started_by"]
+    assert row["end_reason"] == "incident closed"
+
+
+async def test_a_hold_is_not_written_half_ended(db_connection: asyncpg.Connection) -> None:
+    member_id = await _make_member(db_connection)
+
+    with pytest.raises(asyncpg.CheckViolationError) as excinfo:
+        async with db_connection.transaction():
+            await db_connection.execute(
+                "INSERT INTO audit_purge_holds (id, reason, started_by, ended_at) VALUES ($1, 'x', $2, now())",
+                uuid.uuid4(),
+                member_id,
+            )
+    assert excinfo.value.constraint_name == "ck_audit_purge_holds_ended_whole"
+
+
+async def _hold_state(dsn: str) -> tuple[bool, dict[str, str]]:
+    """Whether audit_purge_holds exists, and the source of every function."""
+    conn = await asyncpg.connect(dsn)
+    try:
+        exists = await conn.fetchval("SELECT to_regclass('audit_purge_holds') IS NOT NULL")
+        return exists, await _function_sources(conn)
+    finally:
+        await conn.close()
+
+
+async def test_the_purge_hold_migration_goes_down_and_up_again(postgres_container) -> None:
+    """Going down drops the table and its guard, and gives back both delete
+    guards exactly as 0009 left them."""
+    base = postgres_container.get_connection_url(driver=None)
+    name = f"pauze_{uuid.uuid4().hex[:8]}"
+    admin = await asyncpg.connect(base)
+    await admin.execute(f'CREATE DATABASE "{name}"')
+    dsn = f"{base.rsplit('/', 1)[0]}/{name}"
+    try:
+        await asyncio.to_thread(_alembic, dsn, "upgrade", _ENGLISH_MESSAGES)
+        before = await _hold_state(dsn)
+        assert before[0] is False
+
+        await asyncio.to_thread(_alembic, dsn, "upgrade", _PURGE_HOLD)
+        held = await _hold_state(dsn)
+        assert held[0] is True
+        assert "audit_purge_hold_guard" in held[1]
+        for guard in ("audit_log_delete_after_retention", "content_viewer_delete_after_retention"):
+            assert _ON_HOLD in held[1][guard]
+            assert held[1][guard] != before[1][guard]
+
+        await asyncio.to_thread(_alembic, dsn, "downgrade", _ENGLISH_MESSAGES)
+        assert await _hold_state(dsn) == before
+
+        await asyncio.to_thread(_alembic, dsn, "upgrade", _PURGE_HOLD)
+        assert await _hold_state(dsn) == held
+    finally:
+        await admin.execute(f'DROP DATABASE "{name}" WITH (FORCE)')
+        await admin.close()
