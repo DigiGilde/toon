@@ -19,7 +19,6 @@ defineProps<{ summary: string; summaryTestid?: string }>();
 
 <style scoped>
 .disclosure {
-  max-width: var(--toon-table-max-width);
   border: var(--semantics-surfaces-highlight-border-width) solid var(--semantics-surfaces-tinted-highlight-border-color);
   border-radius: var(--semantics-surfaces-corner-radius);
   background: var(--semantics-surfaces-tinted-background-color);
