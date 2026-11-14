@@ -236,11 +236,14 @@ describe('PublishSheet (the file drives the rest)', () => {
     expect(help).toContain('HTML-bestand');
   });
 
-  it('marks the field as one that takes a folder too, for the words it shows during a drag', () => {
+  it('tells the field that a folder may be dragged too, for the words it shows during a drag', () => {
     const { wrapper } = mountComponent();
+    const field = wrapper.find('[data-testid="upload-input"]').element as HTMLElement & {
+      translations?: Record<string, string>;
+    };
 
-    expect(wrapper.find('[data-testid="upload-input"]').attributes()).toHaveProperty(
-      'data-takes-folders',
+    expect(field.translations?.['components.file-field.drag-here-text']).toBe(
+      'Sleep het bestand of de map hierheen',
     );
   });
 

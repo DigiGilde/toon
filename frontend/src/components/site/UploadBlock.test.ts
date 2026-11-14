@@ -43,10 +43,16 @@ describe('UploadBlock', () => {
     expect(wrapper.find('form').exists()).toBe(false);
   });
 
-  it('marks the field as one that takes a folder too', () => {
+  it('tells the field that a folder may be dragged too', () => {
     const wrapper = render();
+    const field = wrapper.find('nldd-file-field').element as HTMLElement & {
+      translations?: Record<string, string>;
+    };
 
-    expect(wrapper.find('nldd-file-field').attributes()).toHaveProperty('data-takes-folders');
+    expect(field.translations).toEqual({
+      'components.file-field.drag-here-text': 'Sleep het bestand of de map hierheen',
+      'components.file-field.drop-here-text': 'Zet het bestand of de map hier neer',
+    });
   });
 
   it('requires a file only while told to', async () => {
