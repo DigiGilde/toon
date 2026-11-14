@@ -221,15 +221,23 @@ def _require_valid_url(host: str) -> None:
     # name httpx hands them (.raw_host) like .encode("idna") does, where an
     # empty label or one over 63 characters is a UnicodeError that httpx lets
     # through.
+    not_valid = UsageError("The host is not valid (--host, TOON_HOST or your last login)")
     try:
         url = httpx.URL(host)
         _ = url.host
         url.raw_host.decode("ascii").encode("idna")
-        _ = urllib.parse.urlsplit(host).port
+        parts = urllib.parse.urlsplit(host)
+        _ = parts.port
     except (httpx.InvalidURL, ValueError):
         # Not a parser's message: it can quote the host, and what httpx reads
         # as a port can be a password (https://user:secret#@host).
-        raise UsageError("The host is not valid (--host, TOON_HOST or your last login)") from None
+        raise not_valid from None
+    # A #, / or ? in a password ends the authority before the @, so neither
+    # parser sees a password any more, and digits before it pass for the port
+    # (https://user:12345#@host). An @ in the userinfo itself is left to
+    # _require_https, which says what is wrong without naming the host.
+    if "?" in host or "#" in host or ("@" in host and parts.username is None):
+        raise not_valid
 
 
 def _require_https(host: str) -> None:
@@ -277,6 +285,8 @@ def _same_origin(url: str, host: str) -> bool:
     try:
         url_parts = urllib.parse.urlsplit(url)
         host_parts = urllib.parse.urlsplit(host)
+        # urllib only reads the port when asked, and raises then.
+        url_port, host_port = url_parts.port, host_parts.port
     except ValueError:
         return False
     if url_parts.scheme not in ("http", "https") or url_parts.scheme != host_parts.scheme:
@@ -284,7 +294,7 @@ def _same_origin(url: str, host: str) -> bool:
     if not url_parts.hostname or url_parts.hostname != host_parts.hostname:
         return False
     default_port = 443 if url_parts.scheme == "https" else 80
-    return (url_parts.port or default_port) == (host_parts.port or default_port)
+    return (url_port or default_port) == (host_port or default_port)
 
 
 def _config_dir() -> Path:
@@ -1169,7 +1179,14 @@ def _parse_repository(reference: str) -> tuple[str, str, str]:
     if scp:
         hostname, path = scp.group(1), scp.group(2)
     elif "://" in value:
-        parsed = urllib.parse.urlsplit(value)
+        try:
+            parsed = urllib.parse.urlsplit(value)
+        except ValueError:
+            # Not urllib's message, which can quote the URL, and neither does
+            # this one: a remote URL can carry a token.
+            raise UsageError(
+                "The repository URL is not valid (the argument or the git remote 'origin')"
+            ) from None
         try:
             port = parsed.port
         except ValueError:
