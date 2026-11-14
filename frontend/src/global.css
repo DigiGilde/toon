@@ -62,14 +62,12 @@ body {
 /* No grey text: subtitles, supporting text and cell text read in the content
    colour. Scoped to the text components, because the same token also greys
    the placeholder of an input, which has to stay apart from a typed value.
-   nldd-title reads the semantics token directly, the cells the context token
-   first, so both are set. */
+   These components read the context token. */
 nldd-title,
 nldd-text,
 nldd-text-cell,
 nldd-title-cell,
 nldd-description-cell {
-  --semantics-content-secondary-color: var(--context-content-color, var(--semantics-content-color));
   --context-content-secondary-color: var(--context-content-color, var(--semantics-content-color));
 }
 

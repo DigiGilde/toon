@@ -149,18 +149,20 @@ defineExpose({ field, handOver, clearField });
 
 <style scoped>
 /*
- * Hand-written CSS because the design system has no drop zone. The dashed
+ * The design system's drop zone belongs to nldd-file-field alone, and this one
+ * wraps the whole form, so it takes the field's drop-target tokens. The dashed
  * border says "something can go in here" without imitating a control.
  */
 .dropzone {
-  border: var(--primitives-border-width-regular) dashed var(--semantics-dividers-color);
-  border-radius: var(--primitives-corner-radius-lg);
+  border: var(--semantics-drop-targets-border-width) dashed
+    var(--semantics-drop-targets-is-available-border-color);
+  border-radius: var(--semantics-surfaces-corner-radius);
   padding: var(--primitives-space-16);
 }
 
 .dropzone--active {
-  border-color: var(--semantics-content-accent-color);
-  background: var(--semantics-categories-accent-tinted-background-color);
+  border-color: var(--semantics-drop-targets-is-over-border-color);
+  background: var(--semantics-drop-targets-is-over-background-color);
 }
 
 /*
