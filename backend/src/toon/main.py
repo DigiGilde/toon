@@ -48,6 +48,7 @@ from toon.api.errors import register_error_handlers
 from toon.api.operator import router as operator_router
 from toon.api.origin_guard import normalise_origin, require_admin_origin
 from toon.audit.log import AuditLog
+from toon.audit.retention_job import audit_retention_job
 from toon.auth.oidc import OidcClient
 from toon.auth.revalidation import revalidate_sessions
 from toon.auth.sessions import (
@@ -193,9 +194,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     session_factory, content_store, live_versions_kept=settings.live_versions_kept
                 ) as cleanup_task,
                 storage_check_job(app, content_store, settings) as storage_task,
+                audit_retention_job(
+                    settings.db_url, purge_paused=settings.audit_purge_paused
+                ) as audit_retention_task,
             ):
                 app.state.cleanup_task = cleanup_task
                 app.state.storage_task = storage_task
+                app.state.audit_retention_task = audit_retention_task
                 yield
         finally:
             await oidc_http.aclose()

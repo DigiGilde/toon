@@ -982,10 +982,14 @@ The vocabulary of actions, results and reasons, the retention tiers and the
 lookup procedure live in `docs/audit-log.md`, which is the reference for them;
 `audit/vocabulary.py` mirrors it and a test keeps the two in step.
 
+A background job in the app (04:00 UTC) publishes the chain head to the
+application log every night and then purges what has outlived its retention.
+The database triggers decide what may go, the job only makes sure it goes.
+
 Code: `audit/log.py`, `audit/pseudonymisation.py`, `audit/ip_crypto.py`,
-`audit/vocabulary.py`, `audit/retention.py`. Guarded by: `test_audit.py`,
-`test_audit_ip.py`, `test_ip_crypto.py`, `test_audit_api.py`,
-`test_audit_vocabulary.py`.
+`audit/vocabulary.py`, `audit/retention.py`, `audit/retention_job.py`. Guarded
+by: `test_audit.py`, `test_audit_ip.py`, `test_ip_crypto.py`,
+`test_audit_api.py`, `test_audit_vocabulary.py`, `test_audit_retention_job.py`.
 
 ## 8. Publishing: API, CI and CLI
 
