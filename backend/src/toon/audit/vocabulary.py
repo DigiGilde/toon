@@ -24,6 +24,8 @@ AUDIT_ACTOR_LOOKUP: Final = "audit_actor_lookup"
 AUDIT_ACTOR_IDENTITY: Final = "audit_actor_identity"
 AUDIT_IP_REVEAL: Final = "audit_ip_reveal"
 AUDIT_PURGE: Final = "audit_purge"
+AUDIT_PURGE_HOLD_STARTED: Final = "audit_purge_hold_started"
+AUDIT_PURGE_HOLD_ENDED: Final = "audit_purge_hold_ended"
 CLI_LOGIN: Final = "cli_login"
 CLI_LOGIN_DENIED: Final = "cli_login_denied"
 CLI_TOKEN_ISSUED: Final = "cli_token_issued"  # noqa: S105 - an action name, not a secret
@@ -85,6 +87,8 @@ ACTIONS: Final = frozenset(
         AUDIT_ACTOR_IDENTITY,
         AUDIT_IP_REVEAL,
         AUDIT_PURGE,
+        AUDIT_PURGE_HOLD_STARTED,
+        AUDIT_PURGE_HOLD_ENDED,
         CLI_LOGIN,
         CLI_LOGIN_DENIED,
         CLI_TOKEN_ISSUED,

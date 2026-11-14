@@ -187,7 +187,6 @@ anybody an administrator.
 | `TOON_IDP_RECHECK_SECONDS` | env-vars | optional, default `900`; how often at most a session is checked again at Keycloak, `0` turns it off |
 | `TOON_OIDC_RP_LOGOUT` | env-vars | `false` until `{TOON_CONTENT_BASE_URL}/-/logout?from=beheer` is registered as post-logout redirect at the IdP |
 | `TOON_AUDIT_LOOKUP_DAILY_LIMIT` | env-vars | optional, default 25, 1-1000; daily limit per platform administrator on resolving a pseudonym or IP address |
-| `TOON_AUDIT_PURGE_PAUSED` | env-vars | optional, default `false`. `true` holds the nightly audit purge during a (suspected) incident, see `docs/audit-log.md`, "During an incident" |
 | `TOON_CI_FORGEJO_HOSTS` | env-vars | optional, comma-separated list of https base URLs, default `https://code.overheid.nl`; every Forgejo instance whose OIDC ID token from Actions is accepted for CI publishing |
 | `TOON_OPERATOR_NAME` | env-vars | optional, empty by default: the organisation that runs this installation, as people should read it (`Digi Gilde`). The public privacy and accessibility pages and `GET /-/api/v1/operator` show it |
 | `TOON_OPERATOR_EMAIL` | env-vars | optional, empty by default: where people reach that organisation about privacy, accessibility and questions (`digigilde@rijksoverheid.nl`). It is also the mail `Contact` in `security.txt`, after the GitHub advisory form, so security reports about this installation reach the operator. A plain address without a display name, or the app does not start |

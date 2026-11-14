@@ -165,9 +165,6 @@ class Settings(BaseSettings):
     # before its rotation.
     audit_ip_key_previous: str = ""
     audit_lookup_daily_limit: int = Field(default=25, ge=1, le=1000)
-    # Holds the nightly purge during an incident (BIO2 5.28.01), see
-    # docs/audit-log.md. audit/retention.py reads the same variable itself.
-    audit_purge_paused: bool = False
     # Fails closed: a deployment that forgets to set TOON_ENVIRONMENT refuses
     # to start (see _production_requirements below) instead of silently
     # skipping every production validator (trusted proxies, OIDC issuer

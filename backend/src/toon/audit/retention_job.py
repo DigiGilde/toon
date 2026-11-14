@@ -26,12 +26,12 @@ TIMESTAMP_DEFAULT = time(4, 0)
 _logger = logging.getLogger(__name__)
 
 
-async def run_once(dsn: str, *, purge_paused: bool) -> None:
+async def run_once(dsn: str) -> None:
     """Publishes the checkpoint, then purges. The checkpoint goes first so the
     line names the oldest row of every chain, with its deadline, before the
     purge takes it. A failing checkpoint does not hold the purge back: the
-    retention maximum does not depend on it. `purge_paused` skips the purge
-    and says so every night, so nobody forgets it is on."""
+    retention maximum does not depend on it. An open hold in the database
+    skips the purge and says so every night, so nobody forgets it is on."""
     try:
         published = await checkpoint.collect(dsn)
     except Exception:
@@ -40,38 +40,38 @@ async def run_once(dsn: str, *, purge_paused: bool) -> None:
         # WARNING, because nothing shows INFO for this logger under uvicorn, and
         # the line is worth only what leaves the machine.
         _logger.warning("%s %s", checkpoint.MARKER, published.as_json())
-    if purge_paused:
-        _logger.warning(
-            "Audit purge paused (TOON_AUDIT_PURGE_PAUSED): rows past their retention stay until it is turned off"
-        )
-        return
     try:
+        held_since = await retention.hold_started_at(dsn)
+        if held_since is not None:
+            _logger.warning(
+                "Audit purge on hold since %s: rows past their retention stay until the hold ends",
+                held_since.date().isoformat(),
+            )
+            return
         await retention.purge(dsn)
     except Exception:
         _logger.exception("Purging the audit log failed, retrying on the next run")
 
 
-async def _run_daily(dsn: str, *, purge_paused: bool, occurred_at: time, stop: asyncio.Event) -> None:
+async def _run_daily(dsn: str, *, occurred_at: time, stop: asyncio.Event) -> None:
     while not stop.is_set():
         wait_time = _seconds_until(occurred_at, datetime.now(tz=UTC))
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(stop.wait(), timeout=wait_time)
         if stop.is_set():
             break
-        await run_once(dsn, purge_paused=purge_paused)
+        await run_once(dsn)
 
 
 @asynccontextmanager
-async def audit_retention_job(
-    dsn: str, *, purge_paused: bool, occurred_at: time = TIMESTAMP_DEFAULT
-) -> AsyncIterator[asyncio.Task]:
+async def audit_retention_job(dsn: str, *, occurred_at: time = TIMESTAMP_DEFAULT) -> AsyncIterator[asyncio.Task]:
     """Background task that runs `run_once` daily at `occurred_at` (UTC).
 
     Meant to be opened inside the lifespan of main.py:
-    `async with audit_retention_job(settings.db_url, purge_paused=...): yield`.
+    `async with audit_retention_job(settings.db_url): yield`.
     """
     stop = asyncio.Event()
-    task = asyncio.create_task(_run_daily(dsn, purge_paused=purge_paused, occurred_at=occurred_at, stop=stop))
+    task = asyncio.create_task(_run_daily(dsn, occurred_at=occurred_at, stop=stop))
     try:
         yield task
     finally:

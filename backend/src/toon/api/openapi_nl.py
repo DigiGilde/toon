@@ -2025,11 +2025,11 @@ NL: Final[dict[str, str]] = {
     ),
     (
         "Unprocessable input. `reason` is missing, is shorter than 10 or longer than 500 characters (after stripping "
-        "spaces), contains a control or formatting character, or contains an `@` (not an e-mail address; give a case "
-        "or ticket number)."
+        "spaces), contains a control or formatting character, or contains an e-mail address (give a case or ticket "
+        "number)."
     ): (
         "Onverwerkbare invoer. `reason` ontbreekt, is korter dan 10 of langer dan 500 tekens (na spaties strippen), "
-        "bevat een stuur- of opmaakteken, of bevat een `@` (geen e-mailadres; noem een zaak- of ticketnummer)."
+        "bevat een stuur- of opmaakteken, of bevat een e-mailadres (noem een zaak- of ticketnummer)."
     ),
     (
         "Too many requests. The rate limit budget for this session is used up; try again later. The daily limit on "
@@ -2094,11 +2094,11 @@ NL: Final[dict[str, str]] = {
     ),
     (
         "Unprocessable input. `reason` is missing, is shorter than 10 or longer than 500 characters (after stripping "
-        "spaces), contains a control or formatting character, or contains an `@` (not an e-mail address; give a case "
-        "or ticket number). Not 64 hexadecimal characters (`ACTOR_PSEUDONYM_INVALID`)."
+        "spaces), contains a control or formatting character, or contains an e-mail address (give a case or ticket "
+        "number). Not 64 hexadecimal characters (`ACTOR_PSEUDONYM_INVALID`)."
     ): (
         "Onverwerkbare invoer. `reason` ontbreekt, is korter dan 10 of langer dan 500 tekens (na spaties strippen), "
-        "bevat een stuur- of opmaakteken, of bevat een `@` (geen e-mailadres; noem een zaak- of ticketnummer). Geen 64 "
+        "bevat een stuur- of opmaakteken, of bevat een e-mailadres (noem een zaak- of ticketnummer). Geen 64 "
         "hexadecimale tekens (`ACTOR_PSEUDONYM_INVALID`)."
     ),
     "Reveal the full IP address of an audit row": "Volledig IP-adres van een auditregel achterhalen",
@@ -2127,6 +2127,61 @@ NL: Final[dict[str, str]] = {
     "The full IP address for this audit row.": "Het volledige IP-adres bij deze auditregel.",
     "Not found. No audit row with this ID, or it has no encrypted IP address (`AUDIT_IP_UNKNOWN`).": (
         "Niet gevonden. Geen auditregel met dit id, of er staat geen versleuteld IP-adres bij (`AUDIT_IP_UNKNOWN`)."
+    ),
+    "Whether the audit purge is on hold": "Of het opruimen van het auditlog op pauze staat",
+    (
+        "The nightly purge deletes audit rows and content viewers past their retention. During a (suspected) "
+        "security incident a platform administrator puts it on hold, so the logging of the incident stays for the "
+        "three years BIO2 5.28.01 asks.\n"
+        "\n"
+        "**Who can call this:** only a platform administrator."
+    ): (
+        "Het nachtelijke opruimen verwijdert auditregels en content-viewers waarvan de bewaartermijn om is. Bij een "
+        "(vermoedelijk) beveiligingsincident zet een platformbeheerder het op pauze, zodat de logging van het "
+        "incident de drie jaar blijft die BIO2 5.28.01 vraagt.\n"
+        "\n"
+        "**Mag:** alleen een platformbeheerder."
+    ),
+    "Whether a hold is open, and if so why, since when and by whom.": (
+        "Of er een pauze loopt, en zo ja waarom, sinds wanneer en door wie."
+    ),
+    "Put the audit purge on hold": "Het opruimen van het auditlog pauzeren",
+    (
+        "From now on nothing is purged from the audit log or from the content viewers, not even rows past their "
+        "retention: the database refuses every delete while the hold is open. It takes effect at once, without a "
+        "restart. The nightly job keeps publishing the chain head and logs a warning every night the purge is on "
+        "hold. Starting the hold is audited, with the reason.\n"
+        "\n"
+        "**Who can call this:** only a platform administrator, with a valid CSRF header and a `reason`. It does not "
+        "count towards the daily limit on audit lookups."
+    ): (
+        "Vanaf nu wordt niets meer opgeruimd uit het auditlog of uit de content-viewers, ook geen regels waarvan de "
+        "bewaartermijn om is: de database weigert elke verwijdering zolang de pauze loopt. Het werkt meteen, zonder "
+        "herstart. De nachtelijke taak blijft de ketenkop publiceren en logt elke nacht een waarschuwing zolang de "
+        "pauze loopt. Het starten van de pauze wordt geaudit, met de reden.\n"
+        "\n"
+        "**Mag:** alleen een platformbeheerder, met een geldige CSRF-header en een `reason`. Telt niet mee voor de "
+        "dagelijkse limiet op auditopzoekingen."
+    ),
+    "The open hold.": "De lopende pauze.",
+    "Conflict. The audit purge is already on hold (`AUDIT_PURGE_ALREADY_ON_HOLD`).": (
+        "Conflict. Het opruimen van het auditlog staat al op pauze (`AUDIT_PURGE_ALREADY_ON_HOLD`)."
+    ),
+    "End the hold on the audit purge": "Het opruimen van het auditlog hervatten",
+    (
+        "Ends the open hold. The next nightly run purges everything that passed its retention in the meantime. "
+        "Ending the hold is audited, with the reason.\n"
+        "\n"
+        "**Who can call this:** only a platform administrator, with a valid CSRF header and a `reason`."
+    ): (
+        "Beëindigt de lopende pauze. De volgende nachtelijke run ruimt alles op waarvan de bewaartermijn intussen "
+        "om is. Het beëindigen van de pauze wordt geaudit, met de reden.\n"
+        "\n"
+        "**Mag:** alleen een platformbeheerder, met een geldige CSRF-header en een `reason`."
+    ),
+    "The purge is no longer on hold.": "Het opruimen staat niet langer op pauze.",
+    "Conflict. The audit purge is not on hold (`AUDIT_PURGE_NOT_ON_HOLD`).": (
+        "Conflict. Het opruimen van het auditlog staat niet op pauze (`AUDIT_PURGE_NOT_ON_HOLD`)."
     ),
     "Members of a site": "Leden van een site",
     (
@@ -2815,6 +2870,36 @@ NL: Final[dict[str, str]] = {
         "Het volledige IP-adres zoals opgeslagen bij deze auditregel."
     ),
     "The full IP address behind one audit row.": "Het volledige IP-adres achter één auditregel.",
+    "Why the audit purge is put on hold, or why the hold ends.": (
+        "Waarom het opruimen van het auditlog op pauze gaat, of waarom de pauze eindigt."
+    ),
+    (
+        "Why, at least one character. Line breaks are allowed. Give a case or ticket number, not an e-mail address "
+        "or other personal data: this field ends up readable in the audit log, for every platform administrator."
+    ): (
+        "Waarom, minstens één teken. Regelovergangen mogen. Noem een zaak- of ticketnummer, geen e-mailadres of "
+        "andere persoonsgegevens: dit veld komt leesbaar in het auditlog te staan, voor elke platformbeheerder."
+    ),
+    (
+        "Unprocessable input. `reason` is missing, empty or longer than 10000 characters (after stripping spaces), "
+        "contains a control or formatting character other than a line break, or contains an e-mail address."
+    ): (
+        "Onverwerkbare invoer. `reason` ontbreekt, is leeg of langer dan 10000 tekens (na spaties strippen), bevat een "
+        "stuur- of opmaakteken anders dan een regelovergang, of bevat een e-mailadres."
+    ),
+    "The open hold on the audit purge.": "De lopende pauze op het opruimen van het auditlog.",
+    "Why the hold was started.": "Waarom de pauze gestart is.",
+    "When the hold was started.": "Wanneer de pauze gestart is.",
+    "Who started the hold: their name, or their e-mail address if no name is known.": (
+        "Wie de pauze startte: diens naam, of diens e-mailadres als er geen naam bekend is."
+    ),
+    "Whether the nightly audit purge is on hold, and since when.": (
+        "Of het nachtelijke opruimen van het auditlog op pauze staat, en sinds wanneer."
+    ),
+    "`true` while a hold is open: nothing is purged, not even rows past their retention.": (
+        "`true` zolang er een pauze loopt: er wordt niets opgeruimd, ook geen regels waarvan de bewaartermijn om is."
+    ),
+    "The open hold, or `null` when there is none.": "De lopende pauze, of `null` als die er niet is.",
     (
         "What this link is for; only for the admin's own use, it does not appear in the URL. Omit or leave empty for a "
         "name with today's date."

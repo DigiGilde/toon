@@ -194,9 +194,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     session_factory, content_store, live_versions_kept=settings.live_versions_kept
                 ) as cleanup_task,
                 storage_check_job(app, content_store, settings) as storage_task,
-                audit_retention_job(
-                    settings.db_url, purge_paused=settings.audit_purge_paused
-                ) as audit_retention_task,
+                audit_retention_job(settings.db_url) as audit_retention_task,
             ):
                 app.state.cleanup_task = cleanup_task
                 app.state.storage_task = storage_task

@@ -759,6 +759,12 @@ class TestReasonContent:
         response = await client.post(LOOKUP, json=body_, headers=headers)
         assert response.status_code == 422
 
+    async def test_a_mention_that_is_no_email_address_is_accepted(self, client, app, data):
+        headers = _as_admin(client, app)
+        body_ = {"identifier": "a@example.nl", "reason": "zaak SR-2026-0912 voor @team-security"}
+        response = await client.post(LOOKUP, json=body_, headers=headers)
+        assert response.status_code == 200
+
     async def test_a_case_or_ticket_reference_is_accepted(self, client, app, data):
         headers = _as_admin(client, app)
         body_ = {"identifier": "a@example.nl", "reason": "onderzoek naar zaak SR-2026-0912"}

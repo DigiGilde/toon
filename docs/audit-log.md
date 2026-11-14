@@ -329,6 +329,8 @@ is a language, not personal data beyond the account it already hangs on.
 | `audit_actor_identity` | `allowed` | someone looked up the actor behind a pseudonym. `refs.pseudonym` carries the pseudonym looked up, `refs.resolved_as` `member`, `content_viewer`, `ci` or `unknown`, `refs.reason` the justification, never the identifier found |
 | `audit_ip_reveal` | `allowed` | someone tried to decrypt the full IP address on an audit row. `refs.entry` carries the id of that row, `refs.reason` the justification, `refs.revealed` whether it succeeded, never the IP address itself |
 | `audit_purge` | `allowed` | the purge deleted rows, from `audit_log_entries` and from `content_viewers`. `refs` carries the count per table |
+| `audit_purge_hold_started` | `allowed` | a platform administrator put the purge on hold. `refs.hold` carries the id of the hold, `refs.reason` the justification |
+| `audit_purge_hold_ended` | `allowed` | a platform administrator ended the hold. `refs.hold` carries the id of the hold, `refs.reason` the justification |
 
 ## Reasons
 
@@ -426,17 +428,27 @@ BIO2 5.28.01 keeps the information about a (suspected) security incident for
 at least three years, logging included. A 180-day row that belongs to an
 incident found today would otherwise be purged within days. So:
 
-1. Set `TOON_AUDIT_PURGE_PAUSED=true` and roll it out with a deployment
-   refresh (`docs/deploying-on-zad.md`, §5). The setting is read at start, so
-   the refresh restarts the pod, and a restart logs everyone out
-   (`docs/security.md`, "Sessions do not survive a restart").
-2. From then on the nightly job still publishes the chain head, skips the
-   purge, and logs a WARNING every night that the purge is paused.
-   `just purge-audit-log` refuses with an ERROR while the variable is true.
+1. A platform administrator puts the purge on hold: "Pause purge" on the
+   platform page, or `POST /-/api/v1/platform/audit/purge-hold` with a
+   `reason` (a case or ticket number, line breaks allowed, no personal
+   data). The hold is a row in the database (`audit_purge_holds`) and holds
+   at once. No deployment refresh, no restart: the pod's logs and everyone's
+   sessions stay.
+2. While the hold is open, the delete guards on `audit_log_entries` and
+   `content_viewers` refuse every delete, whoever issues it. The nightly job
+   still publishes the chain head, skips the purge, and logs a WARNING every
+   night with the date the hold started. `just purge-audit-log` refuses with
+   an ERROR.
 3. Export or analyse what the incident needs, and keep that copy under the
    incident's own term.
-4. Set it back to `false` and refresh again. The next night purges
-   everything that expired in the meantime.
+4. End the hold: "Resume purge" on the platform page, or
+   `POST /-/api/v1/platform/audit/purge-hold/end` with a `reason`. The next
+   night purges everything that expired in the meantime.
+
+`GET /-/api/v1/platform/audit/purge-hold` says whether a hold is open, since
+when and by whom. One hold is open at a time. Starting and ending one are
+audited (`audit_purge_hold_started`, `audit_purge_hold_ended`), and a hold is
+never deleted or rewritten: a trigger only lets an open hold be ended, once.
 
 ## One database account
 
@@ -459,8 +471,13 @@ The guarantee therefore rests entirely on the triggers from migration
   has not yet reached its retention period.
 - `content_viewer_delete_after_retention` does the same for
   `content_viewers` at 180 days.
-- `audit_log_entries_no_truncate`, `audit_log_chain_heads_no_truncate` and
-  `content_viewers_no_truncate` refuse `TRUNCATE` on those tables. It fires
+- Both delete guards also refuse every `DELETE` while a hold on the purge is
+  open ("During an incident", migration `0010_audit_purge_hold`).
+- `audit_purge_holds_guard` refuses every `UPDATE` of `audit_purge_holds`
+  other than ending an open hold, and every `DELETE`.
+- `audit_log_entries_no_truncate`, `audit_log_chain_heads_no_truncate`,
+  `content_viewers_no_truncate` and `audit_purge_holds_no_truncate` refuse
+  `TRUNCATE` on those tables. It fires
   no row trigger, so without these it would get past every guard above in
   one command.
 
@@ -758,9 +775,9 @@ Both endpoints, and the IP reveal below, require a `reason`: 10 to 500
 characters, mandatory in the body and to be found unchanged in `refs.reason`
 of the corresponding audit row, so readable for every platform administrator
 who reads the audit log. Name a case or ticket number therefore, not an
-email address or other personal data: a `reason` with an `@` in it, or with
-a control or formatting character (such as a tab, a line break or an rtl
-override), gets 422. Per platform administrator there is moreover a
+email address or other personal data: a `reason` with an email address in
+it (anything shaped like `name@host.tld`), or with a control or formatting
+character (such as a tab, a line break or an rtl override), gets 422. Per platform administrator there is moreover a
 daily limit (`TOON_AUDIT_LOOKUP_DAILY_LIMIT`, 25 by default) on the total
 of `audit_actor_lookup`, `audit_actor_identity` and `audit_ip_reveal`
 together, counted from the audit log itself over the last 24 hours on that

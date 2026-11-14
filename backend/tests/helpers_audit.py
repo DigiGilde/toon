@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import asyncpg
 from fastapi import FastAPI
@@ -84,6 +84,45 @@ async def insert_aged_audit_row(
     finally:
         await connection.execute("ALTER TABLE audit_log_entries ENABLE TRIGGER audit_log_no_update")
     return entry_id
+
+
+HOLD_REASON = "incident 2026-091"
+
+
+async def insert_purge_hold(connection: asyncpg.Connection, *, ended: bool = False) -> tuple[uuid.UUID, datetime]:
+    """Opens a hold on the audit purge, started by a new member, and ends it
+    straight away when `ended`. Returns the hold's id and when it started."""
+    member_id = await connection.fetchval(
+        "INSERT INTO members (id, sso_subject, email) VALUES ($1, $2, $3) RETURNING id",
+        uuid.uuid4(),
+        f"sub-{uuid.uuid4().hex}",
+        f"{uuid.uuid4().hex}@example.nl",
+    )
+    hold_id, started_at = await connection.fetchrow(
+        "INSERT INTO audit_purge_holds (id, reason, started_by) VALUES ($1, $2, $3) RETURNING id, started_at",
+        uuid.uuid4(),
+        HOLD_REASON,
+        member_id,
+    )
+    if ended:
+        await connection.execute(
+            "UPDATE audit_purge_holds SET ended_at = now(), ended_by = $2, end_reason = $3 WHERE id = $1",
+            hold_id,
+            member_id,
+            "incident 2026-091 closed",
+        )
+    return hold_id, started_at
+
+
+async def open_purge_hold(dsn: str, *, ended: bool = False) -> datetime:
+    """`insert_purge_hold`, committed on a connection of its own to `dsn` (a
+    SQLAlchemy asyncpg URL). Returns when the hold started."""
+    connection = await asyncpg.connect(dsn.replace("postgresql+asyncpg://", "postgresql://", 1))
+    try:
+        _, started_at = await insert_purge_hold(connection, ended=ended)
+        return started_at
+    finally:
+        await connection.close()
 
 
 # What audit_log_chain() does, with the moment given instead of read from the

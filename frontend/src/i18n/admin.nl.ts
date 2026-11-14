@@ -127,4 +127,28 @@ export const adminNl = {
   'admin.volume.low.title': 'Weinig ruimte over op het contentvolume',
   'admin.volume.low.detail':
     'Een deploy van de maximale omvang ({maxDeploy}) zou het volume onder de reserve van {reserve} brengen. Maak ruimte vrij of vergroot het volume.',
+
+  // -- Platform administration: the audit purge --------
+  'admin.purge.heading': 'Opruimen auditlog',
+  'admin.purge.loading': 'Status van het opruimen wordt geladen...',
+  'admin.purge.running':
+    'Elke nacht worden regels in het auditlog verwijderd zodra hun bewaartermijn voorbij is. Pauzeer dit bij een (vermoedelijk) beveiligingsincident, dan blijven de regels bewaard.',
+  'admin.purge.paused': 'Opruimen staat sinds {date} op pauze, gezet door {name}.',
+  'admin.purge.paused.reason': 'Reden: {reason}',
+  'admin.purge.resumed': 'Opruimen loopt weer.',
+  'admin.purge.reason.label': 'Reden',
+  'admin.purge.reason.hint': 'Platformbeheerders kunnen dit 3 jaar lang lezen in het auditlog.',
+  'admin.purge.reason.empty': 'Geef een reden.',
+  'admin.purge.reason.email':
+    'Geen e-mailadres: het auditlog bewaart deze reden 3 jaar en kan hem niet wissen.',
+  'admin.purge.pause.action': 'Opruimen pauzeren',
+  'admin.purge.pause.title': 'Opruimen pauzeren?',
+  'admin.purge.pause.text':
+    'Regels in het auditlog worden na hun bewaartermijn niet meer verwijderd, tot je het opruimen hervat.',
+  'admin.purge.pause.keep': 'Niet pauzeren',
+  'admin.purge.resume.action': 'Opruimen hervatten',
+  'admin.purge.resume.title': 'Opruimen hervatten?',
+  'admin.purge.resume.text':
+    'Regels in het auditlog na hun bewaartermijn worden de volgende nacht verwijderd.',
+  'admin.purge.resume.keep': 'Pauze laten staan',
 } as const;

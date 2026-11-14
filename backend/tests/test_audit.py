@@ -14,7 +14,7 @@ from datetime import timedelta
 import asyncpg
 import pytest
 import pytest_asyncio
-from helpers_audit import AuditRecorder, insert_aged_audit_row
+from helpers_audit import AuditRecorder, insert_aged_audit_row, open_purge_hold
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from toon.audit import retention, vocabulary
@@ -569,3 +569,29 @@ async def test_purge_skips_the_audit_purge_row_when_nothing_was_deleted(
         "SELECT count(*) FROM audit_log_entries WHERE action = $1", vocabulary.AUDIT_PURGE
     )
     assert after == before
+
+
+async def test_purge_deletes_and_records_nothing_while_on_hold(
+    migrated_dsn: str, db_connection: asyncpg.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """It asks before the first batch: with the hold open the delete guards
+    would refuse every row, an error per batch instead of a quiet skip."""
+    expired_row = await _committed_row(migrated_dsn, "logout", "allowed", timedelta(days=181))
+    stale_viewer = await _committed_viewer(migrated_dsn, timedelta(days=181))
+    await open_purge_hold(migrated_dsn)
+    batches: list[object] = []
+
+    async def _counted(session, statement, *, batch):
+        batches.append(statement)
+        return 0, None
+
+    monkeypatch.setattr(retention, "_delete_in_batches", _counted)
+
+    assert await purge(migrated_dsn, batch=1) == 0
+
+    assert batches == []
+    assert await db_connection.fetchval("SELECT count(*) FROM audit_log_entries WHERE id = $1", expired_row) == 1
+    assert await db_connection.fetchval("SELECT count(*) FROM content_viewers WHERE id = $1", stale_viewer) == 1
+    assert await db_connection.fetchval(
+        "SELECT count(*) FROM audit_log_entries WHERE action = $1", vocabulary.AUDIT_PURGE
+    ) == 0

@@ -126,4 +126,28 @@ export const adminEn: Record<keyof typeof adminNl, string> = {
   'admin.volume.low.title': 'Little room left on the content volume',
   'admin.volume.low.detail':
     'A deploy of the maximum size ({maxDeploy}) would take the volume below the reserve of {reserve}. Free up space or enlarge the volume.',
+
+  // -- Platform administration: the audit purge --------
+  'admin.purge.heading': 'Audit purge',
+  'admin.purge.loading': 'Loading the status of the purge...',
+  'admin.purge.running':
+    'Every night, audit log entries past their retention are deleted. Pause this during a (suspected) security incident, so the entries are kept.',
+  'admin.purge.paused': 'The purge is paused since {date} by {name}.',
+  'admin.purge.paused.reason': 'Reason: {reason}',
+  'admin.purge.resumed': 'The purge is running again.',
+  'admin.purge.reason.label': 'Reason',
+  'admin.purge.reason.hint': 'Platform administrators can read this in the audit log for 3 years.',
+  'admin.purge.reason.empty': 'Give a reason.',
+  'admin.purge.reason.email':
+    'No e-mail address: the audit log keeps this reason for 3 years and cannot erase it.',
+  'admin.purge.pause.action': 'Pause purge',
+  'admin.purge.pause.title': 'Pause the purge?',
+  'admin.purge.pause.text':
+    'Audit log entries past their retention are no longer deleted until you resume the purge.',
+  'admin.purge.pause.keep': 'Do not pause',
+  'admin.purge.resume.action': 'Resume purge',
+  'admin.purge.resume.title': 'Resume the purge?',
+  'admin.purge.resume.text':
+    'Audit log entries past their retention will be deleted the next night.',
+  'admin.purge.resume.keep': 'Keep paused',
 };

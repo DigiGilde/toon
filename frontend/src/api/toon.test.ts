@@ -43,6 +43,84 @@ describe('platformStorage', () => {
   });
 });
 
+describe('audit purge hold', () => {
+  const REASON = 'onderzoek naar melding 2026-091';
+
+  afterEach(() => {
+    document.cookie = '__Host-toon-csrf=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/';
+  });
+
+  it('reads that the purge runs', async () => {
+    expect(await toon.auditPurgeHold()).toEqual({ onHold: false, hold: null });
+  });
+
+  it('pauses the purge with a reason and says who did and since when', async () => {
+    const started = await toon.startAuditPurgeHold(REASON);
+
+    expect(started.onHold).toBe(true);
+    expect(started.hold).toMatchObject({ reason: REASON, startedByName: 'Bea Heerder' });
+    expect(new Date(started.hold!.startedAt).getTime()).not.toBeNaN();
+    expect(await toon.auditPurgeHold()).toEqual(started);
+  });
+
+  it('resumes the purge with a reason', async () => {
+    await toon.startAuditPurgeHold(REASON);
+
+    expect(await toon.endAuditPurgeHold('incident afgehandeld, ticket 4521')).toEqual({
+      onHold: false,
+      hold: null,
+    });
+    expect(backend.data.auditPurgeHold).toBeNull();
+  });
+
+  it('sends the reason as JSON to the two write endpoints, with the CSRF token', async () => {
+    document.cookie = '__Host-toon-csrf=geheime-token-waarde; path=/; secure';
+    const calls: { url: string; init: RequestInit }[] = [];
+    vi.stubGlobal('fetch', (input: RequestInfo | URL, init: RequestInit = {}) => {
+      calls.push({ url: String(input), init });
+      return backend.fetch(input, init);
+    });
+
+    await toon.startAuditPurgeHold(REASON);
+    await toon.endAuditPurgeHold(REASON);
+    await toon.auditPurgeHold();
+
+    expect(calls.map((c) => [c.init.method, c.url])).toEqual([
+      ['POST', '/-/api/v1/platform/audit/purge-hold'],
+      ['POST', '/-/api/v1/platform/audit/purge-hold/end'],
+      ['GET', '/-/api/v1/platform/audit/purge-hold'],
+    ]);
+    for (const write of calls.slice(0, 2)) {
+      expect(JSON.parse(write.init.body as string)).toEqual({ reason: REASON });
+      const headers = new Headers(write.init.headers);
+      expect(headers.get('content-type')).toBe('application/json');
+      expect(headers.get('X-CSRF-Token')).toBe('geheime-token-waarde');
+    }
+    expect(new Headers(calls[2]!.init.headers).get('X-CSRF-Token')).toBeNull();
+  });
+
+  it('refuses a second pause and a resume without a pause with a 409', async () => {
+    const none = await refusedWith(toon.endAuditPurgeHold(REASON));
+    expect(none.problem.status).toBe(409);
+
+    await toon.startAuditPurgeHold(REASON);
+    const again = await refusedWith(toon.startAuditPurgeHold(REASON));
+    expect(again.problem.status).toBe(409);
+    expect(again.problem.detail).toBeTruthy();
+  });
+
+  it.each([
+    ['too short', 'kort'],
+    ['too long', 'x'.repeat(501)],
+    ['an e-mail address', 'mail mij op a@b.nl svp'],
+  ])('refuses a reason that is %s with a 422', async (_name, reason) => {
+    const refused = await refusedWith(toon.startAuditPurgeHold(reason));
+
+    expect(refused.problem.status).toBe(422);
+    expect(backend.data.auditPurgeHold).toBeNull();
+  });
+});
+
 describe('operator', () => {
   it('says who runs this installation, also without a session', async () => {
     backend.data.loggedInMemberId = null;

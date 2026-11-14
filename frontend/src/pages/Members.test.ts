@@ -651,6 +651,19 @@ describe('Platform management (filled)', () => {
     expect(section.findAll('nldd-list-item')).toHaveLength(3);
   });
 
+  it('shows the audit purge switch as its own section below the content volume', async () => {
+    const app = await mountComponent();
+    await flushPromises();
+
+    const section = app.find('[data-testid="audit-purge"]');
+    expect(section.find('h2').text()).toBe('Opruimen auditlog');
+    expect(
+      app.find('[data-testid="content-volume"]').element.compareDocumentPosition(section.element) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(section.find('[data-testid="audit-purge-action"]').exists()).toBe(true);
+  });
+
   it('has no axe violations with the content volume loaded', async () => {
     const app = await mountComponent();
     await flushPromises();

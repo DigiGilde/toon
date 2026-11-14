@@ -16,7 +16,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import asyncpg
-from helpers_audit import insert_aged_audit_row
+from helpers_audit import HOLD_REASON, insert_aged_audit_row, open_purge_hold
 from helpers_oidc import MockIdP, make_settings
 
 from toon.audit import checkpoint, retention, vocabulary
@@ -40,6 +40,14 @@ async def _aged_row(dsn: str, action: str, result: str, age: timedelta) -> tuple
 
 async def _audit_ids(connection: asyncpg.Connection) -> set[uuid.UUID]:
     return {row["id"] for row in await connection.fetch("SELECT id FROM audit_log_entries")}
+
+
+async def _audit_ids_of(dsn: str) -> set[uuid.UUID]:
+    connection = await asyncpg.connect(dsn.replace("postgresql+asyncpg://", "postgresql://", 1))
+    try:
+        return await _audit_ids(connection)
+    finally:
+        await connection.close()
 
 
 def _published_lines(caplog) -> list[logging.LogRecord]:
@@ -66,7 +74,7 @@ class TestRunOnce:
         recent, _, _ = await _aged_row(migrated_dsn, "content_access", "allowed", timedelta(days=7))
 
         with caplog.at_level(logging.INFO):
-            await run_once(migrated_dsn, purge_paused=False)
+            await run_once(migrated_dsn)
 
         [line] = _published_lines(caplog)
         assert line.levelno == logging.WARNING
@@ -91,7 +99,7 @@ class TestRunOnce:
 
         monkeypatch.setattr(checkpoint, "collect", broken_collect)
         with caplog.at_level(logging.INFO):
-            await run_once(migrated_dsn, purge_paused=False)
+            await run_once(migrated_dsn)
 
         assert _published_lines(caplog) == []
         assert any("checkpoint failed" in message for message in _errors(caplog))
@@ -107,37 +115,51 @@ class TestRunOnce:
 
         monkeypatch.setattr(retention, "purge", broken_purge)
         with caplog.at_level(logging.INFO):
-            await run_once(migrated_dsn, purge_paused=False)
+            await run_once(migrated_dsn)
 
         assert len(_published_lines(caplog)) == 1
         assert any("Purging the audit log failed" in message for message in _errors(caplog))
         assert expired in await _audit_ids(db_connection)
 
-    async def test_a_paused_purge_still_publishes_and_says_it_is_paused(
+    async def test_a_held_purge_still_publishes_and_says_since_when(
         self, migrated_dsn: str, db_connection: asyncpg.Connection, caplog
     ):
         expired, shard, seq = await _aged_row(migrated_dsn, "content_access", "allowed", timedelta(days=181))
+        started_at = await open_purge_hold(migrated_dsn)
 
         with caplog.at_level(logging.INFO):
-            await run_once(migrated_dsn, purge_paused=True)
+            await run_once(migrated_dsn)
 
         [line] = _published_lines(caplog)
         assert {head.shard: head for head in checkpoint.parse(line.getMessage()).heads}[shard].first_seq == seq
-        paused = [
-            record
-            for record in caplog.records
-            if record.name == LOGGER and "TOON_AUDIT_PURGE_PAUSED" in record.getMessage()
-        ]
-        assert [record.levelno for record in paused] == [logging.WARNING]
+        held = [record for record in caplog.records if record.name == LOGGER and "on hold" in record.getMessage()]
+        assert [record.levelno for record in held] == [logging.WARNING]
+        assert held[0].getMessage() == (
+            f"Audit purge on hold since {started_at.date().isoformat()}: "
+            "rows past their retention stay until the hold ends"
+        )
+        assert HOLD_REASON not in caplog.text
         assert expired in await _audit_ids(db_connection)
         assert await db_connection.fetchval(
             "SELECT count(*) FROM audit_log_entries WHERE action = $1", vocabulary.AUDIT_PURGE
         ) == 0
         assert _errors(caplog) == []
 
+    async def test_an_ended_hold_lets_the_purge_run_again(
+        self, migrated_dsn: str, db_connection: asyncpg.Connection, caplog
+    ):
+        expired, _, _ = await _aged_row(migrated_dsn, "content_access", "allowed", timedelta(days=181))
+        await open_purge_hold(migrated_dsn, ended=True)
+
+        with caplog.at_level(logging.INFO):
+            await run_once(migrated_dsn)
+
+        assert not [record for record in caplog.records if "on hold" in record.getMessage()]
+        assert expired not in await _audit_ids(db_connection)
+
     async def test_an_unreachable_database_fails_both_steps_without_raising(self, caplog):
         with caplog.at_level(logging.INFO):
-            await run_once("postgresql+asyncpg://nobody:secret@127.0.0.1:1/none", purge_paused=False)
+            await run_once("postgresql+asyncpg://nobody:secret@127.0.0.1:1/none")
 
         errors = _errors(caplog)
         assert len(errors) == 2
@@ -145,8 +167,13 @@ class TestRunOnce:
         assert "secret" not in caplog.text
 
 
+async def _no_hold(dsn: str) -> None:
+    return None
+
+
 def _fake_steps(monkeypatch, *, collect, purge) -> None:
     monkeypatch.setattr(checkpoint, "collect", collect)
+    monkeypatch.setattr(retention, "hold_started_at", _no_hold)
     monkeypatch.setattr(retention, "purge", purge)
 
 
@@ -173,7 +200,7 @@ class TestRunDaily:
 
         stop = asyncio.Event()
         with caplog.at_level(logging.ERROR):
-            task = asyncio.create_task(_run_daily("dsn", purge_paused=False, occurred_at=TIMESTAMP_DEFAULT, stop=stop))
+            task = asyncio.create_task(_run_daily("dsn", occurred_at=TIMESTAMP_DEFAULT, stop=stop))
             await asyncio.wait_for(second_run.wait(), timeout=5)
             stop.set()
             await asyncio.wait_for(task, timeout=5)
@@ -194,7 +221,7 @@ class TestRunDaily:
         monkeypatch.setattr("toon.audit.retention_job._seconds_until", lambda occurred_at, reference: 3600.0)
 
         stop = asyncio.Event()
-        task = asyncio.create_task(_run_daily("dsn", purge_paused=False, occurred_at=TIMESTAMP_DEFAULT, stop=stop))
+        task = asyncio.create_task(_run_daily("dsn", occurred_at=TIMESTAMP_DEFAULT, stop=stop))
         await asyncio.sleep(0)
         stop.set()
         await asyncio.wait_for(task, timeout=5)
@@ -212,7 +239,7 @@ class TestRunDaily:
         stop = asyncio.Event()
         stop.set()
         await asyncio.wait_for(
-            _run_daily("dsn", purge_paused=False, occurred_at=TIMESTAMP_DEFAULT, stop=stop), timeout=5
+            _run_daily("dsn", occurred_at=TIMESTAMP_DEFAULT, stop=stop), timeout=5
         )
 
         assert calls == []
@@ -237,7 +264,7 @@ class TestAuditRetentionJob:
         _fake_steps(monkeypatch, collect=collect, purge=purge)
         monkeypatch.setattr("toon.audit.retention_job._seconds_until", lambda occurred_at, reference: 0.0)
 
-        async with audit_retention_job("postgresql+asyncpg://app/toon", purge_paused=False):
+        async with audit_retention_job("postgresql+asyncpg://app/toon"):
             first = await asyncio.wait_for(steps.get(), timeout=5)
             second = await asyncio.wait_for(steps.get(), timeout=5)
 
@@ -262,7 +289,7 @@ class TestAuditRetentionJob:
         monkeypatch.setattr("toon.audit.retention_job._seconds_until", lambda occurred_at, reference: 0.0)
 
         with caplog.at_level(logging.ERROR):
-            async with audit_retention_job("dsn", purge_paused=False) as task:
+            async with audit_retention_job("dsn") as task:
                 await asyncio.wait_for(started.wait(), timeout=5)
 
         assert task.cancelled()
@@ -276,95 +303,36 @@ class TestAuditRetentionJob:
             assert not task.done()
         assert task.done()
 
-    async def test_the_lifespan_hands_the_pause_to_the_job(self, tmp_path: Path, monkeypatch, caplog):
-        published = asyncio.Event()
-        purges: list[str] = []
-
-        class Published:
-            def as_json(self) -> str:
-                return "{}"
-
-        async def collect(dsn: str):
-            return Published()
-
-        async def purge(dsn: str, **kwargs):
-            purges.append(dsn)
-            return 0
-
-        _fake_steps(monkeypatch, collect=collect, purge=purge)
-        monkeypatch.setattr("toon.audit.retention_job._seconds_until", lambda occurred_at, reference: 0.0)
-
-        class PausedSeen(logging.Handler):
-            def emit(self, record: logging.LogRecord) -> None:
-                if "TOON_AUDIT_PURGE_PAUSED" in record.getMessage():
-                    published.set()
-
-        handler = PausedSeen()
-        logging.getLogger(LOGGER).addHandler(handler)
-        try:
-            app = create_app(
-                make_settings(MockIdP(), content_root=tmp_path / "content", audit_purge_paused=True)
-            )
-            async with app.router.lifespan_context(app):
-                await asyncio.wait_for(published.wait(), timeout=5)
-        finally:
-            logging.getLogger(LOGGER).removeHandler(handler)
-
-        assert purges == []
-
-
 class TestManualPurge:
-    """`python -m toon.audit.retention` reads TOON_AUDIT_PURGE_PAUSED itself and
-    refuses while it is on, before it touches the database."""
+    """`python -m toon.audit.retention` asks the database for an open hold and
+    refuses while there is one, before it purges anything."""
 
-    def test_a_pause_refuses_the_purge(self, monkeypatch, caplog):
-        purges: list[str] = []
+    def test_an_open_hold_refuses_the_purge(self, migrated_dsn: str, monkeypatch, caplog):
+        expired, _, _ = asyncio.run(_aged_row(migrated_dsn, "logout", "allowed", timedelta(days=181)))
+        started_at = asyncio.run(open_purge_hold(migrated_dsn))
+        monkeypatch.setenv(retention.DB_URL_VAR, migrated_dsn)
 
-        async def purge(dsn: str, **kwargs):
-            purges.append(dsn)
-            return 0
+        with caplog.at_level(logging.INFO):
+            assert retention.main() == 1
 
-        monkeypatch.setattr(retention, "purge", purge)
-        monkeypatch.setenv(retention.DB_URL_VAR, "postgresql+asyncpg://app/toon")
-        for value in ("true", "True", "1", "yes", "on"):
-            monkeypatch.setenv(retention.PAUSED_VAR, value)
-            caplog.clear()
-            with caplog.at_level(logging.INFO):
-                assert retention.main() == 1
-            assert [record.levelno for record in caplog.records] == [logging.ERROR]
-            assert retention.PAUSED_VAR in caplog.text
-        assert purges == []
+        assert [record.levelno for record in caplog.records] == [logging.ERROR]
+        assert f"on hold since {started_at.date().isoformat()}" in caplog.text
+        assert HOLD_REASON not in caplog.text
+        assert asyncio.run(_audit_ids_of(migrated_dsn)) >= {expired}
 
-    def test_a_value_settings_would_refuse_refuses_the_purge(self, monkeypatch, caplog):
-        purges: list[str] = []
+    def test_an_ended_hold_lets_it_purge(self, migrated_dsn: str, monkeypatch, caplog):
+        expired, _, _ = asyncio.run(_aged_row(migrated_dsn, "logout", "allowed", timedelta(days=181)))
+        asyncio.run(open_purge_hold(migrated_dsn, ended=True))
+        monkeypatch.setenv(retention.DB_URL_VAR, migrated_dsn)
 
-        async def purge(dsn: str, **kwargs):
-            purges.append(dsn)
-            return 0
-
-        monkeypatch.setattr(retention, "purge", purge)
-        monkeypatch.setenv(retention.DB_URL_VAR, "postgresql+asyncpg://app/toon")
-        for value in ("", " true", "paused", "2"):
-            monkeypatch.setenv(retention.PAUSED_VAR, value)
-            caplog.clear()
-            with caplog.at_level(logging.INFO):
-                assert retention.main() == 1
-            assert retention.PAUSED_VAR in caplog.text
-        assert purges == []
-
-    def test_false_or_unset_purges(self, monkeypatch, caplog):
-        purges: list[str] = []
-
-        async def purge(dsn: str, **kwargs):
-            purges.append(dsn)
-            return 0
-
-        monkeypatch.setattr(retention, "purge", purge)
-        monkeypatch.setenv(retention.DB_URL_VAR, "postgresql+asyncpg://app/toon")
-        for value in ("false", "0", "no", "off", None):
-            if value is None:
-                monkeypatch.delenv(retention.PAUSED_VAR, raising=False)
-            else:
-                monkeypatch.setenv(retention.PAUSED_VAR, value)
+        with caplog.at_level(logging.INFO):
             assert retention.main() == 0
-        assert purges == ["postgresql+asyncpg://app/toon"] * 5
+
+        assert expired not in asyncio.run(_audit_ids_of(migrated_dsn))
+
+    async def test_the_database_tells_whether_a_hold_is_open(self, migrated_dsn: str):
+        assert await retention.hold_started_at(migrated_dsn) is None
+        await open_purge_hold(migrated_dsn, ended=True)
+        assert await retention.hold_started_at(migrated_dsn) is None
+        started_at = await open_purge_hold(migrated_dsn)
+        assert await retention.hold_started_at(migrated_dsn) == started_at

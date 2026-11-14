@@ -8,6 +8,7 @@
  * `vi.stubGlobal('fetch', ...)`.
  */
 import type {
+  AuditPurgeHold,
   CliSession,
   DeviceAuthorization,
   Group,
@@ -277,6 +278,8 @@ interface MockData {
   myLanguage: MemberLanguage | null;
   /** What `GET /operator` answers: who runs this installation. */
   operator: Operator;
+  /** The open pause of the nightly audit purge; null while the purge runs. */
+  auditPurgeHold: AuditPurgeHold['hold'];
 }
 
 /** A device-flow authorization pending approval, as the CLI creates it. */
@@ -611,6 +614,7 @@ function defaultData(): MockData {
     defaultLiveVersionsKept: 5,
     myLanguage: null,
     operator: { name: 'Digi Gilde', email: 'digigilde@rijksoverheid.nl' },
+    auditPurgeHold: null,
   };
 }
 
@@ -1219,6 +1223,49 @@ export function makeMockBackend(seed: MockData = defaultData()): MockBackend {
         maxDeployBytes: 200 * mib,
       };
       return json(200, volume);
+    }
+
+    // /platform/audit/purge-hold
+    if (rest[0] === 'platform' && rest[1] === 'audit' && rest[2] === 'purge-hold') {
+      const state = (): AuditPurgeHold => ({
+        onHold: data.auditPurgeHold !== null,
+        hold: data.auditPurgeHold,
+      });
+      if (method === 'GET' && rest.length === 3) return json(200, state());
+      const ending = rest.length === 4 && rest[3] === 'end';
+      if (method === 'POST' && (rest.length === 3 || ending)) {
+        const reason = String(readJson().reason).trim();
+        // The bounds and refusals of the real backend's reason field.
+        if (reason.length < 10 || reason.length > 500) {
+          return problem(
+            422,
+            'Ongeldige invoer',
+            'reason must be 10 to 500 characters after stripping whitespace',
+            'VALIDATION_ERROR',
+          );
+        }
+        if (reason.includes('@')) {
+          return problem(
+            422,
+            'Ongeldige invoer',
+            'give a case or ticket number in reason, not an email address',
+            'VALIDATION_ERROR',
+          );
+        }
+        if (ending) {
+          if (data.auditPurgeHold === null) {
+            return problem(409, 'Geen pauze', 'The purge is not paused.', 'PURGE_NOT_ON_HOLD');
+          }
+          data.auditPurgeHold = null;
+          return json(200, state());
+        }
+        if (data.auditPurgeHold !== null) {
+          return problem(409, 'Al gepauzeerd', 'The purge is already paused.', 'PURGE_ALREADY_ON_HOLD');
+        }
+        const caller = data.members.find((l) => l.id === data.loggedInMemberId)!;
+        data.auditPurgeHold = { reason, startedAt: now(), startedByName: caller.name };
+        return json(201, state());
+      }
     }
 
     // /platform/members...
