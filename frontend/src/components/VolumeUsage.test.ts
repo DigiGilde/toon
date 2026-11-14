@@ -52,15 +52,11 @@ describe('VolumeUsage', () => {
     expect(wrapper.find('nldd-list').exists()).toBe(false);
   });
 
-  it('shows used, free and the reserve, and no site', async () => {
+  it('shows used and free, not the reserve, and no site', async () => {
     const wrapper = await mountWith(volume());
 
-    expect(texts(wrapper, 'nldd-text-cell')).toEqual([
-      '500 MiB van 1 GiB',
-      '524 MiB',
-      '100 MiB',
-    ]);
-    expect(texts(wrapper, 'nldd-title-cell')).toEqual(['In gebruik', 'Vrij', 'Reserve']);
+    expect(texts(wrapper, 'nldd-text-cell')).toEqual(['500 MiB van 1 GiB', '524 MiB']);
+    expect(texts(wrapper, 'nldd-title-cell')).toEqual(['In gebruik', 'Vrij']);
     expect(wrapper.find('nldd-banner').exists()).toBe(false);
     expect(property(wrapper.findAll('nldd-text-cell')[1]!.element, 'color')).toBe('content');
   });
@@ -81,11 +77,10 @@ describe('VolumeUsage', () => {
     expect(wrapper.find('nldd-banner').exists()).toBe(false);
   });
 
-  it('never warns with the reserve switched off, and says so', async () => {
+  it('never warns with the reserve switched off', async () => {
     const wrapper = await mountWith(volume({ reserveBytes: 0, freeBytes: 1 * MIB }));
 
     expect(wrapper.find('nldd-banner').exists()).toBe(false);
-    expect(texts(wrapper, 'nldd-text-cell')[2]).toBe('Uit');
   });
 
   it('shows the refusal when the endpoint answers one', async () => {

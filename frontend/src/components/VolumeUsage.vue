@@ -86,18 +86,6 @@ onMounted(async () => {
             :text="formatBytes(volume.freeBytes)"
           ></nldd-text-cell>
         </nldd-list-item>
-        <nldd-list-item size="md">
-          <nldd-title-cell :text="t('admin.volume.reserve')"></nldd-title-cell>
-          <nldd-text-cell
-            width="fit-content"
-            horizontal-alignment="right"
-            :text="
-              volume.reserveBytes > 0
-                ? formatBytes(volume.reserveBytes)
-                : t('admin.volume.reserve.off')
-            "
-          ></nldd-text-cell>
-        </nldd-list-item>
       </nldd-list>
     </nldd-container>
   </section>

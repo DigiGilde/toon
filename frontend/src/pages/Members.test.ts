@@ -648,7 +648,7 @@ describe('Platform management (filled)', () => {
     expect(
       table.compareDocumentPosition(section.element) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    expect(section.findAll('nldd-list-item')).toHaveLength(3);
+    expect(section.findAll('nldd-list-item')).toHaveLength(2);
   });
 
   it('has no axe violations with the content volume loaded', async () => {
