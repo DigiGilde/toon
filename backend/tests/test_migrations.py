@@ -10,6 +10,7 @@ import io
 import json
 import os
 import pathlib
+import re
 import uuid
 from datetime import timedelta
 
@@ -251,8 +252,8 @@ async def _refusal(conn: asyncpg.Connection, statement: str, *args) -> str:
     raise AssertionError(f"not refused: {statement}")
 
 
-_TRIGGER_ONLY = "alleen door de auditlog-trigger"
-_ONE_ON = "schuift alleen een positie op"
+_TRIGGER_ONLY = "only updated by the audit log trigger"
+_ONE_ON = "only moves one position on"
 _INSERT_AUDIT_ROW = (
     "INSERT INTO audit_log_entries (id, actor_kind, action, result) VALUES ($1, 'system', 'test_actie', 'allowed')"
 )
@@ -315,14 +316,14 @@ async def test_truncate_is_refused(db_connection: asyncpg.Connection, table: str
     )
 
     refusal = await _refusal(db_connection, f"TRUNCATE {table}")
-    assert f"{table}: TRUNCATE niet toegestaan" in refusal
+    assert f"{table}: TRUNCATE is not allowed" in refusal
     assert await db_connection.fetchval(f"SELECT count(*) FROM {table}") == 1  # noqa: S608 - table is a literal
 
 
 async def test_truncate_cascading_from_elsewhere_is_refused(db_connection: asyncpg.Connection) -> None:
     await db_connection.execute(_INSERT_AUDIT_ROW, uuid.uuid4())
 
-    assert "TRUNCATE niet toegestaan" in await _refusal(
+    assert "TRUNCATE is not allowed" in await _refusal(
         db_connection, "TRUNCATE members, audit_log_entries RESTART IDENTITY CASCADE"
     )
     assert await db_connection.fetchval("SELECT count(*) FROM audit_log_entries") == 1
@@ -1390,6 +1391,136 @@ async def test_the_180_day_migration_goes_down_to_90_days_and_up_again(postgres_
 
         await asyncio.to_thread(_alembic, dsn, "upgrade", "head")
         assert await _short_terms(dsn) == (180, 1096, False)
+    finally:
+        await admin.execute(f'DROP DATABASE "{name}" WITH (FORCE)')
+        await admin.close()
+
+
+_ENGLISH_MESSAGES = "0009_english_trigger_messages"
+
+# What content_viewer_delete_after_retention said before 0008 translated it.
+_CONTENT_VIEWERS_DUTCH = "content_viewers is pas te verwijderen na de bewaartermijn: % mag nog niet weg"
+_DUTCH_WORDS = re.compile(r"\b(niet|mag|alleen|groep|auditlog|bewaartermijn|beheerder|toegestaan)\b")
+
+
+def _english_messages_migration():
+    path = pathlib.Path(__file__).resolve().parents[1] / "alembic" / "versions" / f"{_ENGLISH_MESSAGES}.py"
+    spec = importlib.util.spec_from_file_location("toon_english_messages_migration", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+async def _function_sources(conn: asyncpg.Connection) -> dict[str, str]:
+    rows = await conn.fetch(
+        """
+        SELECT p.proname, p.prosrc
+        FROM pg_proc p
+        JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'public'
+        """
+    )
+    return {row["proname"]: row["prosrc"] for row in rows}
+
+
+async def _guard_refusals(conn: asyncpg.Connection) -> tuple[list[str], uuid.UUID, uuid.UUID]:
+    """What each kind of guard trigger says when it refuses, in a fixed order,
+    with the ids that end up in the messages."""
+    audit_id = uuid.uuid4()
+    await conn.execute(_INSERT_AUDIT_ROW, audit_id)
+    group_id = await _make_group(conn)
+    await _make_group_member(conn, group_id, await _make_member(conn), "admin")
+    return [
+        await _refusal(conn, "UPDATE audit_log_entries SET action = 'gewijzigd' WHERE id = $1", audit_id),
+        await _refusal(conn, "DELETE FROM audit_log_entries WHERE id = $1", audit_id),
+        await _refusal(conn, "TRUNCATE audit_log_entries"),
+        await _refusal(conn, "UPDATE audit_log_chain_heads SET chain_hash = '\\x00'"),
+        await _refusal(conn, "DELETE FROM group_members WHERE group_id = $1", group_id),
+    ], audit_id, group_id
+
+
+def _expected_refusals(language: int, audit_id: uuid.UUID, group_id: uuid.UUID) -> list[str]:
+    messages = {key: texts[language] for key, texts in _english_messages_migration()._MESSAGES.items()}
+    return [
+        messages["append_only"].replace("%", "UPDATE"),
+        messages["audit_retention"].replace("%", str(audit_id)),
+        messages["truncate"].replace("%", "audit_log_entries"),
+        messages["head_trigger_only"].replace("%", "UPDATE"),
+        messages["last_admin"].replace("%", str(group_id)),
+    ]
+
+
+async def test_no_function_in_the_schema_raises_in_dutch(db_connection: asyncpg.Connection) -> None:
+    dutch = [texts[1] for texts in _english_messages_migration()._MESSAGES.values()] + [_CONTENT_VIEWERS_DUTCH]
+    raising = {name: source for name, source in (await _function_sources(db_connection)).items() if "RAISE" in source}
+
+    assert {
+        "guard_last_group_admin",
+        "audit_log_chain_head_guard",
+        "audit_log_append_only",
+        "audit_log_delete_after_retention",
+        "content_viewer_delete_after_retention",
+        "audit_log_refuse_truncate",
+    } <= raising.keys()
+    for name, source in raising.items():
+        assert not [message for message in dutch if message in source], name
+        assert not [line for line in source.splitlines() if "RAISE" in line and _DUTCH_WORDS.search(line)], name
+
+
+async def test_the_guards_refuse_in_english(db_connection: asyncpg.Connection) -> None:
+    refusals, audit_id, group_id = await _guard_refusals(db_connection)
+
+    assert refusals == _expected_refusals(0, audit_id, group_id)
+
+
+def _without_messages(sources: dict[str, str]) -> dict[str, str]:
+    """The function bodies with every message of 0009 (either language) blanked."""
+    normalised = {}
+    for name, source in sources.items():
+        for texts in _english_messages_migration()._MESSAGES.values():
+            for text in texts:
+                source = source.replace(text, "<message>")
+        normalised[name] = source
+    return normalised
+
+
+async def test_the_english_messages_migration_goes_down_to_dutch_and_up_again(postgres_container) -> None:
+    """The messages flip, and nothing else in a function body does: going down
+    gives back the functions exactly as 0008 left them."""
+    base = postgres_container.get_connection_url(driver=None)
+    name = f"berichten_{uuid.uuid4().hex[:8]}"
+    admin = await asyncpg.connect(base)
+    await admin.execute(f'CREATE DATABASE "{name}"')
+    dsn = f"{base.rsplit('/', 1)[0]}/{name}"
+
+    async def _probe() -> tuple[list[str], uuid.UUID, uuid.UUID, dict[str, str]]:
+        conn = await asyncpg.connect(dsn)
+        try:
+            refusals, audit_id, group_id = await _guard_refusals(conn)
+            return refusals, audit_id, group_id, await _function_sources(conn)
+        finally:
+            await conn.close()
+
+    try:
+        await asyncio.to_thread(_alembic, dsn, "upgrade", "0008_short_retention_180_days")
+        refusals, audit_id, group_id, dutch = await _probe()
+        assert refusals == _expected_refusals(1, audit_id, group_id)
+
+        await asyncio.to_thread(_alembic, dsn, "upgrade", "head")
+        refusals, audit_id, group_id, english = await _probe()
+        assert refusals == _expected_refusals(0, audit_id, group_id)
+        assert english != dutch
+        assert _without_messages(english) == _without_messages(dutch)
+
+        await asyncio.to_thread(_alembic, dsn, "downgrade", "0008_short_retention_180_days")
+        refusals, audit_id, group_id, back = await _probe()
+        assert refusals == _expected_refusals(1, audit_id, group_id)
+        assert back == dutch
+
+        await asyncio.to_thread(_alembic, dsn, "upgrade", "head")
+        refusals, audit_id, group_id, again = await _probe()
+        assert refusals == _expected_refusals(0, audit_id, group_id)
+        assert again == english
     finally:
         await admin.execute(f'DROP DATABASE "{name}" WITH (FORCE)')
         await admin.close()
