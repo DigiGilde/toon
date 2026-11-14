@@ -53,9 +53,9 @@ from toon.auth.oidc import OidcClient
 from toon.auth.revalidation import revalidate_sessions
 from toon.auth.sessions import (
     SessionStore,
-    content_anchor_session_from_request,
     content_session_from_request,
     session_from_request,
+    sole_content_anchor_session_from_request,
 )
 from toon.ci.providers import ProviderClient
 from toon.ci.tokens import CiTokenVerifier
@@ -122,7 +122,7 @@ async def _session_key(request: Request) -> str | None:
     session = (
         session_from_request(request)
         or content_session_from_request(request)
-        or content_anchor_session_from_request(request)
+        or sole_content_anchor_session_from_request(request)
     )
     return session.sub if session is not None else None
 

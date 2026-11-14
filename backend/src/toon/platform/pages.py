@@ -43,6 +43,7 @@ from toon.auth.content_viewers import upsert_content_viewer
 from toon.auth.members import record_admin_login
 from toon.auth.oidc import OidcClient, OidcError
 from toon.auth.sessions import (
+    CONTENT_ANCHOR_COOKIE,
     CONTENT_LOGIN_COOKIE,
     DEFAULT_CONTENT_RETURN_TO,
     DEFAULT_RETURN_TO,
@@ -52,7 +53,9 @@ from toon.auth.sessions import (
     check_signature,
     clear_content_session_cookies,
     clear_session_cookies,
+    content_anchor_is_duplicated,
     content_anchor_session_from_request,
+    content_anchor_sessions_from_request,
     content_site_prefix,
     session_from_request,
     set_content_anchor_cookies,
@@ -251,8 +254,13 @@ def _cookie_for_next_site(request: Request, target: str) -> RedirectResponse | N
     otherwise be a two-hop way for a page on one site to have the browser
     attach a session to a request aimed at another, which is the very thing
     the scoped cookie takes away.
+
+    Not when the anchor arrives more than once either: the session read would
+    be whichever value came last, possibly one set from elsewhere, and its
+    site cookie would replace the visitor's own. The IdP's callback sets the
+    visitor's own cookies instead.
     """
-    if not top_level_navigation(request):
+    if not top_level_navigation(request) or content_anchor_is_duplicated(request):
         return None
     session = content_anchor_session_from_request(request)
     if session is None:
@@ -350,10 +358,11 @@ async def _handle_callback(request: Request, profile: _LoginProfile) -> Redirect
     # Session id rotation: an existing session of the same kind is dropped on
     # login.
     if profile.kind is SessionKind.CONTENT:
-        old_session = content_anchor_session_from_request(request)
+        old_sessions = content_anchor_sessions_from_request(request)
     else:
-        old_session = session_from_request(request)
-    if old_session is not None:
+        admin_session = session_from_request(request)
+        old_sessions = [admin_session] if admin_session is not None else []
+    for old_session in old_sessions:
         store.delete_session(old_session.id)
 
     session = store.create_session(
@@ -405,6 +414,10 @@ async def _handle_callback(request: Request, profile: _LoginProfile) -> Redirect
             # the page itself rather than on a second redirect.
             store.note_content_site(session.id, prefix)
             set_content_session_cookie(response, session, settings.session_secret, path=prefix)
+        if content_anchor_is_duplicated(request):
+            # The new anchor replaces only the one at `/-/`; one set by a
+            # page's script or from a sibling host sits at `/`.
+            response.delete_cookie(CONTENT_ANCHOR_COOKIE, path="/", secure=True, httponly=True, samesite="lax")
     else:
         set_session_cookies(response, session, settings.session_secret)
     response.delete_cookie(profile.login_cookie, path="/", secure=True, httponly=True, samesite="lax")
@@ -482,8 +495,8 @@ async def content_logout(request: Request) -> Response:
 async def _content_logout(request: Request) -> Response:
     settings = request.app.state.settings
     store: SessionStore = request.app.state.session_store
-    session = content_anchor_session_from_request(request)
-    if session is not None:
+    sessions = content_anchor_sessions_from_request(request)
+    for session in sessions:
         store.delete_session(session.id)
         await _audit_auth(
             request, vocabulary.LOGOUT, Actor(ActorKind.MEMBER, session.sub), vocabulary.ALLOWED, kind=session.kind
@@ -491,7 +504,13 @@ async def _content_logout(request: Request) -> Response:
     came_from_admin = request.query_params.get("from") == _FROM_ADMIN and settings.base_url
     target = f"{settings.base_url.rstrip('/')}/" if came_from_admin else DEFAULT_CONTENT_RETURN_TO
     response = RedirectResponse(target, status_code=303)
-    clear_content_session_cookies(response, session.content_sites if session is not None else ())
+    clear_content_session_cookies(
+        response, list(dict.fromkeys(path for session in sessions for path in session.content_sites))
+    )
+    if content_anchor_is_duplicated(request):
+        # A deletion reaches only the cookie at its own path, and an anchor
+        # set by a page's script or from a sibling host sits at `/`.
+        response.delete_cookie(CONTENT_ANCHOR_COOKIE, path="/", secure=True, httponly=True, samesite="lax")
     return response
 
 

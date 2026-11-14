@@ -35,9 +35,9 @@ from toon.audit import vocabulary
 from toon.audit.log import Actor
 from toon.auth.oidc import ClientRejectedError, OidcError, RefreshRejectedError
 from toon.auth.sessions import (
-    content_anchor_session_from_request,
     content_session_from_request,
     session_from_request,
+    sole_content_anchor_session_from_request,
 )
 from toon.models.audit import ActorKind
 
@@ -118,7 +118,7 @@ async def revalidate_sessions(request: Request) -> None:
     # cookie there is, and the login hands out a site cookie from it.
     for session in (
         session_from_request(request),
-        content_session_from_request(request) or content_anchor_session_from_request(request),
+        content_session_from_request(request) or sole_content_anchor_session_from_request(request),
     ):
         if session is not None:
             await _revalidate(request, session, interval)

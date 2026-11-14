@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from toon.audit.ip_crypto import _key_id
 from toon.audit.log import AuditLog
 from toon.auth.oidc import OidcClient
-from toon.auth.sessions import SessionStore
+from toon.auth.sessions import CONTENT_ANCHOR_COOKIE, SessionStore, sign
 from toon.config import ConfigurationError, Settings
 from toon.ingest.store import ContentStore
 from toon.main import ApiVersionHeaderMiddleware, SessionRecheckMiddleware, create_app
@@ -373,6 +373,37 @@ async def test_ratelimit_counts_content_session_per_viewer_not_per_ip(tmp_path: 
             resp = await watcher.get(path)
 
     assert resp.status_code == 429
+
+
+async def test_ratelimit_ignores_an_anchor_that_arrives_twice(tmp_path: Path) -> None:
+    """With the anchor twice nothing tells which value is the visitor's own,
+    so the request counts per client IP, not against the budget of the
+    session the other value names."""
+    idp = MockIdP()
+    settings = _make_settings(
+        tmp_path, oidc_issuer=idp.issuer, ratelimit_login_max=1, ratelimit_login_window_s=60
+    )
+    app = create_app(settings)
+
+    async with app.router.lifespan_context(app):
+        app.state.oidc_client = make_oidc_client(settings, idp)
+        async with _client_for(app) as other:
+            other_session = set_content_session_cookie(other, app, sub="ander")
+            assert (await other.get("/-/login")).status_code == 302
+            assert (await other.get("/-/login")).status_code == 429
+
+        async with _client_for(app) as visitor:
+            set_content_session_cookie(visitor, app, sub="bezoeker")
+            visitor.cookies.set(
+                CONTENT_ANCHOR_COOKIE,
+                sign(settings.session_secret, other_session.id),
+                domain="toon.example",
+                path="/",
+            )
+            resp = await visitor.get("/-/login")
+
+    assert resp.status_code == 302
+    assert resp.headers["location"].startswith(idp.issuer + "/authorize?")
 
 
 async def test_trustedhost_middleware_refused_on_wrong_host(tmp_path: Path) -> None:
