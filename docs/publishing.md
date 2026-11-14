@@ -1219,10 +1219,11 @@ the name Toon, or a later one.
 
 ### A workflow
 
-GitHub does not redirect a `uses:` line to a renamed repository, so a
-workflow that still names `DigiGilde/plak` fails with `repository not found`.
-Change two lines in every step that uses the action, the repository in
-`uses:` and the `host`:
+GitHub follows the rename for a `uses:` line as well, so a workflow that
+still names `DigiGilde/plak` keeps running the action from before the
+rename. That action publishes to the old host, stops with the error above
+and publishes nothing. Change two lines in every step that uses the action,
+the repository in `uses:` and the `host`:
 
 ```diff
 -      - uses: DigiGilde/plak/actions/publish@<old-commit-sha>

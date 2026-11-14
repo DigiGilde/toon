@@ -10,13 +10,11 @@ validates the whole document against one current schema. What matters for us:
   as a stray `name` or `reference` alongside `config` is rejected outright;
 * the domain approval block `domains` is a project-level property, not nested
   under a service;
-* the web address fields (`domain-format`, `domain-mode`, `subdomain`,
-  `base-domain`, `issuer`, `root-component`) are direct properties of the
-  deployment object, not nested under a service config;
-* `domain-mode` still exists in the schema and is not derived from
-  `domain-format`: the Operations Manager reads it literally and gates the
-  root ingress (the bare `{subdomain}.{domain}` host) on it being exactly
-  `nice-url`;
+* the web address fields (`domain-format`, `subdomain`, `base-domain`,
+  `issuer`, `root-component`) are direct properties of the deployment
+  object, not nested under a service config;
+* there is no `domain-mode` any more: the platform's v2.8 migration turned
+  `nice-url` into `domain-format: component.subdomain` and dropped the key;
 * a component has no `probe`;
 * `backup.enabled` in the root only sets the PVC label; scheduling happens per
   deployment with an RRULE.
@@ -113,16 +111,15 @@ def test_url_fields_sit_directly_on_the_deployment() -> None:
         assert deployment["root-component"]
 
 
-def test_root_address_needs_domain_mode_nice_url_too() -> None:
+def test_root_address_needs_a_root_format_and_a_root_component() -> None:
     """The root address (toon.<domain>) needs domain-format, subdomain,
-    base-domain and root-component all four right, AND domain-mode:
-    nice-url: the Operations Manager reads domain-mode literally and does not
-    derive it from domain-format. Drop one of the five and there is silently
-    no root address, and then the TOON_*_BASE_URLs point at a host that never
-    exists."""
+    base-domain and root-component all four right. Drop one and there is
+    silently no root address, and then the TOON_*_BASE_URLs point at a host
+    that never exists. `domain-mode` is gone since the platform's v2.8
+    migration, so the example does not carry it."""
     for deployment in PROJECT["deployments"]:
         assert deployment["domain-format"] in ROOT_ADDRESS_FORMATS
-        assert deployment["domain-mode"] == "nice-url"
+        assert "domain-mode" not in deployment
         components = [c["reference"] for c in deployment["components"]]
         assert deployment["root-component"] in components
 
