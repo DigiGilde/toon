@@ -7,7 +7,11 @@
 #     audit on the frontend lockfile, as the `vulnerabilities` job in
 #     ci.yml does;
 #   - `image`: trivy on the digest of the image of the newest release,
-#     the one production runs, with the gate deploy.yml draws.
+#     the one production runs, with the gate deploy.yml draws;
+#   - `redirect-image`: trivy on the image the redirect on the old hosts
+#     runs, as deploy/old-hosts-redirect/Containerfile pins it. That
+#     equals what runs on ZAD only as long as a bump is rolled out when
+#     it merges.
 #
 # All third-party actions are pinned to a commit SHA; the tag after it is
 # the readable label, not the reference.
@@ -76,6 +80,36 @@ jobs:
           echo "ref=${name}@${digest}" >> "$GITHUB_OUTPUT"
 
       - name: Scan the image, gate on high and critical (trivy)
+        uses: ./.github/actions/trivy
+        with:
+          image-ref: ${{ steps.image.outputs.ref }}
+          trivyignores: .trivyignore.yaml
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+
+  # A job of its own, so a finding in the Toon image does not hide one here.
+  redirect-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read the redirect image from its Containerfile
+        id: image
+        run: |
+          set -euo pipefail
+          ref="$(grep -oE '^FROM ghcr\.io/rijksictgilde/haproxy-redirect(:[^@ ]+)?@sha256:[0-9a-f]{64}' \
+            deploy/old-hosts-redirect/Containerfile | cut -d' ' -f2 | sed -E 's/:[^@/]+@/@/')"
+          if [ -z "$ref" ]; then
+            echo "::error::Redirect image not found: is the FROM line still as expected?"
+            exit 1
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - name: Scan the redirect image, gate on high and critical (trivy)
         uses: ./.github/actions/trivy
         with:
           image-ref: ${{ steps.image.outputs.ref }}

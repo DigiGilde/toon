@@ -791,6 +791,70 @@ again with `--replace`, followed by `zadctl deployment refresh` of both.
   working. It stops redirecting as soon as a new repository takes the old
   name.
 
+### Updating the redirect image
+
+The tag that `oud` and `beheer` run is pinned in
+`deploy/old-hosts-redirect/Containerfile`, which is never built. It is there
+so Dependabot sees the image: a monthly pull request of its own bumps tag and
+digest together. Two checks watch that file: the job `containers` in `ci.yml`
+runs `haproxy -c` on `deploy/old-hosts-haproxy.cfg` with the pinned image, and
+`scan.yml` scans the pinned image every day with the same trivy gate as the
+Toon image. A red daily run on `redirect-image` usually means a fixed tag
+exists. Bump it by hand then, rather than waiting for Dependabot.
+
+Merging a bump changes nothing on ZAD. Roll it out when you merge, so the
+Containerfile stays what runs. The attachment replaces the `haproxy.cfg` of
+the image, so a new tag only changes the HAProxy binary and the OS packages.
+
+Run from the directory with `.env.zadctl`. That file sets `ZAD_ROLLOUT=false`,
+so `--rollout` is explicit here. `update-image` on a production deployment
+needs the role Ops (or Ops CI) and no 2FA. A restart empties the log of the
+pod, so read what you still need from it first (issue #230).
+
+```bash
+TAG=2026.12.01   # the tag from the Dependabot pull request
+IMAGE=ghcr.io/rijksictgilde/haproxy-redirect:$TAG
+
+zadctl project pending
+zadctl --rollout deployment update-image beheer --component wacht --image "$IMAGE"
+zadctl deployment describe beheer
+# run the checks below for beheer.plak.rijks.app, then roll out oud
+zadctl --rollout deployment update-image oud --component wacht --image "$IMAGE"
+zadctl deployment describe oud
+```
+
+`update-image` returns before the rollout is healthy, so wait until `describe`
+says `Healthy` with no errors before the checks mean anything. A first pull
+through the registry proxy of ZAD (`rcr.rijksapps.nl`) can give a `502` once
+and recover by itself.
+
+The checks, with the output the current tag gives. Use a path outside
+`/-/api/`, so they do not count as API requests in the log reading of #230.
+
+```bash
+curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' 'https://plak.rijks.app/image-check/?key=PROBE'
+# 302 https://toon.rijks.app/image-check/?key=PROBE
+curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' 'https://beheer.plak.rijks.app/image-check/?key=PROBE'
+# 302 https://beheer.toon.rijks.app/image-check/?key=PROBE
+
+curl -s -w ' %{http_code}\n' https://plak.rijks.app/healthz
+# ok 200
+curl -s -w ' %{http_code}\n' https://beheer.plak.rijks.app/healthz
+# ok 200
+
+curl -s -o /dev/null -X POST -w '%{http_code} %{content_type}\n' https://plak.rijks.app/image-check/
+# 410 application/problem+json
+curl -s -o /dev/null -X POST -w '%{http_code} %{content_type}\n' https://beheer.plak.rijks.app/image-check/
+# 410 application/problem+json
+
+zadctl logs oud -n 1000 | grep -c PROBE
+# 0: the query stays out of the log
+zadctl logs oud -n 1000 | grep -c image-check
+# at least 1: the request is logged, without its query
+```
+
+Repeat the two `zadctl logs` lines for `beheer`.
+
 ## See also
 
 - `deploy/toon-project.example.yaml`: the project file with comments.
