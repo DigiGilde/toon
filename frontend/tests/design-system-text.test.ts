@@ -84,6 +84,12 @@ const UNREACHED: Record<string, string> = {
   'components.menu.back-action': 'no nldd-menu-item here has a submenu',
   'components.menu.submenu-title': 'no nldd-menu-item here has a submenu',
   'components.menu.submenu-back-action': 'no nldd-menu-item here has a submenu',
+  'components.menu-item.link-hint-new-tab-lowercase-label':
+    'every nldd-menu-item link here opens a page of this app in this tab',
+  'components.menu-item.link-hint-external-lowercase-label':
+    'every nldd-menu-item link here opens a page of this app in this tab',
+  'components.menu-item.link-hint-external-new-tab-lowercase-label':
+    'every nldd-menu-item link here opens a page of this app in this tab',
   'components.list.items-accessible-label': 'every list here sets accessible-label',
   'components.list.navigation-accessible-label': 'no list here is type="navigation"',
   'components.list.search-placeholder-label': 'no list here is type="listbox"',

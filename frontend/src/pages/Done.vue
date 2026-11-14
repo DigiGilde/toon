@@ -163,7 +163,7 @@ function keyErrorText(): string {
     <ErrorBanner v-else-if="error" :error="error" />
 
     <template v-else-if="site">
-      <nldd-title :size="1">
+      <nldd-title size="display-1">
         <h1>
           {{ site.hasLiveVersion ? t('page.done.heading.online') : t('page.done.heading.offline') }}
         </h1>

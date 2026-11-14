@@ -395,7 +395,7 @@ async function change(): Promise<void> {
     <Notices ref="notices" />
 
     <nldd-container layout="stack" gap="8">
-      <nldd-title :size="4">
+      <nldd-title size="display-4">
         <h2 :id="`heading-${testPrefix}`">{{ t(`address.${kind}.heading`) }}</h2>
       </nldd-title>
 
@@ -422,7 +422,7 @@ async function change(): Promise<void> {
         </nldd-container>
 
         <nldd-container v-if="previousSlugs.length > 0" layout="stack" gap="8">
-          <nldd-title :size="5">
+          <nldd-title size="display-5">
             <h3 :id="`heading-${testPrefix}-previous`">{{ t('address.previous.heading') }}</h3>
           </nldd-title>
           <nldd-list
@@ -467,7 +467,7 @@ async function change(): Promise<void> {
               <!-- nldd-page brings the scroller the sheet expects; see PublishSheet. -->
               <nldd-page>
                 <nldd-container padding="24" gap="16">
-                  <nldd-title :size="4">
+                  <nldd-title size="display-4">
                     <h2>{{ t(`address.sheet.title.${kind}`) }}</h2>
                     <!-- Close belongs at the top right, not up against the primary
                          button (NLDD guideline: give the way out physical distance). -->

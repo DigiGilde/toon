@@ -179,7 +179,7 @@ const {
     <nldd-container v-if="ready" layout="stack" gap="24">
       <section aria-labelledby="heading-site-title">
         <nldd-container layout="stack" gap="8">
-          <nldd-title :size="4">
+          <nldd-title size="display-4">
             <h2 id="heading-site-title">{{ t('site.settings.title.heading') }}</h2>
           </nldd-title>
 
@@ -249,7 +249,7 @@ const {
       <section v-if="canAdmin" aria-labelledby="heading-danger-zone">
         <nldd-box background="critical">
           <nldd-container layout="stack" gap="8" padding="16">
-            <nldd-title :size="4"><h2 id="heading-danger-zone">{{ t('site.settings.danger.heading') }}</h2></nldd-title>
+            <nldd-title size="display-4"><h2 id="heading-danger-zone">{{ t('site.settings.danger.heading') }}</h2></nldd-title>
             <nldd-container layout="stack" gap="16">
               <nldd-rich-text>
                 <p>{{ t('site.settings.danger.body') }}</p>
