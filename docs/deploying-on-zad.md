@@ -177,7 +177,6 @@ anybody an administrator.
 | `TOON_OPERATOR_NAME` | env-vars | optional, empty by default: the organisation that runs this installation, as people should read it (`Digi Gilde`). The public privacy and accessibility pages and `GET /-/api/v1/operator` show it |
 | `TOON_OPERATOR_EMAIL` | env-vars | optional, empty by default: where people reach that organisation about privacy, accessibility and questions (`digigilde@rijksoverheid.nl`). It is also the mail `Contact` in `security.txt`, after the GitHub advisory form, so security reports about this installation reach the operator. A plain address without a display name, or the app does not start |
 | `TOON_SECURITY_TXT_NCSC` | env-vars | optional, default `false`. `true` lists the CVD routes of NCSC-NL in `security.txt`, the central reporting point for the Dutch central government. The Digi Gilde's installation sets `true`. Leave it off for an installation outside the central government |
-| `TOON_STORE_COMPRESSED` | env-vars | optional, default `true`; a deploy keeps its text files compressed only (design.md §5.4a). `false` keeps new deploys as published and puts back, at every start, what earlier ones compressed: the step before rolling back to an image from before compression (§7) |
 | `TOON_INGEST_MAX_BODY` | env-vars | optional, bytes, default `104857600` (100 MiB); the largest upload |
 | `TOON_INGEST_MAX_FILE` | env-vars | optional, bytes, default `52428800` (50 MiB); the largest single unpacked file |
 | `TOON_INGEST_MAX_TOTAL` | env-vars | optional, bytes, default `209715200` (200 MiB); the largest unpacked site per deploy |
@@ -466,18 +465,6 @@ before `0004` and leaves the column in place, which the older code ignores.
 The rename to Toon adds no migration, so going back over it needs no stamp. A
 CLI session signed in on one side of it does not work on the other, because a
 stored hash covers the token prefix.
-
-An image from before compression (design.md §5.4a) cannot serve a file that a
-newer one keeps compressed only: it looks at the file's own path, finds
-nothing and answers 404. Before rolling back past it, set
-`TOON_STORE_COMPRESSED=false` and let the pod start once with the current
-image. Its entrypoint puts every such file back at its own path, and new
-deploys stay as published from then on. Wait for the log line `Put N files
-back at their own path; no version keeps a file compressed only.` before
-switching the image. An ERROR instead says why not: not enough room above
-`TOON_STORAGE_MIN_FREE_BYTES` (the files take their full size again), or the
-files whose copy is damaged. Rolling back before that line breaks every site
-deployed since compression.
 
 An image from before the `TOON_` names, so older than `v2026.11.2`, reads only
 the `PLAK_` variables, and without them its entrypoint stops with `database
