@@ -208,7 +208,6 @@ const {
         appearance="primary"
         :text="t('group.action.publishSite')"
         start-icon="plus"
-        class="empty-state-action"
         data-testid="overview-empty-publish"
         @click="publish()"
       ></nldd-button>
@@ -256,7 +255,6 @@ const {
               appearance="primary"
               :text="t('group.action.publishSite')"
               start-icon="plus"
-              class="empty-state-action"
               data-testid="overview-group-empty-publish"
               @click="publishIn(overviewGroup.group.slug)"
             ></nldd-button>

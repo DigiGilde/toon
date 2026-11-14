@@ -411,7 +411,7 @@ async function onRemove(row: Row): Promise<void> {
                one icon button says nothing, and a columnheader without a name
                is an axe violation. -->
           <nldd-text-cell horizontal-alignment="right">
-            <span class="visually-hidden">{{ t('admin.column.actions') }}</span>
+            <nldd-visually-hidden>{{ t('admin.column.actions') }}</nldd-visually-hidden>
           </nldd-text-cell>
         </nldd-table-row>
         <nldd-inline-dialog

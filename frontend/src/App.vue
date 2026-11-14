@@ -327,7 +327,7 @@ function logout(): void {
   </nldd-shell>
   <!-- Always in the page, so a screen reader is already listening when the
        text changes after a navigation. -->
-  <div class="visually-hidden" role="status" data-testid="route-announcer">{{ announcement }}</div>
+  <nldd-visually-hidden role="status" data-testid="route-announcer">{{ announcement }}</nldd-visually-hidden>
   <form ref="logoutForm" method="post" action="/-/logout" hidden></form>
 </template>
 

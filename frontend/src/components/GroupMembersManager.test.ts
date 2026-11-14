@@ -198,7 +198,7 @@ describe('GroupMembersManager (filled)', () => {
     expect(headings.map((cell) => cell.attributes('text'))).toEqual(['**Lid**', '**Rol**', undefined]);
     // The action column carries a header too: an empty columnheader lands in
     // the accessibility tree without a name.
-    expect(headings[2]!.find('.visually-hidden').text()).toBe('Acties');
+    expect(headings[2]!.find('nldd-visually-hidden').text()).toBe('Acties');
 
     const rows = pageRows(wrapper);
     expect(rows).toHaveLength(1);

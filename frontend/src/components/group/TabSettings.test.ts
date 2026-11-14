@@ -522,7 +522,7 @@ describe('group TabSettings: name', () => {
     // Said to a screen reader only: the check mark is what a sighted member sees.
     const notice = statusLine(wrapper);
     expect(notice.text()).toBe('Naam opgeslagen.');
-    expect(notice.classes()).toContain('visually-hidden');
+    expect(notice.element.localName).toBe('nldd-visually-hidden');
 
     typeName(wrapper, 'Team Zonsopgang 2');
     await flushPromises();
@@ -747,7 +747,7 @@ describe('group TabSettings: name', () => {
       const alert = wrapper.find('[role="alert"]');
       expect(alert.text()).toBe(text);
       // The same words are on screen at the field already.
-      expect(alert.classes()).toContain('visually-hidden');
+      expect(alert.element.localName).toBe('nldd-visually-hidden');
     });
   });
 

@@ -1368,7 +1368,7 @@ describe('AddressSection (site): when it does not work', () => {
 
       const alert = wrapper.find('[role="alert"]');
       expect(alert.text()).toBe(text);
-      expect(alert.classes()).toContain('visually-hidden');
+      expect(alert.element.localName).toBe('nldd-visually-hidden');
       expect(alert.attributes('data-testid')).toBe('site-address-alert');
     });
 
