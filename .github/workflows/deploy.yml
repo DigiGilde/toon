@@ -3,8 +3,9 @@
 # deploys nowhere; production follows a release tag (vYYYY.M.D[.N]) alone.
 #
 # Needed in advance, outside this file:
-#   - repository secret ZAD_API_KEY (the project's API key, returned once
-#     when the project is created and stored in .env.zadctl);
+#   - secret ZAD_API_KEY of the environment `productie`, which admits tags
+#     v* only (the project's API key, returned once when the project is
+#     created and stored in .env.zadctl);
 #   - repository variable ZAD_PROJECT_ID (ZAD's project key, with the
 #     suffix the platform assigns);
 #   - a ZAD project following deploy/toon-project.example.yaml, with the
