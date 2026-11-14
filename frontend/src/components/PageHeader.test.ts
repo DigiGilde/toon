@@ -13,13 +13,13 @@ describe('PageHeader', () => {
     const container = wrapper.find('nldd-container.page-header');
     expect(container.attributes('layout')).toBe('wrap');
     expect(container.find('nldd-title h1').text()).toBe('Overzicht');
-    expect(container.find('nldd-title').attributes('size')).toBe('1');
+    expect(container.find('nldd-title').attributes('size')).toBe('display-1');
     expect(container.find('[data-testid="action"]').exists()).toBe(true);
   });
 
   it('takes another size for the title', () => {
     const wrapper = mount(PageHeader, { props: { text: 'Groep', size: 3 } });
 
-    expect(wrapper.find('nldd-title').attributes('size')).toBe('3');
+    expect(wrapper.find('nldd-title').attributes('size')).toBe('display-3');
   });
 });

@@ -7,7 +7,7 @@ describe('SectionHeading', () => {
   it('is an h2 at size 4 by default, carrying the id', () => {
     const wrapper = mount(SectionHeading, { props: { text: 'Toegang', id: 'heading-access' } });
 
-    expect(wrapper.find('nldd-title').attributes('size')).toBe('4');
+    expect(wrapper.find('nldd-title').attributes('size')).toBe('display-4');
     const heading = wrapper.find('h2');
     expect(heading.text()).toBe('Toegang');
     expect(heading.attributes('id')).toBe('heading-access');
@@ -29,7 +29,7 @@ describe('SectionHeading', () => {
     });
 
     expect(wrapper.find('h1').exists()).toBe(true);
-    expect(wrapper.find('nldd-title').attributes('size')).toBe('1');
+    expect(wrapper.find('nldd-title').attributes('size')).toBe('display-1');
     expect(wrapper.find('span[slot="supporting-text"] code').text()).toBe('toon login');
   });
 });

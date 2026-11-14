@@ -325,7 +325,7 @@ async function setLive(version: Version): Promise<void> {
                 </nldd-cell>
                 <nldd-spacer-cell size="12"></nldd-spacer-cell>
                 <nldd-title-cell
-                  :size="6"
+                  size="display-6"
                   :text="defaultRetentionLabel(storage)"
                   :supporting-text="t('site.versions.keep.default.hint')"
                 ></nldd-title-cell>
@@ -343,7 +343,7 @@ async function setLive(version: Version): Promise<void> {
                 </nldd-cell>
                 <nldd-spacer-cell size="12"></nldd-spacer-cell>
                 <nldd-title-cell
-                  :size="6"
+                  size="display-6"
                   :text="t('site.versions.keep.own')"
                   :supporting-text="t('site.versions.keep.own.hint')"
                 ></nldd-title-cell>

@@ -371,7 +371,7 @@ function keyActions(key: Key): RowAction[] {
               </nldd-cell>
               <nldd-spacer-cell size="12"></nldd-spacer-cell>
               <nldd-title-cell
-                :size="6"
+                size="display-6"
                 :text="accessBaseLabel(w)"
                 :supporting-text="accessBaseHint(w)"
               ></nldd-title-cell>
