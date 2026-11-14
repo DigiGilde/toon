@@ -746,11 +746,13 @@ in Settings and not a change in this repository.
   Settings, Code security) are on, checked on 2026-09-30: an advisory gets
   its pull request at once, outside the weekly rhythm and without the
   cooldown in `.github/dependabot.yml`.
-- [ ] **Turn on the two extra secret-scanning options**
+- [x] **The two extra secret-scanning options stay off**, on purpose
   (`secret_scanning_non_provider_patterns` and
-  `secret_scanning_validity_checks`, Settings, Code security). The first
-  catches keys of providers GitHub has no partner pattern for, the second says
-  whether a leaked token is still live.
+  `secret_scanning_validity_checks`, Settings, Code security), checked on
+  2026-11-14. The first would catch keys of providers GitHub has no partner
+  pattern for, the second would say whether a leaked token is still live.
+  gitleaks with its default rules scans for secrets locally and in CI
+  (`secret-scan`, `.gitleaks.toml`).
 - [x] **Branch protection on `beta`**, which is the default branch, is on
   (checked on 2026-10-03) as the ruleset in `.github/rulesets/beta.json`,
   with the required checks `ci / backend-tests`, `ci / backend-coverage`,
