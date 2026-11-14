@@ -22,7 +22,7 @@ import httpx
 import pytest
 import pytest_asyncio
 from fastapi import FastAPI
-from fastapi.routing import APIRoute
+from fastapi.routing import APIRoute, RouteContext, iter_route_contexts
 from helpers_oidc import MockIdP, make_settings, make_test_client
 
 from toon import i18n, messages
@@ -82,9 +82,14 @@ def schema(app: FastAPI) -> dict[str, Any]:
     return app.openapi()
 
 
-def _routes(app: FastAPI) -> list[APIRoute]:
+def _routes(app: FastAPI) -> list[RouteContext]:
+    """The effective routes in the schema. Since FastAPI 0.162 `app.routes` holds
+    the included routers as one entry each, so it has to be walked the way
+    `openapi()` does, with the prefix and defaults of the include applied."""
     return [
-        route for route in app.routes if isinstance(route, APIRoute) and route.include_in_schema
+        route
+        for route in iter_route_contexts(app.routes)
+        if isinstance(route.original_route, APIRoute) and route.include_in_schema
     ]
 
 
@@ -112,6 +117,12 @@ def _operations(schema: dict[str, Any]) -> list[tuple[str, str, dict[str, Any]]]
 class TestEveryEndpointIsDescribed:
     def test_there_are_endpoints(self, schema) -> None:
         assert len(_operations(schema)) >= 20
+
+    def test_the_route_walk_sees_every_operation_in_the_schema(self, app, schema) -> None:
+        """Without this, a walk that finds nothing makes every route test pass vacuously."""
+        walked = {(method_.lower(), route.path) for route in _routes(app) for method_ in route.methods}
+        documented = {(method_, path) for method_, path, _ in _operations(schema)}
+        assert walked == documented
 
     def test_every_route_declares_itself_a_summary(self, app) -> None:
         """On the route, not on the schema: otherwise FastAPI invents a
