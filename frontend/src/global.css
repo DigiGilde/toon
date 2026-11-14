@@ -26,11 +26,6 @@ body {
   --toon-work-width: 60rem;
   --semantics-page-sections-body-max-width: var(--toon-work-width);
   --toon-reading-width: 45rem;
-
-  /* Left over: GroepsledenBeheer.vue and TokensBeheer.vue still cap their
-     table separately. That is now the same size as the work width, so those
-     two rules (and this variable) can go. */
-  --toon-table-max-width: var(--toon-work-width);
 }
 
 /* Page header: title on the left, primary action on the right, and the action

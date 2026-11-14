@@ -369,7 +369,6 @@ async function onRemove(row: Row): Promise<void> {
         </nldd-text>
 
         <nldd-table
-          class="member-table"
           :accessible-label="t('admin.siteMembers.inherited.table')"
           data-testid="members-via-group-list"
           :columns="COLUMNS_INHERITED"
@@ -395,7 +394,6 @@ async function onRemove(row: Row): Promise<void> {
 
     <nldd-container layout="stack" gap="16">
       <nldd-table
-        class="member-table"
         :accessible-label="t('admin.siteMembers.table')"
         data-testid="members-list"
         :columns="COLUMNS"
@@ -496,10 +494,3 @@ async function onRemove(row: Row): Promise<void> {
     ></nldd-button>
   </nldd-notification>
 </template>
-
-<style scoped>
-/* Same cap as the group's member table, see global.css. */
-.member-table {
-  max-width: var(--toon-table-max-width);
-}
-</style>

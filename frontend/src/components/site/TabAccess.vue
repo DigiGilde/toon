@@ -448,7 +448,6 @@ function keyActions(key: Key): RowAction[] {
           </nldd-banner>
 
           <nldd-table
-            class="access-table"
             :accessible-label="t('access.keys')"
             data-testid="keys-list"
             :columns="KEY_COLUMNS"
@@ -588,7 +587,6 @@ function keyActions(key: Key): RowAction[] {
           <SectionHeading id="heading-invitees" :text="t('access.invitees')" :intro="t('publish.access.invitees.intro')" />
 
           <nldd-table
-            class="access-table"
             :accessible-label="t('access.invitees')"
             data-testid="invitees-list"
             :columns="INVITEE_COLUMNS"
@@ -702,10 +700,3 @@ function keyActions(key: Key): RowAction[] {
     </nldd-container>
   </nldd-activity-indicator>
 </template>
-
-<style scoped>
-/* Same cap as the member tables, see global.css. */
-.access-table {
-  max-width: var(--toon-table-max-width);
-}
-</style>
