@@ -291,13 +291,6 @@ change oasdiff lists goes into one sticky comment, with the version the
 next release gives the API; the comment goes away when there is none.
 Until a release has written the file, the check passes with a notice.
 
-One change oasdiff calls breaking is accepted: the rename of the admin
-session cookie to `__Host-toon-session` (`SESSION_COOKIE_RENAME` in
-`scripts/toon_release/api.py`). It breaks no client, because a browser gets
-the cookie from the server and sends it back by itself, and an API client
-uses a bearer token. It is an exact match on that one change, and from the
-first release under the new name the contract has that name already.
-
 On a release pull request, and on the release commit in the merge
 queue, it also wants `backend/openapi.json` and `API_VERSION` to be what
 `prepare` would write now. When an API change merged after the release
