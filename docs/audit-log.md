@@ -687,6 +687,31 @@ proves nothing at all if nobody kept an older line. Its whole value sits in the
 log retention and in the fact that the log leaves the machine. Shipping every
 row to a sink the runtime account cannot reach remains the heavier answer.
 
+## Keeping the chain heads
+
+The lines from production are kept in a pinned public issue,
+[#286](https://github.com/DigiGilde/toon/issues/286), one comment per copy
+(TDR-0011). The container log does not keep them: `zadctl logs` returns at most
+1000 lines, and a rollout empties it.
+
+1. At least weekly, and right before a release is merged, fetch the lines:
+
+   ```sh
+   zadctl logs productie -c beheer -n 1000 | grep audit-chain-checkpoint
+   ```
+
+2. Post every line that is not in the issue yet, unchanged, in a code block.
+   Never edit or delete a comment there.
+3. To check, save a line from the issue to a file and run
+   `just verify-audit-head <file>` with `TOON_DB_URL` on the production
+   database. Check more than the newest line: a rewrite shows up against every
+   line taken before it, and against none taken after.
+4. A failing check is a security incident (BIO2 8.15.05). Hold the purge first
+   ("During an incident"), so nothing the investigation needs ages out.
+
+BIO2 8.15.06 asks for this check to be done by someone independent of the
+people who run Toon. Nobody is, so it is not met (see "Known gaps").
+
 ## When the IP address is a claim
 
 `TOON_BEHIND_PROXY` says whether a proxy stands in front of the pod. With one,
@@ -970,6 +995,8 @@ What is not there yet, and why:
   no second layer that stops that (see "One database account"); a published
   chain head makes it visible afterwards, it does not prevent it.
 - No alerting. Reading is possible, signalling not yet.
+- No independent check of the log (BIO2 8.15.06). The people who keep the chain
+  heads and check them also run Toon ("Keeping the chain heads", TDR-0011).
 - The 429 from the rate limiter and the 401 on a Bearer header outside the
   endpoints that accept one do not reach the log; they bypass `ApiError`.
   The 429 from `LOOKUP_LIMIT_REACHED` and from `TOO_MANY_CREATIONS` does go
