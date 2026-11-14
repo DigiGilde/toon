@@ -416,8 +416,9 @@ the action refuses them before it publishes):
   deployment" button. Each pull request keeps its own deployment; teardown
   marks it inactive. Needs `deployments: write`.
 - `comment-on-pr: "true"` puts the link in a comment on the pull request, updated
-  on every push and marked removed on teardown. The comment says who can see
-  the deploy and whether opening it needs a sign-in. Needs
+  on every push and marked removed on teardown. The comment opens with a
+  heading that names the preview and the site, and says who can see the
+  deploy and whether opening it needs a sign-in. Needs
   `pull-requests: write`.
 
 ```yaml
@@ -445,7 +446,7 @@ workflow's own `GITHUB_TOKEN`; pass another one through `github-token` if
 needed. A pull request from a fork gets a read-only token, so there these
 two cannot write, just as the deploy itself gets no ID token. The action only
 updates a comment written by a bot or by the account behind the token, so a
-comment from anyone else that starts with the same marker stays as it is.
+comment from anyone else that starts with the same heading stays as it is.
 
 ### Forgejo Actions
 
@@ -1236,9 +1237,8 @@ the repository in `uses:` and the `host`:
 Pin the new line to the commit of `<tag>` (§3). The action and the CLI still
 translate the old DigiGilde hosts to the new ones and warn on stderr, so a
 workflow that only changed its `uses:` line keeps publishing for now. Change
-`host` anyway. A pull request comment or a GitHub deployment that the old
-action made is still found and updated, so an open pull request gets no
-second comment and no old deployment stays active.
+`host` anyway. A GitHub deployment that the old action made is still found
+and switched off, so no old deployment stays active.
 
 `PLAK_BASE_PATH` in your own build needs no change. Toon never reads it, and
 the examples in §2 and §3 call it `TOON_BASE_PATH`. A build that writes

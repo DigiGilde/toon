@@ -12,8 +12,8 @@ from toon_cli import github
 SITE = "team-aurora/website"
 PREVIEW_URL = "https://toon.example/team-aurora/website/_preview/pr-42/"
 VERSION = "11111111-2222-3333-4444-555555555555"
-MARKER = "<!-- toon-preview team-aurora/website pr-42 -->"
-OLD_MARKER = "<!-- plak-preview team-aurora/website pr-42 -->"
+HEADING = "### Toon preview `pr-42` of team-aurora/website"
+OLD_MARKER = "<!-- toon-preview team-aurora/website pr-42 -->"
 TASK = "deploy:toon/team-aurora/website/pr-42"
 OLD_TASK = "deploy:plak/team-aurora/website/pr-42"
 BOT = {"login": "github-actions[bot]", "type": "Bot"}
@@ -252,20 +252,17 @@ def test_the_first_deploy_of_a_pull_request_places_a_comment(fake, runner_env):
     assert _publish_preview(fake, "--comment") == 0
 
     [comment] = fake.sent("POST", "/issues/42/comments")
-    # The url already names the site and the ref; the comment does not repeat them.
-    assert comment["body"] == (
-        f"{MARKER}\n**Preview:** {PREVIEW_URL}\n\nCommit abcdef0, Toon version `{VERSION}`."
-    )
+    assert comment["body"] == f"{HEADING}\n\n{PREVIEW_URL}\n\nCommit abcdef0, Toon version `{VERSION}`."
     assert ("POST", "/deployments") not in fake.calls()
 
 
 def test_a_later_deploy_updates_the_comment_instead_of_adding_one(fake, runner_env):
-    """Only a comment that starts with the marker is ours: one that quotes
-    it is somebody else's, and editing that would fail on permissions."""
+    """Only a comment whose first line is the heading is ours: one that
+    quotes it is somebody else's, and editing that would fail on permissions."""
     fake.on(
         "GET",
         "/issues/42/comments",
-        [_by_bot(5, f"> {MARKER}\n> quoted"), _by_bot(6, f"{MARKER}\nold")],
+        [_by_bot(5, f"> {HEADING}\n> quoted"), _by_bot(6, f"{HEADING}\nold")],
     )
     fake.on("PATCH", "/issues/comments/6", {})
 
@@ -293,7 +290,7 @@ def test_a_comment_outside_a_pull_request_is_skipped_with_a_notice(
     assert fake.requests == []
 
 
-def test_a_live_deploy_on_a_pull_request_comments_under_its_own_marker(fake, runner_env):
+def test_a_live_deploy_on_a_pull_request_comments_under_its_own_heading(fake, runner_env):
     fake.on("GET", "/issues/42/comments", [])
     fake.on("POST", "/issues/42/comments", {"id": 3})
 
@@ -306,7 +303,7 @@ def test_a_live_deploy_on_a_pull_request_comments_under_its_own_marker(fake, run
     assert code == 0
     [comment] = fake.sent("POST", "/issues/42/comments")
     assert comment["body"].startswith(
-        "<!-- toon-preview team-aurora/website live -->\n**Live:** https://toon.example/team-aurora/website/\n"
+        "### Toon live version of team-aurora/website\n\nhttps://toon.example/team-aurora/website/\n"
     )
 
 
@@ -373,7 +370,7 @@ def test_teardown_switches_off_the_deployments_and_marks_the_comment(fake, runne
     fake.on("GET", "/deployments", _deployments({TASK: [{"id": 8}]}))
     fake.on("GET", "/deployments/8/statuses", [{"state": "success"}])
     fake.on("POST", "/deployments/8/statuses", {})
-    fake.on("GET", "/issues/42/comments", [_by_bot(6, f"{MARKER}\nold")])
+    fake.on("GET", "/issues/42/comments", [_by_bot(6, f"{HEADING}\nold")])
     fake.on("PATCH", "/issues/comments/6", {})
 
     code = _run(
@@ -383,7 +380,7 @@ def test_teardown_switches_off_the_deployments_and_marks_the_comment(fake, runne
     assert code == 0
     assert fake.sent("POST", "/deployments/8/statuses") == [{"state": "inactive"}]
     [update] = fake.sent("PATCH", "/issues/comments/6")
-    assert update["body"] == f"{MARKER}\n**Preview:** removed."
+    assert update["body"] == f"{HEADING}\n\nRemoved."
 
 
 def test_teardown_places_no_comment_where_there_was_none(fake, runner_env):
@@ -454,21 +451,24 @@ def test_an_old_deployment_of_something_else_stays_active(fake, runner_env, othe
     assert fake.calls("POST") == []
 
 
-def test_a_comment_under_the_old_marker_is_updated_and_takes_the_new_one(fake, runner_env):
-    """A pull request open across the rename keeps its one comment, and from
-    then on it carries the new marker."""
+# --- the comment from before the heading -------------------------------------
+
+
+def test_a_comment_under_the_old_marker_is_updated_and_takes_the_heading(fake, runner_env):
+    """A pull request open across the change keeps its one comment, and from
+    then on it carries the heading."""
     fake.on("GET", "/issues/42/comments", [_by_bot(6, f"{OLD_MARKER}\n**Preview:** old")])
     fake.on("PATCH", "/issues/comments/6", {})
 
     assert _publish_preview(fake, "--comment") == 0
 
     [update] = fake.sent("PATCH", "/issues/comments/6")
-    assert update["body"] == f"{MARKER}\n**Preview:** {PREVIEW_URL}\n\nCommit abcdef0, Toon version `{VERSION}`."
+    assert update["body"] == f"{HEADING}\n\n{PREVIEW_URL}\n\nCommit abcdef0, Toon version `{VERSION}`."
     assert fake.calls("POST") == []
 
 
 def test_a_live_comment_under_the_old_marker_is_updated_too(fake, runner_env):
-    fake.on("GET", "/issues/42/comments", [_by_bot(6, "<!-- plak-preview team-aurora/website live -->\nold")])
+    fake.on("GET", "/issues/42/comments", [_by_bot(6, "<!-- toon-preview team-aurora/website live -->\nold")])
     fake.on("PATCH", "/issues/comments/6", {})
 
     code = _run(
@@ -479,7 +479,7 @@ def test_a_live_comment_under_the_old_marker_is_updated_too(fake, runner_env):
 
     assert code == 0
     [update] = fake.sent("PATCH", "/issues/comments/6")
-    assert update["body"].startswith("<!-- toon-preview team-aurora/website live -->\n**Live:** ")
+    assert update["body"].startswith("### Toon live version of team-aurora/website\n\nhttps://")
     assert fake.calls("POST") == []
 
 
@@ -489,26 +489,39 @@ def test_teardown_marks_a_comment_under_the_old_marker_removed(fake, runner_env)
 
     assert _run(fake, "teardown", "--site", SITE, "--preview-ref", "pr-42", "--comment") == 0
 
-    assert fake.sent("PATCH", "/issues/comments/6") == [{"body": f"{MARKER}\n**Preview:** removed."}]
+    assert fake.sent("PATCH", "/issues/comments/6") == [{"body": f"{HEADING}\n\nRemoved."}]
 
 
 _NOT_OUR_OLD_COMMENTS = [
     f"> {OLD_MARKER}\n> quoted",
     f"See {OLD_MARKER}",
     f" {OLD_MARKER}\nold",
-    "<!-- plak-preview team-aurora/website pr-4 -->\nold",
-    "<!-- plak-preview team-aurora/website pr-421 -->\nold",
-    "<!-- plak-preview team-aurora/website-2 pr-42 -->\nold",
-    "<!-- plak-preview team-aurora/website live -->\nold",
-    "<!-- PLAK-PREVIEW team-aurora/website pr-42 -->\nold",
-    "<!-- plak-preview team-aurora/website pr-42\nold",
+    "<!-- toon-preview team-aurora/website pr-4 -->\nold",
+    "<!-- toon-preview team-aurora/website pr-421 -->\nold",
+    "<!-- toon-preview team-aurora/website-2 pr-42 -->\nold",
+    "<!-- toon-preview team-aurora/website live -->\nold",
+    "<!-- TOON-PREVIEW team-aurora/website pr-42 -->\nold",
+    "<!-- toon-preview team-aurora/website pr-42\nold",
+    "<!-- plak-preview team-aurora/website pr-42 -->\nold",
     "",
     None,
 ]
 
+_NOT_OUR_HEADINGS = [
+    f"> {HEADING}\n> quoted",
+    f"See {HEADING}",
+    f" {HEADING}\nold",
+    f"{HEADING} again\nold",
+    "## Toon preview `pr-42` of team-aurora/website\nold",
+    "### Toon preview `pr-4` of team-aurora/website\nold",
+    "### Toon preview `pr-421` of team-aurora/website\nold",
+    "### Toon preview `pr-42` of team-aurora/website-2\nold",
+    "### Toon live version of team-aurora/website\nold",
+]
 
-@pytest.mark.parametrize("body", _NOT_OUR_OLD_COMMENTS)
-def test_a_comment_that_only_resembles_the_old_marker_is_left_alone(fake, runner_env, body):
+
+@pytest.mark.parametrize("body", _NOT_OUR_OLD_COMMENTS + _NOT_OUR_HEADINGS)
+def test_a_comment_that_only_resembles_ours_is_left_alone(fake, runner_env, body):
     """Somebody else's comment, or that of another preview or site: editing
     it would fail on permissions or overwrite the wrong link."""
     fake.on("GET", "/issues/42/comments", [_by_bot(6, body)])
@@ -518,11 +531,11 @@ def test_a_comment_that_only_resembles_the_old_marker_is_left_alone(fake, runner
 
     assert fake.calls("PATCH") == []
     [comment] = fake.sent("POST", "/issues/42/comments")
-    assert comment["body"].startswith(f"{MARKER}\n")
+    assert comment["body"].startswith(f"{HEADING}\n")
 
 
-@pytest.mark.parametrize("body", _NOT_OUR_OLD_COMMENTS)
-def test_teardown_leaves_a_comment_that_only_resembles_the_old_marker_alone(fake, runner_env, body):
+@pytest.mark.parametrize("body", _NOT_OUR_OLD_COMMENTS + _NOT_OUR_HEADINGS)
+def test_teardown_leaves_a_comment_that_only_resembles_ours_alone(fake, runner_env, body):
     fake.on("GET", "/issues/42/comments", [_by_bot(6, body)])
 
     assert _run(fake, "teardown", "--site", SITE, "--preview-ref", "pr-42", "--comment") == 0
@@ -534,7 +547,7 @@ def test_with_comments_under_both_markers_the_first_is_updated_and_none_is_added
     fake.on(
         "GET",
         "/issues/42/comments",
-        [_by_bot(6, f"{OLD_MARKER}\nold"), _by_bot(7, f"{MARKER}\nnewer")],
+        [_by_bot(6, f"{OLD_MARKER}\nold"), _by_bot(7, f"{HEADING}\nnewer")],
     )
     fake.on("PATCH", "/issues/comments/6", {})
 
@@ -547,23 +560,23 @@ def test_with_comments_under_both_markers_the_first_is_updated_and_none_is_added
 
 
 @pytest.mark.parametrize("who_is_the_token", [_token_without_an_owner, _github_unreachable])
-def test_a_comment_by_someone_else_with_the_marker_is_left_alone(fake, runner_env, who_is_the_token):
-    """Anyone who can comment can start one with the marker. Updating it would
+def test_a_comment_by_someone_else_with_the_heading_is_left_alone(fake, runner_env, who_is_the_token):
+    """Anyone who can comment can start one with the heading. Updating it would
     put the link under their name, and no comment of ours would appear."""
     fake.on_user(who_is_the_token)
-    fake.on("GET", "/issues/42/comments", [{"id": 6, "body": f"{MARKER}\nold", "user": SOMEONE}])
+    fake.on("GET", "/issues/42/comments", [{"id": 6, "body": f"{HEADING}\nold", "user": SOMEONE}])
     fake.on("POST", "/issues/42/comments", {"id": 7})
 
     assert _publish_preview(fake, "--comment") == 0
 
     assert fake.calls("PATCH") == []
     [comment] = fake.sent("POST", "/issues/42/comments")
-    assert comment["body"].startswith(f"{MARKER}\n**Preview:** {PREVIEW_URL}")
+    assert comment["body"].startswith(f"{HEADING}\n\n{PREVIEW_URL}")
 
 
 def test_teardown_leaves_a_comment_by_someone_else_alone(fake, runner_env):
     fake.on_user(_token_without_an_owner)
-    fake.on("GET", "/issues/42/comments", [{"id": 6, "body": f"{MARKER}\nold", "user": SOMEONE}])
+    fake.on("GET", "/issues/42/comments", [{"id": 6, "body": f"{HEADING}\nold", "user": SOMEONE}])
 
     assert _run(fake, "teardown", "--site", SITE, "--preview-ref", "pr-42", "--comment") == 0
 
@@ -574,7 +587,7 @@ def test_a_comment_by_a_deleted_account_is_left_alone(fake, runner_env):
     """GitHub answers user: null for it, and a token without an owner must not
     count as that same nobody."""
     fake.on_user(_token_without_an_owner)
-    fake.on("GET", "/issues/42/comments", [{"id": 6, "body": f"{MARKER}\nold", "user": None}])
+    fake.on("GET", "/issues/42/comments", [{"id": 6, "body": f"{HEADING}\nold", "user": None}])
     fake.on("POST", "/issues/42/comments", {"id": 7})
 
     assert _publish_preview(fake, "--comment") == 0
@@ -589,9 +602,9 @@ def test_a_personal_token_updates_its_own_comment_and_asks_who_it_is_once(fake, 
         "GET",
         "/issues/42/comments",
         [
-            {"id": 5, "body": f"{MARKER}\nfirst", "user": SOMEONE},
-            {"id": 6, "body": f"{MARKER}\nsecond", "user": SOMEONE},
-            {"id": 7, "body": f"{MARKER}\nold", "user": TOKEN_OWNER},
+            {"id": 5, "body": f"{HEADING}\nfirst", "user": SOMEONE},
+            {"id": 6, "body": f"{HEADING}\nsecond", "user": SOMEONE},
+            {"id": 7, "body": f"{HEADING}\nold", "user": TOKEN_OWNER},
         ],
     )
     fake.on("PATCH", "/issues/comments/7", {})
