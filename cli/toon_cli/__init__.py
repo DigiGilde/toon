@@ -1164,6 +1164,9 @@ GITHUB_HOSTNAME = "github.com"
 HOSTNAME_RE = re.compile(r"^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]{1,5})?$")
 MAX_PROVIDER_ID = 2**63 - 1
 SUBPROCESS_TIMEOUT_S = 30
+# A refusal of a repository says where it came from instead of quoting it:
+# the URL of the git remote 'origin' can carry a token.
+REPOSITORY_SOURCE = "(the argument or the git remote 'origin')"
 
 
 def _repository_name(value: str) -> str | None:
@@ -1182,17 +1185,14 @@ def _parse_repository(reference: str) -> tuple[str, str, str]:
         try:
             parsed = urllib.parse.urlsplit(value)
         except ValueError:
-            # Not urllib's message, which can quote the URL, and neither does
-            # this one: a remote URL can carry a token.
-            raise UsageError(
-                "The repository URL is not valid (the argument or the git remote 'origin')"
-            ) from None
+            # Not urllib's message, which can quote the URL.
+            raise UsageError(f"The repository URL is not valid {REPOSITORY_SOURCE}") from None
         try:
             port = parsed.port
         except ValueError:
             port = -1
         if parsed.scheme not in ("https", "ssh", "git") or not parsed.hostname or port == -1:
-            raise UsageError(f"Not a repository URL: {reference!r}")
+            raise UsageError(f"Not a repository URL {REPOSITORY_SOURCE}")
         hostname, path = parsed.hostname, parsed.path
         # An ssh port says nothing about where the web host listens.
         if parsed.scheme == "https" and port is not None:
@@ -1200,15 +1200,15 @@ def _parse_repository(reference: str) -> tuple[str, str, str]:
     else:
         path = value
     if not HOSTNAME_RE.match(hostname.lower()):
-        raise UsageError(f"Not a valid host in {reference!r}")
+        raise UsageError(f"Not a valid host in the repository URL {REPOSITORY_SOURCE}")
     parts = [part for part in path.split("/") if part]
     if "://" not in value and not scp and len(parts) != 2:
-        raise UsageError(f"The repository must be 'owner/repo' or a URL, got: {reference!r}")
+        raise UsageError(f"The repository must be 'owner/repo' or a URL {REPOSITORY_SOURCE}")
     if len(parts) < 2:
-        raise UsageError(f"The URL names no owner and repository: {reference!r}")
+        raise UsageError(f"The URL names no owner and repository {REPOSITORY_SOURCE}")
     owner, repo = _repository_name(parts[0]), _repository_name(parts[1].removesuffix(".git"))
     if owner is None or repo is None:
-        raise UsageError(f"Not a valid owner or repository name: {reference!r}")
+        raise UsageError(f"Not a valid owner or repository name {REPOSITORY_SOURCE}")
     return hostname.lower(), owner, repo
 
 

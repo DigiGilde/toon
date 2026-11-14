@@ -1,0 +1,1 @@
+- `toon site link` no longer repeats the repository in its error messages, so a token in the URL of the git remote `origin` stays out of the output.

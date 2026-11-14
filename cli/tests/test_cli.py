@@ -5181,6 +5181,47 @@ def test_site_link_does_not_print_an_origin_url_no_parser_takes(
 
 
 @pytest.mark.parametrize(
+    ("origin", "message"),
+    [
+        pytest.param("http://x-access-token:s3cret@github.com/o/r", "Not a repository URL", id="http"),
+        pytest.param("https://user:s3cret#@github.com/o/r", "Not a repository URL", id="password-as-port"),
+        pytest.param(
+            "https://x-access-token:s3cret@-forge.example/o/r",
+            "Not a valid host in the repository URL",
+            id="bad-host",
+        ),
+        pytest.param(
+            "x-access-token:s3cret@bad\x1bhost:o/r", "Not a valid host in the repository URL", id="scp-bad-host"
+        ),
+        pytest.param(
+            "s3cret@github.com/o/r", "The repository must be 'owner/repo' or a URL", id="no-scheme-three-parts"
+        ),
+        pytest.param(
+            "https://x-access-token:s3cret@github.com/o", "The URL names no owner and repository", id="no-repository"
+        ),
+        pytest.param(
+            "https://x-access-token:s3cret@github.com/o/..",
+            "Not a valid owner or repository name",
+            id="dot-dot-repository",
+        ),
+    ],
+)
+def test_site_link_does_not_print_an_origin_url_it_refuses(
+    stub_server, host, token_env, fake_run, capsys, origin, message
+):
+    """Every refusal names where the repository came from, never the URL."""
+    fake_run.outcomes["git"] = _completed(origin + "\n")
+
+    code = cli.main(["site", "link", "team/docs", "--host", host])
+
+    assert code == 2
+    captured = capsys.readouterr()
+    assert captured.err == f"Error: {message} (the argument or the git remote 'origin')\n"
+    assert "s3cret" not in captured.out + captured.err
+    assert stub_server.requests == []
+
+
+@pytest.mark.parametrize(
     "origin",
     [
         _completed("", returncode=128),
