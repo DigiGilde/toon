@@ -19,7 +19,7 @@ withDefaults(
 </script>
 
 <template>
-  <nldd-title :size="size">
+  <nldd-title :size="`display-${size}`">
     <component :is="`h${level}`" :id="id">{{ text }}</component>
     <span v-if="intro" slot="supporting-text">{{ intro }}</span>
     <span v-else-if="$slots.intro" slot="supporting-text"><slot name="intro" /></span>

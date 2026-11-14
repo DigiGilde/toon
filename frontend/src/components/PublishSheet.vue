@@ -581,7 +581,7 @@ useSheetOpen(
            form and the submit button cannot be reached. -->
       <nldd-page>
         <nldd-container padding="24" gap="16">
-          <nldd-title :size="4">
+          <nldd-title size="display-4">
             <h2>{{ t('publish.sheet.heading') }}</h2>
             <!-- Close belongs at the top right, not up against the primary
                  button (NLDD guideline: give the way out physical distance). -->
@@ -775,7 +775,7 @@ useSheetOpen(
                   </nldd-cell>
                   <nldd-spacer-cell size="12"></nldd-spacer-cell>
                   <nldd-title-cell
-                    :size="6"
+                    size="display-6"
                     :text="accessBaseLabel(w)"
                     :supporting-text="accessBaseHint(w)"
                   ></nldd-title-cell>

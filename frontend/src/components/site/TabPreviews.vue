@@ -178,7 +178,7 @@ async function remove(preview: Preview): Promise<void> {
           <nldd-icon-cell icon="git-pull-request" size="20"></nldd-icon-cell>
           <nldd-title-cell
             :text="preview.ref"
-            :size="5"
+            size="display-5"
             min-width="120px"
             :overline="t('site.previews.accessOverline', { access: accessText(preview) })"
           >

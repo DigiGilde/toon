@@ -199,7 +199,7 @@ function toggle(field: 'keys' | 'invitees', event: Event): void {
 
   <section aria-labelledby="heading-group-name">
     <nldd-container layout="stack" gap="8">
-      <nldd-title :size="4">
+      <nldd-title size="display-4">
         <h2 id="heading-group-name">{{ t('group.settings.name.heading') }}</h2>
       </nldd-title>
 
@@ -290,7 +290,7 @@ function toggle(field: 'keys' | 'invitees', event: Event): void {
           </nldd-cell>
           <nldd-spacer-cell size="12"></nldd-spacer-cell>
           <nldd-title-cell
-            :size="6"
+            size="display-6"
             :text="accessBaseLabel(w)"
             :supporting-text="accessBaseHint(w)"
           ></nldd-title-cell>
