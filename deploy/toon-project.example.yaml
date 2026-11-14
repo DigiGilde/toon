@@ -143,7 +143,7 @@ deployments:
   - name: productie
     cluster: odcn-production
     namespace: plak
-    # `domain-format`, `domain-mode`, `subdomain`, `base-domain`, `issuer` and
+    # `domain-format`, `subdomain`, `base-domain`, `issuer` and
     # `root-component` are direct properties of the deployment object itself
     # (project_v2.json's `deployment` def, additionalProperties: false), not
     # nested under a service config; opi/utils/naming.py's find_root_component
@@ -151,16 +151,10 @@ deployments:
     # the others the same way.
     #
     # `domain-format: component.subdomain` gives {component}.{subdomain}.
-    # {domain}, i.e. beheer.toon.rijks.app. `domain-mode: nice-url` still
-    # exists in the schema (project_v2.json, optional) and is not derived
-    # from `domain-format`: opi/manager/project_manager.py reads
-    # `deployment.get("domain-mode")` literally, and both the root ingress
-    # (the bare {subdomain}.{domain} host) and the platform's nice-url
-    # subdomain registration are gated on it being exactly "nice-url". Set
-    # it explicitly, alongside `domain-format` and `root-component`, or the
-    # second hostname is never created even with an approved domain.
+    # {domain}, i.e. beheer.toon.rijks.app. There is no `domain-mode` any
+    # more: the platform's v2.8 migration turned `nice-url` into this
+    # `domain-format` and dropped the key.
     domain-format: component.subdomain
-    domain-mode: nice-url
     subdomain: toon
     base-domain: rijks.app
     issuer: letsencrypt
