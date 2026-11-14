@@ -344,6 +344,8 @@ release tags (`docs/releasing.md`).
   ZAD.
 - `docs/releasing.md`: how releases are cut from `CHANGELOG.md`, the
   CalVer tags and how to write an entry.
+- `docs/tdr/`: the decision records, why Toon chose what it did and
+  when to look again.
 
 ## The technology in short
 

@@ -120,6 +120,19 @@ merging it tags the release. The tooling lives in `scripts/`, a uv
 project of its own with its tests. See `docs/releasing.md` and the
 `changelog` skill.
 
+## Decision records
+
+Decisions that are expensive to reverse and cheap to forget live in
+`docs/tdr/`, as Toon Decision Records. Read the index in
+`docs/tdr/README.md` before proposing a change in an area it covers: a
+recorded decision stands until a new record supersedes it, so do not
+offer the rejected alternative as if it were new. When a pull request
+makes such a decision, its record goes in the same pull request.
+
+A project decision never lives only in agent memory. Memory is private
+to one machine and nobody reviews it: write or update the TDR instead,
+and keep at most a pointer in memory. See the `tdr` skill.
+
 ## Design of the interface
 
 The interface follows `@nldd/design-system` and the design guidelines
