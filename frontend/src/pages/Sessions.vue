@@ -171,10 +171,12 @@ const {
    monospace noticeably larger than the surrounding text. Matching the design
    system's own look keeps it calm instead of shouting the command. */
 code {
-  padding: var(--primitives-space-4, 0.25em);
-  border-radius: var(--semantics-controls-xs-corner-radius, 0.25em);
-  background-color: var(--semantics-surfaces-tinted-background-color, transparent);
-  font-family: var(--primitives-font-family-monospace, monospace);
-  font-size: 0.85em;
+  padding: var(--primitives-space-2) var(--primitives-space-4);
+  border-radius: var(--semantics-controls-xs-corner-radius);
+  box-shadow: inset 0 0 0 var(--semantics-surfaces-highlight-border-width)
+    var(--semantics-surfaces-tinted-highlight-border-color);
+  background-color: var(--semantics-surfaces-tinted-background-color);
+  font-family: var(--primitives-font-family-monospace);
+  font-size: var(--semantics-code-inline-font-size);
 }
 </style>

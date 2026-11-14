@@ -20,8 +20,8 @@ defineProps<{ summary: string; summaryTestid?: string }>();
 <style scoped>
 .disclosure {
   max-width: var(--toon-table-max-width);
-  border: var(--primitives-border-width-thin) solid var(--semantics-surfaces-base-border-color);
-  border-radius: var(--primitives-corner-radius-lg);
+  border: var(--semantics-surfaces-highlight-border-width) solid var(--semantics-surfaces-tinted-highlight-border-color);
+  border-radius: var(--semantics-surfaces-corner-radius);
   background: var(--semantics-surfaces-tinted-background-color);
 }
 
@@ -38,7 +38,7 @@ defineProps<{ summary: string; summaryTestid?: string }>();
   outline: var(--semantics-focus-ring-outline);
   outline-offset: var(--semantics-focus-ring-outline-offset);
   box-shadow: var(--semantics-focus-ring-box-shadow);
-  border-radius: var(--primitives-corner-radius-lg);
+  border-radius: var(--semantics-surfaces-corner-radius);
 }
 
 .disclosure-content {

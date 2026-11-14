@@ -1,0 +1,1 @@
+- The fold-out boxes on a site's Members and Deploy tabs have their border again.

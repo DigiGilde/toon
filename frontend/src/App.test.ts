@@ -92,15 +92,6 @@ const AXE_OPTIONS: axe.RunOptions = {
     // jsdom has no renderer or canvas; contrast is covered by the design
     // system's own tokens, not by this composition.
     'color-contrast': { enabled: false },
-    // nldd-page wraps the footer slot in a <footer> inside its shadow root and
-    // nldd-page-footer puts role="contentinfo" on its own host in there
-    // (deliberately: assistive tech does not reliably pick up a <footer> from a
-    // shadow root as a landmark). That nested contentinfo therefore comes from
-    // the design system and cannot be fixed from here; everything around main
-    // stays enabled.
-    'landmark-no-duplicate-contentinfo': { enabled: false },
-    'landmark-contentinfo-is-top-level': { enabled: false },
-    'landmark-unique': { enabled: false },
   },
 };
 
