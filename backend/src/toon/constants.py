@@ -153,8 +153,8 @@ class Role(enum.StrEnum):
 
     A reader looks on, an editor changes content, an admin changes policy: who
     may look, who may join in, and what disappears for good. The interface
-    labels these Reader, Editor and Administrator in English and lezer,
-    redacteur and beheerder in Dutch.
+    labels these Reader, Editor and Administrator in English and "lezer",
+    "redacteur" and "beheerder" in Dutch.
     """
 
     READER = "reader"

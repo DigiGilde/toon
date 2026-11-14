@@ -38,7 +38,7 @@ DB_URL_VAR = "TOON_DB_URL"
 def _migration_url() -> str:
     url = os.environ.get(DB_URL_VAR)
     if not url:
-        raise RuntimeError(f"{DB_URL_VAR} is niet gezet; migraties kunnen niet draaien.")
+        raise RuntimeError(f"{DB_URL_VAR} is not set; migrations cannot run.")
     return url
 
 

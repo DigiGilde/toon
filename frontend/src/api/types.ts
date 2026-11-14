@@ -323,8 +323,8 @@ export interface MemberSuggestion {
 }
 
 /**
- * Role within a group or within one site. The interface labels these lezer,
- * redacteur and beheerder; the wire carries the English values.
+ * Role within a group or within one site. The interface labels these "lezer",
+ * "redacteur" and "beheerder" (Dutch); the wire carries the English values.
  */
 export type Role = 'reader' | 'editor' | 'admin';
 
