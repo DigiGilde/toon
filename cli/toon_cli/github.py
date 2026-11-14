@@ -78,10 +78,12 @@ def _tasks(site: str, preview_ref: str | None) -> tuple[str, str]:
     return f"deploy:toon/{target}", f"deploy:plak/{target}"
 
 
-def _markers(site: str, preview_ref: str) -> tuple[str, str]:
-    # The second is the marker from before the rename, or a pull request that
-    # was open then gets a second comment.
-    return f"<!-- toon-preview {site} {preview_ref} -->", f"<!-- plak-preview {site} {preview_ref} -->"
+def _markers(site: str, preview_ref: str | None) -> tuple[str, str]:
+    # A later run finds the comment by its heading, so the heading names the
+    # site and the ref. The second is the hidden marker the comment started
+    # with before, or a pull request open across the change gets a second one.
+    what = f"preview `{preview_ref}`" if preview_ref else "live version"
+    return f"### Toon {what} of {site}", f"<!-- toon-preview {site} {preview_ref or 'live'} -->"
 
 
 def _event() -> dict:
@@ -154,14 +156,17 @@ def _is_ours(github: GitHub, comment: dict) -> bool:
 
 
 def _find_comment(github: GitHub, number: int, markers: tuple[str, str]) -> dict | None:
+    heading, old_marker = markers
     for comment in github.pages(f"/issues/{number}/comments", {}):
-        if (comment.get("body") or "").startswith(markers) and _is_ours(github, comment):
+        body = comment.get("body") or ""
+        # The whole first line: site website is a prefix of site website-2.
+        if (body.split("\n", 1)[0] == heading or body.startswith(old_marker)) and _is_ours(github, comment):
             return comment
     return None
 
 
 def upsert_comment(github: GitHub, number: int, markers: tuple[str, str], text: str, *, create: bool) -> None:
-    body = f"{markers[0]}\n{text}"
+    body = f"{markers[0]}\n\n{text}"
     comment = _find_comment(github, number, markers)
     if comment is not None:
         github.request("PATCH", f"/issues/comments/{comment['id']}", json={"body": body})
@@ -238,14 +243,12 @@ def run(argv: list[str], transport: httpx.BaseTransport | None = None) -> int:
             if args.comment and number is None:
                 print("::notice::comment skipped: this run is not for a pull request")
             elif args.comment:
-                what = "Preview" if preview_ref else "Live"
                 access = f"{_access_line(args.access)}\n\n" if args.access else ""
                 upsert_comment(
                     github,
                     number,
-                    _markers(args.site, preview_ref or "live"),
-                    f"**{what}:** {args.url}\n\n{access}"
-                    f"Commit {_head_sha(event)[:7]}, Toon version `{args.version_id}`.",
+                    _markers(args.site, preview_ref),
+                    f"{args.url}\n\n{access}Commit {_head_sha(event)[:7]}, Toon version `{args.version_id}`.",
                     create=True,
                 )
         else:
@@ -256,7 +259,7 @@ def run(argv: list[str], transport: httpx.BaseTransport | None = None) -> int:
                     github,
                     number,
                     _markers(args.site, preview_ref),
-                    "**Preview:** removed.",
+                    "Removed.",
                     create=False,
                 )
     except GitHubError as error:
