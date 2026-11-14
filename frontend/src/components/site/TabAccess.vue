@@ -473,7 +473,7 @@ function keyActions(key: Key): RowAction[] {
                    icon button says nothing, and a columnheader without a name
                    is an axe violation. -->
               <nldd-text-cell horizontal-alignment="right">
-                <span class="visually-hidden">{{ t('publish.access.column.actions') }}</span>
+                <nldd-visually-hidden>{{ t('publish.access.column.actions') }}</nldd-visually-hidden>
               </nldd-text-cell>
             </nldd-table-row>
             <nldd-inline-dialog
@@ -601,7 +601,7 @@ function keyActions(key: Key): RowAction[] {
                 hide-below="md"
               ></nldd-text-cell>
               <nldd-text-cell horizontal-alignment="right">
-                <span class="visually-hidden">{{ t('publish.access.column.actions') }}</span>
+                <nldd-visually-hidden>{{ t('publish.access.column.actions') }}</nldd-visually-hidden>
               </nldd-text-cell>
             </nldd-table-row>
             <nldd-inline-dialog

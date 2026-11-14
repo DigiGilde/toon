@@ -319,7 +319,7 @@ describe('site TabSettings: title', () => {
     // Said to a screen reader only: the check mark is what a sighted member sees.
     const notice = wrapper.find('[data-testid="site-title-notice"]');
     expect(notice.text()).toBe('Titel opgeslagen.');
-    expect(notice.classes()).toContain('visually-hidden');
+    expect(notice.element.localName).toBe('nldd-visually-hidden');
 
     typeTitle(wrapper, 'Documentatie 2');
     await untilIdle();
@@ -651,7 +651,7 @@ describe('site TabSettings: title', () => {
       const alert = wrapper.find('[role="alert"]');
       expect(alert.text()).toBe(text);
       // The same words are on screen at the field already.
-      expect(alert.classes()).toContain('visually-hidden');
+      expect(alert.element.localName).toBe('nldd-visually-hidden');
     });
   });
 

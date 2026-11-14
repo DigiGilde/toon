@@ -599,7 +599,7 @@ describe('TabAccess: invitees', () => {
     expect(columns).toContain('**Toegevoegd**');
     // A columnheader without a name is an axe violation, so the menu column is
     // named for a screen reader and hidden for everyone else.
-    expect(header.find('.visually-hidden').text()).toBe('Acties');
+    expect(header.find('nldd-visually-hidden').text()).toBe('Acties');
 
     const row = wrapper.find('[data-testid="invitee-reviewer@voorbeeld.nl"]');
     expect(row.exists()).toBe(true);
@@ -752,7 +752,7 @@ describe('TabAccess: secret links', () => {
     expect(columns).toContain('**Aangemaakt**');
     expect(columns).toContain('**Vervalt**');
     expect(columns).toContain('**Status**');
-    expect(header.find('.visually-hidden').text()).toBe('Acties');
+    expect(header.find('nldd-visually-hidden').text()).toBe('Acties');
 
     const row = wrapper.find('[data-testid="key-sel-abc123"]');
     expect(row.html()).toContain('Demo voor stakeholders');

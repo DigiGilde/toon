@@ -270,7 +270,7 @@ describe('Platform management (filled)', () => {
     // No visible text: at 3rem "Acties" wrapped over two lines.
     expect(last.attributes('text')).toBeUndefined();
     // A name, though, otherwise the column header is an axe violation.
-    expect(last.find('.visually-hidden').text()).toBe('Acties');
+    expect(last.find('nldd-visually-hidden').text()).toBe('Acties');
   });
 
   it('gives every row one menu, right-aligned on the same edge', async () => {

@@ -65,7 +65,6 @@ defineEmits<{ publish: [] }>();
             appearance="primary"
             :text="t('group.action.publishSite')"
             start-icon="plus"
-            class="empty-state-action"
             data-testid="group-empty-publish"
             @click="$emit('publish')"
           ></nldd-button>

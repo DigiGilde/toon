@@ -209,18 +209,17 @@ const {
 
             <!-- The field keeps the focus or has lost it already: this is what a
                  screen reader hears of the verdict. -->
-            <div
+            <nldd-visually-hidden
               v-if="titleVerdict"
               role="alert"
-              class="visually-hidden"
               data-testid="site-title-alert"
             >
               {{ titleVerdict }}
-            </div>
+            </nldd-visually-hidden>
 
             <!-- The check mark in the field is what a sighted member sees of a
                  save; this is what a screen reader hears of it. -->
-            <div role="status" class="visually-hidden" data-testid="site-title-notice">{{ titleNotice }}</div>
+            <nldd-visually-hidden role="status" data-testid="site-title-notice">{{ titleNotice }}</nldd-visually-hidden>
           </template>
 
           <nldd-rich-text v-else>
