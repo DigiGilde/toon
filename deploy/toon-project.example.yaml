@@ -7,14 +7,15 @@
 # the portal, `zadctl` or the API. See docs/deploying-on-zad.md for the
 # step plan, the secrets and the open questions for the platform team.
 #
-# Validated against opi/schemas/project_v2.json and opi/core/project_schema.py
-# from RijksICTGilde/RIG-Cluster, main of 20 September 2026. That code applies
-# no version-specific dispatch: every file is checked against this one schema,
-# whatever `schema-version` it names.
+# Validated against schema 2.17 of RijksICTGilde/RIG-Cluster at 2d27357
+# (11 November 2026): operations-manager/python/opi/schemas/project_v2.json,
+# plus the publish-on-web config models for what sits inside its `config`.
+# The platform checks a file against the schema of the `schema-version` it
+# names.
 #
 # WHAT THE PLATFORM TEAM MUST APPROVE (without these two the deployment falls
 # back to the cluster address and neither public hostname appears at all, see
-# the project-level `domains` block below):
+# `domains` in the project's `publish-on-web` config below):
 #   1. the domain rijks.app for this project;
 #   2. the subdomain `toon` on that domain.
 #
@@ -30,73 +31,69 @@ name: plak
 display-name: "Toon"
 description: "Statische sites publiceren en delen, met previews per pull request"
 
-# The Operations Manager's own latest schema version is currently 2.2
-# (opi/services/schema_migration.py, LATEST_SCHEMA_VERSION), not 2.8 as an
-# earlier draft of this file claimed. `schema-version` only drives migration
-# dispatch on write, not which shape validates: the shapes below (services as
-# single-key entries, `domains` at project root, the web address fields
-# directly on the deployment) are simply what opi/schemas/project_v2.json
-# requires today.
-schema-version: 2.2
+# The Operations Manager's latest schema version (LATEST_SCHEMA_VERSION in
+# opi/services/schema_migration.py). Quoted, because unquoted 2.10 would read
+# as 2.1. A file that names an older version is checked against that
+# version's schema and migrated on write.
+schema-version: "2.17"
 
 clusters:
   - odcn-production
 
+# At least one member needs the role admin, or nobody can manage the members
+# and tokens any more.
 users:
   - email: fill-in@minbzk.nl
-    role: admin
+    roles: [admin, ops]
 
-# A service-entry is either a bare string or a single-key object keyed by the
-# service name itself (project_v2.json's `service-entry`, "oneOf: string |
-# object with exactly one property"); `- name: ... / config: ...` (two keys)
-# is not a valid shape and is rejected.
+# A service entry is a bare string or a record with `name` and `config`, the
+# form the platform writes back (project_v2.json's `service-entry`). What may
+# sit in `config` is checked per service.
 services:
-  - publish-on-web
+  - name: publish-on-web
+    config:
+      # Domain and subdomain approval (opi/connectors/subdomain.py). Requesting
+      # it yourself gives status `requested`, and a platform admin sets it to
+      # `approved`. As long as that has not happened the deployment falls back
+      # to the format component-deployment-project on the cluster address and
+      # no host below matches what TOON_BASE_URL/TOON_CONTENT_BASE_URL say. The
+      # platform manages this block itself: a write via the portal or the API
+      # keeps it, even when the caller leaves it out.
+      domains:
+        allowed-domains:
+          - domain: rijks.app
+            status: requested
+            supports-dots: true
+            issuer: letsencrypt
+            restricted-subdomains: true
+        allowed-subdomains:
+          - domain: rijks.app
+            subdomains:
+              - name: toon
+                status: requested
   - postgresql-database
   - persistent-storage
-  - keycloak:
-      config:
-        # sso-only: the project realm brokers to the rig-platform realm and
-        # that to SSO Rijk (SAML). Toon has no local accounts.
-        template: sso-only
-        # The deployment client automatically gets https://{host}/* for every
-        # ingress host of the deployment, but the root web address is not
-        # included: once `domain-format` is set explicitly the platform does
-        # not add the root host to that list. The callback on the content
-        # origin thus needs to be added here by hand, per environment.
-        additional_redirect_uris:
-          - "https://toon.rijks.app/-/oauth2/callback"
-
-# Domain/subdomain approval. This is a project-level property in the schema
-# (project_v2.json's `domains`), not nested under a service; opi/connectors/
-# subdomain.py reads it as `project_data.get("domains")`. Requesting it
-# yourself gives status `requested`; a platform admin sets it to `approved`.
-# As long as that has not happened the deployment falls back to the format
-# component-deployment-project on the cluster address and no host below
-# matches what TOON_BASE_URL/TOON_CONTENT_BASE_URL say. The platform manages
-# this block itself: a write action via the portal or the API leaves it as
-# is, even if the caller does not send it along.
-domains:
-  allowed-domains:
-    - domain: rijks.app
-      status: requested
-      supports-dots: true
-      issuer: letsencrypt
-      restricted-subdomains: true
-  allowed-subdomains:
-    - domain: rijks.app
-      subdomains:
-        - name: toon
-          status: requested
+  - name: keycloak
+    config:
+      # sso-only: the project realm brokers to the rig-platform realm and
+      # that to SSO Rijk (SAML). Toon has no local accounts.
+      template: sso-only
+      # The deployment client automatically gets https://{host}/* for every
+      # ingress host of the deployment, but the root web address is not
+      # included: once `domain-format` is set explicitly the platform does
+      # not add the root host to that list. The callback on the content
+      # origin thus needs to be added here by hand, per environment.
+      additional_redirect_uris:
+        - "https://toon.rijks.app/-/oauth2/callback"
 
 components:
   # The component name is the first label of the hostname
   # ({component}.{subdomain}.{domain}), so this one component is called
   # `beheer` and not `app`: it serves beheer.toon.rijks.app. It is also
-  # the component that serves toon.rijks.app via `root-component` on the
-  # deployment. One component is enough because the app itself does content,
-  # SPA and host separation (ADR: no nginx sidecar; ZAD knows exactly one
-  # container per component).
+  # the component that serves toon.rijks.app via `root-component` in the
+  # deployment's `publish-on-web` config. One component is enough because the
+  # app itself does content, SPA and host separation (ADR: no nginx sidecar;
+  # ZAD knows exactly one container per component).
   - name: beheer
     type: deployment
     ports:
@@ -111,15 +108,15 @@ components:
       - publish-on-web
       - keycloak
       - postgresql-database
-      - persistent-storage:
-          config:
-            # 10Gi was granted to Toon; the portal and the API offer at most
-            # 1Gi, so do not change this service there (docs/deploying-on-zad.md
-            # §9). How full it gets shows in /-/healthz, in the log and
-            # in the platform admin view (docs/deploying-on-zad.md §5).
-            - name: content
-              size: 10Gi
-              mount-path: /content
+      - name: persistent-storage
+        config:
+          # 10Gi was granted to Toon; the portal and the API offer at most
+          # 1Gi, so do not change this service there (docs/deploying-on-zad.md
+          # §9). How full it gets shows in /-/healthz, in the log and
+          # in the platform admin view (docs/deploying-on-zad.md §5).
+          - name: content
+            size: 10Gi
+            mount-path: /content
     resources:
       # The platform only reads the nested requests/limits shape; a loose
       # `cpu:`/`memory:` next to it is ignored and silently gives the
@@ -143,24 +140,25 @@ deployments:
   - name: productie
     cluster: odcn-production
     namespace: plak
-    # `domain-format`, `subdomain`, `base-domain`, `issuer` and
-    # `root-component` are direct properties of the deployment object itself
-    # (project_v2.json's `deployment` def, additionalProperties: false), not
-    # nested under a service config; opi/utils/naming.py's find_root_component
-    # reads `deployment.get("root-component")` and the hostname builder reads
-    # the others the same way.
+    # The web address sits in the deployment's own `publish-on-web` config,
+    # as a record with `reference`: the single-key form is refused here.
+    # Since schema 2.7 the deployment itself has none of these fields.
     #
     # `domain-format: component.subdomain` gives {component}.{subdomain}.
     # {domain}, i.e. beheer.toon.rijks.app. There is no `domain-mode` any
     # more: the platform's v2.8 migration turned `nice-url` into this
     # `domain-format` and dropped the key.
-    domain-format: component.subdomain
-    subdomain: toon
-    base-domain: rijks.app
-    issuer: letsencrypt
-    # Lets the same component also serve the address without the first
-    # label: beheer.toon.rijks.app (beheer) and toon.rijks.app (content).
-    root-component: beheer
+    services:
+      - reference: publish-on-web
+        config:
+          domain-format: component.subdomain
+          subdomain: toon
+          base-domain: rijks.app
+          issuer: letsencrypt
+          # Lets the same component also serve the address without the
+          # first label: beheer.toon.rijks.app (beheer) and toon.rijks.app
+          # (content).
+          root-component: beheer
     backup:
       # The scheduling happens here; `backup.enabled` at the bottom only
       # sets the label that makes the PVC eligible for backup. Without this

@@ -61,16 +61,20 @@ Toon needs two hostnames on one component:
 | `toon.<domain>` | the published content and the content login |
 
 These come from a dotted `domain-format` plus `root-component`.
-`deploy/toon-project.example.yaml` writes them loose on the deployment:
+`deploy/toon-project.example.yaml` sets them in the deployment's
+`publish-on-web` config:
 
 ```yaml
 deployments:
   - name: productie
-    domain-format: component.subdomain
-    subdomain: toon
-    base-domain: rijks.app
-    issuer: letsencrypt
-    root-component: beheer
+    services:
+      - reference: publish-on-web
+        config:
+          domain-format: component.subdomain
+          subdomain: toon
+          base-domain: rijks.app
+          issuer: letsencrypt
+          root-component: beheer
 ```
 
 `component.subdomain` yields `{component}.{subdomain}.{domain}`; because the
@@ -84,8 +88,11 @@ Three things to know:
 - **The platform keeps the web address fields under the `publish-on-web`
   service, per deployment.** `zadctl service config get publish-on-web` shows
   them for `productie`: `issuer`, `subdomain`, `base-domain`, `domain-format`
-  and `root-component`. The loose form above is still read, and the fields
-  move under the service when the platform next migrates the file. There is
+  and `root-component`. A file from before schema 2.7 can still have them
+  loose on the deployment: the platform reads that form and moves the fields
+  under the service when it migrates the file. The deployment entry has to be
+  a record with `reference`, because a deployment refuses the single-key form
+  (`- publish-on-web:`) that a project entry may still use. There is
   no `domain-mode` any more: the platform's v2.8 migration turned `nice-url`
   into `domain-format: component.subdomain` and dropped the key. A subdomain
   is registered for a dotted `domain-format` with a component in it, plus
@@ -96,8 +103,9 @@ Three things to know:
   component is called `beheer` and not `app`.
 - **Approval is a hard precondition.** All platform domains (`rijks.app`,
   `rijksapps.nl`, `rijksapp.nl`, `rijksapp.dev`) have restricted subdomains.
-  Both the domain and the subdomain have to be `approved` in the `domains:`
-  block of the project. If it says `requested`, the deployment falls back
+  Both the domain and the subdomain have to be `approved` in the `domains`
+  block, which sits in the config of the project's `publish-on-web` service.
+  If it says `requested`, the deployment falls back
   **silently** to `component-deployment-project` on the cluster address. There
   is no error message: the app runs, but on a different host than
   `TOON_BASE_URL` and `TOON_CONTENT_BASE_URL` say, and then the host
@@ -112,8 +120,10 @@ subdomain and base domain, both mandatory.
 
 Take `deploy/toon-project.example.yaml` as a base and adjust: `name`, `users`,
 `subdomain`, `base-domain` and the redirect URI in the Keycloak service
-configuration. The file validates against `opi/schemas/project_v2.json` of
-RIG-Cluster.
+configuration. The file validates against schema 2.17 of RIG-Cluster
+(`operations-manager/python/opi/schemas/project_v2.json` at `2d27357`) and
+names that version in `schema-version`, because the platform checks a file
+against the schema of the version it names.
 
 What is in it and why:
 
