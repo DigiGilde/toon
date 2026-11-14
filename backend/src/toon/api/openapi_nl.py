@@ -3085,8 +3085,8 @@ NL: Final[dict[str, str]] = {
         "\n"
         "A reader looks on, an editor changes content, an admin changes policy: who\n"
         "may look, who may join in, and what disappears for good. The interface\n"
-        "labels these Reader, Editor and Administrator in English and lezer,\n"
-        "redacteur and beheerder in Dutch."
+        "labels these Reader, Editor and Administrator in English and \"lezer\",\n"
+        "\"redacteur\" and \"beheerder\" in Dutch."
     ): (
         "Rol binnen een groep of binnen een site.\n"
         "\n"

@@ -49,7 +49,7 @@ Models: `models/identity.py`, `models/publication.py`.
 both `group_members.role` and `site_members.role` (`constants.py`,
 `models/base.py`, migration `0001_base`). A reader looks on, an editor changes
 content, an admin changes policy: who may look, who may join in and what
-disappears for good. The interface calls them lezer, redacteur and beheerder
+disappears for good. The interface calls them "lezer", "redacteur" and "beheerder"
 (`frontend/src/format.ts`).
 
 Beside that there is the platform role on a member: `admin` or `member`
