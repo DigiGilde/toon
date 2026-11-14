@@ -16,6 +16,7 @@ import asyncio
 import logging
 import os
 
+from pydantic import TypeAdapter, ValidationError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -24,6 +25,7 @@ from toon.db import make_session_factory
 from toon.models.audit import ActorKind, AuditLogEntry
 
 DB_URL_VAR = "TOON_DB_URL"
+PAUSED_VAR = "TOON_AUDIT_PURGE_PAUSED"
 BATCH_DEFAULT = 10_000
 
 _logger = logging.getLogger(__name__)
@@ -116,6 +118,16 @@ async def purge(dsn: str, *, batch: int = BATCH_DEFAULT) -> int:
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    # TypeAdapter(bool) is the parse Settings applies, so the app and this
+    # command agree on every spelling of true and false.
+    try:
+        paused = TypeAdapter(bool).validate_python(os.environ.get(PAUSED_VAR, "false"))
+    except ValidationError:
+        _logger.error("%s is neither true nor false. Not purging.", PAUSED_VAR)
+        return 1
+    if paused:
+        _logger.error("%s is set: the purge is paused during an incident. Not purging.", PAUSED_VAR)
+        return 1
     dsn = os.environ.get(DB_URL_VAR)
     if not dsn:
         _logger.error("%s is not set; the purge does not know which database to talk to.", DB_URL_VAR)

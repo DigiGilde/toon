@@ -407,10 +407,31 @@ is written, by the chain it lands in (see "The integrity chain" below): the
 trigger and the purge ask the chain, not the row, so moving an action to the
 other period later applies to new rows only.
 
-Purging is done with `python -m toon.audit.retention` (`just
-purge-audit-log`), on `TOON_DB_URL`. `content_viewers` follows the same
+The app purges every night at 04:00 UTC, right after it publishes the chain
+head ("Publishing the chain head"), in a background job
+(`audit/retention_job.py`). A run that fails logs an ERROR, and the next night
+tries again. `python -m toon.audit.retention` (`just purge-audit-log`) does the
+same purge by hand, on `TOON_DB_URL`. `content_viewers` follows the same
 fixed period of 90 days (by `last_seen_at`), without the per-(action,
 result) function that `audit_log_entries` has.
+
+### During an incident
+
+BIO2 5.28.01 keeps the information about a (suspected) security incident for
+at least three years, logging included. A 90-day row that belongs to an
+incident found today would otherwise be purged within days. So:
+
+1. Set `TOON_AUDIT_PURGE_PAUSED=true` and roll it out with a deployment
+   refresh (`docs/deploying-on-zad.md`, §5). The setting is read at start, so
+   the refresh restarts the pod, and a restart logs everyone out
+   (`docs/security.md`, "Sessions do not survive a restart").
+2. From then on the nightly job still publishes the chain head, skips the
+   purge, and logs a WARNING every night that the purge is paused.
+   `just purge-audit-log` refuses with an ERROR while the variable is true.
+3. Export or analyse what the incident needs, and keep that copy under the
+   incident's own term.
+4. Set it back to `false` and refresh again. The next night purges
+   everything that expired in the meantime.
 
 ## One database account
 
@@ -609,9 +630,14 @@ the number of places that have seen them. A published head that gets redacted
 out of the log, or kept in a place nobody else can read, protects nothing and
 makes the check below impossible.
 
-**How often.** Nightly is enough, next to the purge; more often makes the
-window between two published heads smaller, which is the only thing frequency
-buys. The line is a few hundred bytes.
+**How often.** The app publishes a line every night at 04:00 UTC, right
+before the purge, so the line still names the oldest rows the purge is about to
+take, with their deadlines. It logs the line as a WARNING, because under
+uvicorn nothing shows INFO from the app's own loggers, and without the `INFO`
+prefix of the example above. A run that fails logs an ERROR instead, and the
+purge goes ahead without it. More often makes the window between two published
+heads smaller, which is the only thing frequency buys. The line is a few
+hundred bytes.
 
 **Checking a line against the database.** `just verify-audit-head <file>`
 (`python -m toon.audit.checkpoint --against -` reads standard input) takes a
@@ -786,8 +812,7 @@ therefore still decrypt the older IP addresses and recompute the older
 pseudonyms. That is easiest for CI actors, whose identifiers
 (`provider:host:repository-id`) are public. Treat a leaked pepper or IP key as
 a possible personal data breach, and assess it as one. Older rows only
-disappear through the retention purge, and production does not run that yet
-([#211](https://github.com/DigiGilde/toon/issues/211)).
+disappear through the nightly retention purge.
 
 **Procedure.** For the pepper, the IP key or both.
 
@@ -855,11 +880,9 @@ the lookups keep reaching them:
 
 **Removing a previous value.** Keep it until every row written under it is
 gone. The longest retention period is 1096 days ("Retention"), so a previous
-value can go 1096 days after the rotation, once the purge
-(`python -m toon.audit.retention`, `just purge-audit-log`) has run after that
-day. That holds only if the purge runs, and production does not run it yet
-([#211](https://github.com/DigiGilde/toon/issues/211)). Until it does, no row
-is deleted and every previous value stays needed.
+value can go 1096 days after the rotation, once the nightly purge has run
+after that day. A night whose purge failed logged an ERROR, and until a later
+run succeeds every previous value stays needed.
 
 Removing a value earlier has a price. Pseudonyms made under a removed pepper
 can no longer be traced to a person: `actor-identity` answers 404

@@ -84,6 +84,24 @@ def test_audit_lookup_daily_limit_from_env(monkeypatch):
     assert load_settings().audit_lookup_daily_limit == 5
 
 
+def test_audit_purge_is_not_paused_by_default(monkeypatch):
+    _set_required_env(monkeypatch)
+    assert load_settings().audit_purge_paused is False
+
+
+def test_audit_purge_paused_from_env(monkeypatch):
+    _set_required_env(monkeypatch, TOON_AUDIT_PURGE_PAUSED="true")
+    assert load_settings().audit_purge_paused is True
+
+
+@pytest.mark.parametrize("value", ["", "paused", "2"])
+def test_audit_purge_paused_neither_true_nor_false_refused(monkeypatch, value):
+    _set_required_env(monkeypatch, TOON_AUDIT_PURGE_PAUSED=value)
+    with pytest.raises(ConfigurationError) as excinfo:
+        load_settings()
+    assert "AUDIT_PURGE_PAUSED" in str(excinfo.value)
+
+
 def test_audit_lookup_daily_limit_below_one_refused(monkeypatch):
     _set_required_env(monkeypatch, TOON_AUDIT_LOOKUP_DAILY_LIMIT="0")
     with pytest.raises(ConfigurationError) as excinfo:
