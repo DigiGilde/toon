@@ -1334,7 +1334,7 @@ Code: `alembic/versions/`, `models/`. Guarded by:
 
 Subdomain or wildcard per site; magic-link login for externals (secret links
 cover externals, invitees need SSO); custom domains per group; object storage
-(the recorded scaling route, not part of the first delivery); the API
+(not planned: content stays on the volume, #42); the API
 following an old slug (a deploy to an old address fails at once, §8); moving a
 site to another group; releasing an old slug early; email notification
 (inviting sends no mail, the administrator shares the URL themselves); central
