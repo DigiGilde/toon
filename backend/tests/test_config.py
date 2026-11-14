@@ -882,16 +882,6 @@ class TestZadSourceMapping:
         assert "TOON_OIDC_ISSUER" in message
 
 
-def test_store_compressed_defaults_to_on(monkeypatch):
-    _set_required_env(monkeypatch)
-    assert load_settings().store_compressed is True
-
-
-def test_store_compressed_can_be_turned_off(monkeypatch):
-    _set_required_env(monkeypatch, TOON_STORE_COMPRESSED="false")
-    assert load_settings().store_compressed is False
-
-
 # --- The old PLAK_ names are no longer read -------------------------------------------
 
 
@@ -900,7 +890,6 @@ class TestOldPrefixIsNotRead:
     SETTINGS = (
         ("OPERATOR_NAME", "operator_name", "Old Operator", ""),
         ("SITE_MAX_BYTES", "site_max_bytes", "1000", 500 * 1024 * 1024),
-        ("STORE_COMPRESSED", "store_compressed", "false", True),
         ("BEHIND_PROXY", "behind_proxy", "true", None),
         ("SPA_PATH", "spa_path", "/old/spa", Path("../frontend/dist")),
         ("BASE_URL", "base_url", "https://old.example.org", None),

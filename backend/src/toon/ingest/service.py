@@ -133,7 +133,6 @@ class IngestService:
         self._limits = Limits.from_settings(settings)
         self._site_max_bytes = settings.site_max_bytes
         self._min_free = settings.storage_min_free_bytes
-        self._store_compressed = settings.store_compressed
 
     def check_room(self, incoming: int = 0) -> None:
         """Refuses before the first byte is spooled when `incoming` more bytes
@@ -153,8 +152,7 @@ class IngestService:
         with self._content_store.write_version(site.id, version_id) as writer:
             destination = _GuardedDestination(writer, self.room_guard())
             unpack(filename, source, destination, self._limits, base_path=base_path)
-            if self._store_compressed:
-                precompress.encode_version(destination)
+            precompress.encode_version(destination)
             # Inside the with: on a refusal the work directory is cleaned up
             # and nothing is renamed into place. The site is measured only now
             # because the size of this version is not known before it is

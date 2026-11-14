@@ -14,7 +14,7 @@ import io
 import random
 import uuid
 import zipfile
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import ClassVar
@@ -818,15 +818,6 @@ class TestPrecompression:
         assert environment.store.encoded_path(storage_ref, "random.txt", "br") is None
         assert environment.store.encoded_path(storage_ref, "index.html", "gzip") is None
         assert not (environment.content_root / "_encoded").exists()
-
-    async def test_with_store_compressed_off_every_file_stays_plain(self, environment: Environment):
-        plain = IngestService(environment.store, _settings(environment.content_root, store_compressed=False))
-        storage_ref = await self._deploy(replace(environment, service=plain), preview=False)
-
-        assert _stored(environment, storage_ref) == set(self.BUNDLE)
-        assert (environment.content_root / storage_ref / "assets/app.css").read_bytes() == STYLESHEET
-        assert not (environment.content_root / storage_ref / "_encoded").exists()
-        assert environment.store.file_path(storage_ref, "assets/app.css") is not None
 
     async def test_the_work_directories_are_gone_afterwards(self, environment: Environment):
         await self._deploy(environment, preview=False)
