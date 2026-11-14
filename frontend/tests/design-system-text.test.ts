@@ -1,263 +1,64 @@
 /**
  * The design system's own words, held against the package.
  *
- * `src/i18n/designSystem.ts` answers the translation keys of the components
- * this app uses, so an English interface is English down to the aria-labels.
- * That claim ages badly by itself: a new component gets used, an upgrade adds
- * a key, a default is reworded, an override is hung on the element next to the
- * one that renders the text. So rather than trust the sweep that produced the
- * table, this reads the package on every run and asks:
- *
- *   1. Is every key that can reach a screen here answered? UNREACHED is where
- *      a key is excused, with the reason; an entry there is a claim a reviewer
- *      may contradict.
- *   2. Does every key we answer still exist, on an element of its own
- *      component that this app really uses?
- *   3. Is our Dutch still the package's Dutch, word for word, so the Dutch
- *      interface says what it always said? REWORDED is where a word is
- *      excused, with the package's own beside it.
- *
- * The English half is covered elsewhere: `src/i18n/index.test.ts` keeps the
- * two catalogues equally complete, so a key without an English string cannot
- * reach a build.
+ * `src/i18n/designSystem.ts` hands the package its own US English in an
+ * English interface, and a few words of ours in either language. Both age with
+ * the package: a key gets renamed and the override silently does nothing, a
+ * new key arrives without English and the English admin speaks Dutch there, a
+ * new Dutch text starts with "Toon" and reads as the name of the product. So
+ * this reads the package on every run.
  */
-import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-import { beforeAll, describe, expect, it } from 'vitest';
+import { enUS } from '@nldd/design-system/translations/en-US';
+import { nl } from '@nldd/design-system/translations/nl';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import { _setLocaleForTest } from '../src/i18n';
-import { folderFieldWords, wordsPerElement } from '../src/i18n/designSystem';
+import { folderFieldWords, ownWords } from '../src/i18n/designSystem';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const SRC = resolve(HERE, '../src');
-const PACKAGE = resolve(HERE, '../node_modules/@nldd/design-system/dist/components');
+/** The product's name as a word, in any case: "Toon opties", "toon meer". */
+const PRODUCT_NAME = /\btoon\b/i;
 
-/**
- * Keys of a component we do use whose Dutch cannot reach anyone here, with the
- * reason. Everything else has to be answered.
- */
-const UNREACHED: Record<string, string> = {
-  'components.button.link-hint-download-lowercase-label': 'no nldd-button here downloads a file',
-  'components.icon-button.link-hint-new-tab-lowercase-label': 'no nldd-icon-button here is a link',
-  'components.icon-button.link-hint-external-lowercase-label': 'no nldd-icon-button here is a link',
-  'components.icon-button.link-hint-external-new-tab-lowercase-label':
-    'no nldd-icon-button here is a link',
-  'components.icon-button.link-hint-download-lowercase-label': 'no nldd-icon-button here is a link',
-  'components.link.link-hint-download-lowercase-label': 'no nldd-link here downloads a file',
-  'components.list-item.link-hint-new-tab-lowercase-label':
-    'every nldd-list-item link here opens a page of this app in this tab',
-  'components.list-item.link-hint-external-lowercase-label':
-    'every nldd-list-item link here opens a page of this app in this tab',
-  'components.list-item.link-hint-external-new-tab-lowercase-label':
-    'every nldd-list-item link here opens a page of this app in this tab',
-  'components.list-item.link-hint-download-lowercase-label':
-    'every nldd-list-item link here opens a page of this app in this tab',
-  'components.list-item-segment.link-hint-new-tab-lowercase-label':
-    'no nldd-list-item-segment here',
-  'components.list-item-segment.link-hint-external-lowercase-label':
-    'no nldd-list-item-segment here',
-  'components.list-item-segment.link-hint-external-new-tab-lowercase-label':
-    'no nldd-list-item-segment here',
-  'components.list-item-segment.link-hint-download-lowercase-label':
-    'no nldd-list-item-segment here',
-  'components.code-viewer.diff-summary-text': 'no code viewer here shows a diff',
-  'components.code-viewer.line-singular-lowercase': 'no code viewer here shows a diff',
-  'components.code-viewer.line-plural-lowercase': 'no code viewer here shows a diff',
-  'components.code-viewer.added-line-label': 'no code viewer here shows a diff',
-  'components.code-viewer.removed-line-label': 'no code viewer here shows a diff',
-  'components.file-field.to-choose-files-action': 'no file field here takes more than one file',
-  'components.file-field.file-count-text': 'no file field here takes more than one file',
-  'components.file-field.drop-hint-multiple-lowercase-text':
-    'no file field here takes more than one file',
-  'components.file-field.drag-here-multiple-text': 'no file field here takes more than one file',
-  'components.file-field.drop-here-multiple-text': 'no file field here takes more than one file',
-  'components.file-field.files-type-error-text': 'no file field here takes more than one file',
-  'components.file-field.accepted-types-text': 'no file field here is variant="area"',
-  'components.file-field.image-lowercase': 'no file field here accepts a family such as image/*',
-  'components.file-field.video-lowercase': 'no file field here accepts a family such as image/*',
-  'components.file-field.audio-file-lowercase':
-    'no file field here accepts a family such as image/*',
-  'components.menu.empty-text':
-    'every menu here sets empty-text or is never empty, the toolbar overflow menu included',
-  'components.menu.back-action': 'no nldd-menu-item here has a submenu',
-  'components.menu.submenu-title': 'no nldd-menu-item here has a submenu',
-  'components.menu.submenu-back-action': 'no nldd-menu-item here has a submenu',
-  'components.menu-item.link-hint-new-tab-lowercase-label':
-    'every nldd-menu-item link here opens a page of this app in this tab',
-  'components.menu-item.link-hint-external-lowercase-label':
-    'every nldd-menu-item link here opens a page of this app in this tab',
-  'components.menu-item.link-hint-external-new-tab-lowercase-label':
-    'every nldd-menu-item link here opens a page of this app in this tab',
-  'components.list.items-accessible-label': 'every list here sets accessible-label',
-  'components.list.navigation-accessible-label': 'no list here is type="navigation"',
-  'components.list.search-placeholder-label': 'no list here is type="listbox"',
-  'components.list.clear-search-action': 'no list here is type="listbox"',
-  'components.list.reorder-moved-text': 'no list here is reorderable',
-  'components.list.reorder-dropped-text': 'no list here is reorderable',
-  'components.list.reorder-no-change-text': 'no list here is reorderable',
-  'components.list.reorder-canceled-text': 'no list here is reorderable',
-  'components.table.accessible-label': 'every table here sets accessible-label',
-  'components.badge.notification-label': 'every badge here sets text or accessible-label',
-  'components.rich-text.table-scroll-label': 'no rich text here holds a table',
-  'components.skip-link.action': 'the one skip link sets its own text',
-  'components.token.dismiss-action': 'the one token here sets dismiss-text',
-  'components.token.open-menu-action': 'no token here has a menu',
-  'components.token.open-token-menu-action': 'no token here has a menu',
-  'components.toolbar.link-hint-new-tab-lowercase-label':
-    'the toolbar title links to the overview in this tab',
-  'components.toolbar.link-hint-external-lowercase-label':
-    'the toolbar title links to the overview in this tab',
-  'components.toolbar.link-hint-external-new-tab-lowercase-label':
-    'the toolbar title links to the overview in this tab',
-};
-
-/**
- * Keys whose Dutch is ours on purpose, with the package's own Dutch beside it:
- * "Toon opties" reads as the name of the product here. The package's word is
- * held too, so a default it rewrites is looked at again.
- */
-const REWORDED: Record<string, string> = {
-  'components.combo-box.open-menu-action': 'Toon opties',
-  'components.file-field.show-options-action': 'Toon opties',
-};
-
-function filesUnder(directory: string, keep: (name: string) => boolean): string[] {
-  const found: string[] = [];
-  for (const entry of readdirSync(directory)) {
-    const full = join(directory, entry);
-    if (statSync(full).isDirectory()) found.push(...filesUnder(full, keep));
-    else if (keep(entry)) found.push(full);
-  }
-  return found;
-}
-
-/**
- * Every key the package can say, with its Dutch and the elements that may
- * render it: the ones defined by the modules beside its `.i18n.js`. Read as
- * text, because the package's export map does not reach the i18n modules.
- *
- * The elements matter. A key is named after a component but rendered by
- * whichever element holds the markup, and those are not always the same one:
- * `components.page-footer.legal-bar-accessible-label` is written by
- * `nldd-page-footer-legal-bar`, so handing it to `nldd-page-footer` does
- * nothing at all and nothing on the page says so.
- *
- * A module is as fine as this gets, and it defines more than one element:
- * this catches a key handed to an element of another component, not one
- * handed to the element beside the right one. What settles that is reading the
- * label on a running page.
- */
-interface PackageKey {
-  dutch: string;
-  tags: Set<string>;
-}
-
-function packageKeys(): Map<string, PackageKey> {
-  const found = new Map<string, PackageKey>();
-  for (const file of filesUnder(PACKAGE, (name) => name.endsWith('.i18n.js'))) {
-    const directory = dirname(file);
-    const tags = new Set<string>();
-    for (const sibling of readdirSync(directory)) {
-      if (!sibling.endsWith('.js') || sibling.endsWith('.i18n.js')) continue;
-      for (const [, tag] of readFileSync(join(directory, sibling), 'utf8').matchAll(
-        /customElements?(?:\.define)?\('(nldd-[a-z-]+)'/g,
-      )) {
-        tags.add(tag);
-      }
-    }
-    for (const [, key, value] of readFileSync(file, 'utf8').matchAll(
-      /'(components\.[^']+)':\s*'((?:[^'\\]|\\.)*)'/g,
-    )) {
-      found.set(key, { dutch: value.replace(/\\'/g, "'"), tags });
-    }
-  }
-  return found;
-}
-
-/** Every `nldd-*` tag that appears in a template or a composable. */
-function tagsInUse(): Set<string> {
-  const tags = new Set<string>();
-  const keep = (name: string): boolean => /\.(vue|ts)$/.test(name) && !name.endsWith('.test.ts');
-  for (const file of filesUnder(SRC, keep)) {
-    for (const [, tag] of readFileSync(file, 'utf8').matchAll(/<(nldd-[a-z-]+)[\s>]/g)) {
-      tags.add(tag);
-    }
-  }
-  return tags;
-}
+const packageText = (key: string): string | undefined => nl[key as keyof typeof nl];
 
 describe('the words the design system says by itself', () => {
-  const keys = packageKeys();
-  const used = tagsInUse();
-  // The table renders in the language on screen, so read it in Dutch: that is
-  // the half that has to match the package.
-  beforeAll(() => _setLocaleForTest('nl'));
-  const answered = (): [string, string, string][] =>
-    Object.entries(wordsPerElement()).flatMap(([tag, words]) =>
-      Object.entries(words).map(([key, dutch]): [string, string, string] => [tag, key, dutch]),
-    );
+  afterEach(() => _setLocaleForTest('nl'));
 
-  it('answers every key that can reach a screen here, or says why not', () => {
-    const answeredKeys = new Set(answered().map(([, key]) => key));
-    const missing: string[] = [];
-    for (const [key, { tags }] of keys) {
-      if (![...tags].some((tag) => used.has(tag))) continue;
-      if (answeredKeys.has(key) || UNREACHED[key] !== undefined) continue;
-      missing.push(key);
-    }
+  it('has English for every text the package can say', () => {
+    const missing = Object.keys(nl).filter((key) => !(key in enUS));
     expect(missing).toEqual([]);
   });
 
-  it('answers no key the package no longer has', () => {
-    const stale = [
-      ...answered().map(([, key]) => key),
-      ...Object.keys(UNREACHED),
-    ].filter((key) => !keys.has(key));
-    expect(stale).toEqual([]);
-  });
-
-  // Its own words on purpose, so only the keys are held against the package:
-  // a key the field renamed would leave the folder hint silently unsaid.
-  it('hangs the folder hint on keys the file field still has', () => {
-    const stale = Object.keys(folderFieldWords()).filter(
-      (key) => keys.get(key)?.tags.has('nldd-file-field') !== true,
+  it('hangs our own words on keys the package still has', () => {
+    const stale = [...Object.keys(ownWords()), ...Object.keys(folderFieldWords())].filter(
+      (key) => packageText(key) === undefined,
     );
     expect(stale).toEqual([]);
   });
 
-  it('hands every key to an element of its own component, and one this app uses', () => {
-    const misplaced = answered()
-      .filter(([tag, key]) => keys.get(key)?.tags.has(tag) !== true || !used.has(tag))
-      .map(([tag, key]) => `${key} on ${tag}`);
-    expect(misplaced).toEqual([]);
-  });
-
-  it('excuses no key it also answers', () => {
-    const both = answered()
-      .map(([, key]) => key)
-      .filter((key) => UNREACHED[key] !== undefined);
-    expect(both).toEqual([]);
-  });
-
-  it('says the same Dutch the package says, but for what it rewords on purpose', () => {
-    const changed = answered()
-      .filter(([, key, dutch]) => REWORDED[key] === undefined && dutch !== keys.get(key)?.dutch)
-      .map(([, key, dutch]) => `${key}: "${dutch}" against "${keys.get(key)?.dutch}"`);
-    expect(changed).toEqual([]);
-  });
-
-  it('rewords a word only while the package still says what we moved away from', () => {
-    const spoken = new Map(answered().map(([, key, dutch]) => [key, dutch]));
-    const stale = Object.entries(REWORDED)
-      .filter(
-        ([key, original]) =>
-          keys.get(key)?.dutch !== original ||
-          spoken.get(key) === undefined ||
-          spoken.get(key) === original,
-      )
+  it('rewords every Dutch text of the package that reads as the name of the product', () => {
+    _setLocaleForTest('nl');
+    const own = ownWords();
+    const unseen = Object.entries(nl)
+      .filter(([key, text]) => PRODUCT_NAME.test(text) && own[key] === undefined)
+      .map(([key, text]) => `${key}: "${text}"`);
+    expect(unseen).toEqual([]);
+    const ours = Object.entries(own)
+      .filter(([, text]) => PRODUCT_NAME.test(text))
       .map(([key]) => key);
+    expect(ours).toEqual([]);
+  });
+
+  it('rewords only what the package still says that way', () => {
+    _setLocaleForTest('nl');
+    const stale = Object.keys(ownWords()).filter((key) => !PRODUCT_NAME.test(packageText(key) ?? ''));
     expect(stale).toEqual([]);
+  });
+
+  it('keeps the package English where it rewords the Dutch', () => {
+    _setLocaleForTest('en');
+    const apart = Object.entries(ownWords())
+      .filter(([key, text]) => enUS[key as keyof typeof enUS] !== text)
+      .map(([key, text]) => `${key}: "${text}" against "${enUS[key as keyof typeof enUS]}"`);
+    expect(apart).toEqual([]);
   });
 });

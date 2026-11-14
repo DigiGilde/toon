@@ -17,6 +17,7 @@ import { ref } from 'vue';
 import UploadFeedback from './UploadFeedback.vue';
 import type { IntakeStep } from './uploadIntake';
 import { t } from '@/i18n';
+import { folderFieldWords } from '@/i18n/designSystem';
 
 defineProps<{
   required: boolean;
@@ -99,7 +100,7 @@ defineExpose({ field, handOver, clearField });
         ref="field"
         name="file"
         accept=".zip,.tar.gz,.tgz,.html"
-        data-takes-folders
+        :translations.prop="folderFieldWords()"
         :required="required || undefined"
         :invalid="invalid || undefined"
         data-testid="upload-input"

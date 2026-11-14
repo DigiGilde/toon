@@ -684,10 +684,14 @@ describe('UploadZone: dragging', () => {
 
   // nldd-file-field takes a drop on itself and refuses a folder or more than
   // one file, while the zone packs exactly those; one drop must get one answer.
-  it('marks the field as one that takes a folder too', async () => {
+  it('tells the field that a folder may be dragged too', async () => {
     const { wrapper, field } = await mountComponent();
 
-    expect(field.hasAttribute('data-takes-folders')).toBe(true);
+    expect(
+      (field as HTMLElement & { translations?: Record<string, string> }).translations?.[
+        'components.file-field.drag-here-text'
+      ],
+    ).toBe('Sleep het bestand of de map hierheen');
 
     wrapper.unmount();
   });
