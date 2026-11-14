@@ -33,9 +33,23 @@ are needed. On every deploy CI sets only the image of that component.
    platform assigns a project key (the `project-id` that CI uses).
 2. Put the administrators of Toon in as project members (`users:` in the
    project file, role `admin`).
-3. Create an API key for CI and set it as the repository secret
-   `ZAD_API_KEY`. Set the project key as the repository variable
-   `ZAD_PROJECT_ID`.
+3. Create an API key for CI and keep it as the secret `ZAD_API_KEY` of the
+   GitHub environment `productie`, which admits release tags only. A job
+   reads an environment secret only when it names the environment, and only
+   the release App can create a `v*` tag (the tag rulesets in
+   `docs/releasing.md`), so no other run gets the key. Name the rule's type:
+   a branch rule `v*` would admit a branch of that name and refuse the tag.
+
+   ```bash
+   gh api --method PUT repos/DigiGilde/toon/environments/productie \
+     -F 'deployment_branch_policy[protected_branches]=false' \
+     -F 'deployment_branch_policy[custom_branch_policies]=true'
+   gh api --method POST repos/DigiGilde/toon/environments/productie/deployment-branch-policies \
+     -f name='v*' -f type=tag
+   gh secret set ZAD_API_KEY --env productie --repo DigiGilde/toon
+   ```
+
+   Set the project key as the repository variable `ZAD_PROJECT_ID`.
 
 ## 3. Getting the domain and subdomain approved
 
