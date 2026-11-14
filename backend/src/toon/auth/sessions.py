@@ -374,7 +374,10 @@ def valid_return_to(value: str | None, default: str = DEFAULT_RETURN_TO) -> str:
 
 
 def _session_from_cookie(request: Request, cookie: str, kind: SessionKind) -> Session | None:
-    token = request.cookies.get(cookie)
+    return _session_from_token(request, request.cookies.get(cookie), kind)
+
+
+def _session_from_token(request: Request, token: str | None, kind: SessionKind) -> Session | None:
     if not token:
         return None
     secret = request.app.state.settings.session_secret
@@ -406,6 +409,56 @@ def content_anchor_session_from_request(request: Request) -> Session | None:
     `/-/` receive. This is what lets the login hand out a cookie for the next
     site without a round trip to the IdP."""
     return _session_from_cookie(request, CONTENT_ANCHOR_COOKIE, SessionKind.CONTENT)
+
+
+def raw_cookie_values(request: Request, name: str) -> list[str]:
+    """Every value the request carries under the cookie `name`, in the order
+    it carries them.
+
+    A cookie set for the same name from a sibling host, or by a page's own
+    script, sits beside the visitor's own for another path, and
+    `request.cookies` keeps just one of them without a sign that there were
+    more. So this reads the raw Cookie headers, split and trimmed the way
+    Starlette splits them."""
+    values: list[str] = []
+    for header in request.headers.getlist("cookie"):
+        for chunk in header.split(";"):
+            found, separator, value = chunk.partition("=")
+            if separator and found.strip() == name:
+                values.append(value.strip())
+    return values
+
+
+def content_anchor_is_duplicated(request: Request) -> bool:
+    """Whether the request carries the anchor cookie more than once. One set
+    at another path by a page's own script, or from a sibling host, can
+    shadow the visitor's own (`raw_cookie_values`), and a site cookie minted
+    from it would replace the visitor's own, which no script could."""
+    return len(raw_cookie_values(request, CONTENT_ANCHOR_COOKIE)) > 1
+
+
+def content_anchor_sessions_from_request(request: Request) -> list[Session]:
+    """Every content session a correctly signed anchor on the request names,
+    each once, in the order the request carries them. With the anchor more
+    than once, nothing tells which value is the visitor's own, so what ends a
+    session (the logout, the rotation at a login) ends all of them."""
+    if not content_anchor_is_duplicated(request):
+        session = content_anchor_session_from_request(request)
+        return [session] if session is not None else []
+    found: dict[str, Session] = {}
+    for token in raw_cookie_values(request, CONTENT_ANCHOR_COOKIE):
+        session = _session_from_token(request, token, SessionKind.CONTENT)
+        if session is not None:
+            found.setdefault(session.id, session)
+    return list(found.values())
+
+
+def sole_content_anchor_session_from_request(request: Request) -> Session | None:
+    """The anchor's content session, or None when the anchor arrives more
+    than once: then nothing tells which value is the visitor's own."""
+    if content_anchor_is_duplicated(request):
+        return None
+    return content_anchor_session_from_request(request)
 
 
 def top_level_navigation(request: Request) -> bool:
@@ -598,11 +651,14 @@ __all__ = [
     "check_signature",
     "clear_content_session_cookies",
     "clear_session_cookies",
+    "content_anchor_is_duplicated",
     "content_anchor_session_from_request",
+    "content_anchor_sessions_from_request",
     "content_session_from_request",
     "content_site_prefix",
     "csrf_valid",
     "parse_site_path",
+    "raw_cookie_values",
     "session_from_request",
     "set_content_anchor_cookies",
     "set_content_session_cookie",
@@ -611,6 +667,7 @@ __all__ = [
     "sign",
     "sign_key_cookie",
     "site_prefix",
+    "sole_content_anchor_session_from_request",
     "top_level_navigation",
     "valid_return_to",
     "visitor_from_request",

@@ -1003,6 +1003,40 @@ class TestContentCookiePerSite:
         assert response.status_code == 302
         assert response.headers["location"].startswith(idp.issuer + "/authorize?")
 
+    @pytest.mark.parametrize("planted_path", ["/", "/-/login"], ids=["read-last", "read-first"])
+    async def test_a_second_anchor_gets_no_shortcut(self, content_client, app, idp, planted_path):
+        """The script of an unshielded page, or a sibling host, sets an anchor
+        of its own beside the visitor's and sends the tab here. Whichever value
+        comes last would be read: at `/` the planter's, and its site cookie
+        would replace the visitor's own at that path, which no script can
+        overwrite. So no shortcut while the anchor arrives twice: the IdP, and
+        the visitor's own site cookie stays as it was."""
+        secret = app.state.settings.session_secret
+        await _complete_content_login(content_client, idp, return_to="/fin/rapport/")
+        own = check_signature(secret, content_client.cookies.get(CONTENT_SESSION_COOKIE))
+        planter = app.state.session_store.create_session(
+            sub="ander", email=None, email_verified=False, acr="urn:acr:hoog", kind=SessionKind.CONTENT
+        )
+        content_client.cookies.set(
+            CONTENT_ANCHOR_COOKIE, sign(secret, planter.id), domain="content.toon.example", path=planted_path
+        )
+        idp.token_requests.clear()
+
+        response = await content_client.get(
+            PATH_CONTENT_LOGIN, params={"returnTo": "/fin/rapport/"}, headers=self.NAVIGATION
+        )
+
+        assert response.status_code == 302
+        assert response.headers["location"].startswith(idp.issuer + "/authorize?")
+        assert not any(
+            k.startswith(CONTENT_SESSION_COOKIE + "=") for k in response.headers.get_list("set-cookie")
+        )
+        site_cookies = [cookie for cookie in content_client.cookies.jar if cookie.name == CONTENT_SESSION_COOKIE]
+        assert [(cookie.path, check_signature(secret, cookie.value)) for cookie in site_cookies] == [
+            ("/fin/rapport/", own)
+        ]
+        assert app.state.session_store.get_session(planter.id).content_sites == frozenset()
+
     async def test_without_a_session_the_login_is_the_ordinary_one(self, content_client, idp):
         response = await content_client.get(
             PATH_CONTENT_LOGIN, params={"returnTo": "/fin/jaarverslag/"}, headers=self.NAVIGATION
@@ -1063,6 +1097,233 @@ class TestContentCookiePerSite:
         )
         cookie_header = f"{CONTENT_SESSION_COOKIE}={token}"
         assert content_session_from_request(_request_with_cookies(app, cookie_header)) is None
+
+
+def _content_session(app, *, sub: str, sites: tuple[str, ...] = ()):
+    """A content session straight in the store, and its signed anchor value."""
+    store: SessionStore = app.state.session_store
+    session = store.create_session(sub=sub, email=None, email_verified=False, acr="acr", kind=SessionKind.CONTENT)
+    for prefix in sites:
+        store.note_content_site(session.id, prefix)
+    return session, sign(app.state.settings.session_secret, session.id)
+
+
+def _cleared(response) -> list[tuple[str, str]]:
+    """(name, path) of every cookie the response deletes, in order."""
+    return [
+        (k.split("=", 1)[0], k.lower().split("path=", 1)[1].split(";", 1)[0])
+        for k in response.headers.get_list("set-cookie")
+        if "max-age=0" in k.lower()
+    ]
+
+
+class TestTheAnchorMoreThanOnce:
+    """The anchor can arrive a second time under the same name, set at `/` by
+    a page's own script or from a sibling host. The browser sends the longer
+    path first, so `request.cookies`, which keeps the last value, would read
+    the other one. What ends a session ends every session a correctly signed
+    value names; what only reads one ignores the anchor then."""
+
+    def _plant(self, client, value: str) -> None:
+        client.cookies.set(CONTENT_ANCHOR_COOKIE, value, domain="content.toon.example", path="/")
+
+    async def test_one_anchor_names_its_session_or_none(self, app):
+        session, value = _content_session(app, sub="bezoeker")
+        assert sessions_mod.content_anchor_sessions_from_request(
+            _request_with_cookies(app, f"{CONTENT_ANCHOR_COOKIE}={value}")
+        ) == [session]
+        assert sessions_mod.content_anchor_sessions_from_request(
+            _request_with_cookies(app, f"{CONTENT_ANCHOR_COOKIE}=vervalst.abc")
+        ) == []
+        assert sessions_mod.content_anchor_sessions_from_request(_request_with_cookies(app, "")) == []
+
+    async def test_every_correctly_signed_value_names_its_session_once(self, app):
+        visitor, visitor_value = _content_session(app, sub="bezoeker")
+        other, other_value = _content_session(app, sub="ander")
+        admin = app.state.session_store.create_session(sub="beheerder", email=None, email_verified=False, acr="acr")
+        admin_value = sign(app.state.settings.session_secret, admin.id)
+        request = _request_with_cookies(
+            app,
+            f"{CONTENT_ANCHOR_COOKIE}={visitor_value}; {CONTENT_ANCHOR_COOKIE}=vervalst.abc; "
+            f"{CONTENT_ANCHOR_COOKIE}={admin_value}; {CONTENT_ANCHOR_COOKIE}={other_value}; "
+            f"{CONTENT_ANCHOR_COOKIE}={visitor_value}",
+        )
+
+        assert request.cookies[CONTENT_ANCHOR_COOKIE] == visitor_value
+        assert sessions_mod.content_anchor_sessions_from_request(request) == [visitor, other]
+
+    async def test_values_in_separate_cookie_headers_count_too(self, app):
+        from starlette.requests import Request
+
+        visitor, visitor_value = _content_session(app, sub="bezoeker")
+        other, other_value = _content_session(app, sub="ander")
+        request = Request(
+            {
+                "type": "http",
+                "method": "GET",
+                "path": "/",
+                "headers": [
+                    (b"cookie", f"{CONTENT_ANCHOR_COOKIE}={visitor_value}".encode()),
+                    (b"cookie", f"{CONTENT_ANCHOR_COOKIE}={other_value}".encode()),
+                ],
+                "app": app,
+                "query_string": b"",
+            }
+        )
+        assert sessions_mod.content_anchor_sessions_from_request(request) == [visitor, other]
+        assert sessions_mod.sole_content_anchor_session_from_request(request) is None
+
+    async def test_a_reader_of_one_session_takes_the_anchor_only_when_it_arrives_once(self, app):
+        visitor, visitor_value = _content_session(app, sub="bezoeker")
+        _, other_value = _content_session(app, sub="ander")
+
+        once = _request_with_cookies(app, f"{CONTENT_ANCHOR_COOKIE}={visitor_value}")
+        twice = _request_with_cookies(
+            app, f"{CONTENT_ANCHOR_COOKIE}={visitor_value}; {CONTENT_ANCHOR_COOKIE}={other_value}"
+        )
+        same_value_twice = _request_with_cookies(
+            app, f"{CONTENT_ANCHOR_COOKIE}={visitor_value}; {CONTENT_ANCHOR_COOKIE}={visitor_value}"
+        )
+
+        assert sessions_mod.sole_content_anchor_session_from_request(once) == visitor
+        assert sessions_mod.sole_content_anchor_session_from_request(twice) is None
+        assert sessions_mod.sole_content_anchor_session_from_request(same_value_twice) is None
+
+    async def test_logout_with_one_anchor_clears_it_at_its_own_path_only(self, content_client, app, idp, audit):
+        await _complete_content_login(content_client, idp, return_to="/fin/rapport/")
+        session_id = check_signature(
+            app.state.settings.session_secret, content_client.cookies.get(CONTENT_ANCHOR_COOKIE)
+        )
+        audit.records.clear()
+
+        response = await content_client.get("/-/logout")
+
+        assert _cleared(response) == [(CONTENT_ANCHOR_COOKIE, "/-/"), (CONTENT_SESSION_COOKIE, "/fin/rapport/")]
+        assert app.state.session_store.get_session(session_id) is None
+        assert audit.only().actor.identifier == "gebruiker-1"
+
+    async def test_logout_ends_every_session_a_signed_anchor_names(self, content_client, app, idp, audit):
+        await _complete_content_login(content_client, idp, return_to="/fin/rapport/")
+        visitor_id = check_signature(
+            app.state.settings.session_secret, content_client.cookies.get(CONTENT_ANCHOR_COOKIE, path="/-/")
+        )
+        other, other_value = _content_session(app, sub="ander", sites=("/ander/site/", "/fin/rapport/"))
+        self._plant(content_client, other_value)
+        audit.records.clear()
+
+        response = await content_client.get("/-/logout")
+
+        store = app.state.session_store
+        assert store.get_session(visitor_id) is None
+        assert store.get_session(other.id) is None
+        cleared = _cleared(response)
+        assert (CONTENT_ANCHOR_COOKIE, "/-/") in cleared
+        assert (CONTENT_ANCHOR_COOKIE, "/") in cleared
+        assert (CONTENT_SESSION_COOKIE, "/fin/rapport/") in cleared
+        assert (CONTENT_SESSION_COOKIE, "/ander/site/") in cleared
+        # One deletion per path, also where both sessions had the site.
+        assert len(cleared) == len(set(cleared)) == 4
+        assert content_client.cookies.get(CONTENT_ANCHOR_COOKIE) is None
+        assert [(r.action, r.result, r.actor.identifier, r.refs) for r in audit.records] == [
+            (vocabulary.LOGOUT, vocabulary.ALLOWED, "gebruiker-1", {"kind": "content"}),
+            (vocabulary.LOGOUT, vocabulary.ALLOWED, "ander", {"kind": "content"}),
+        ]
+
+    async def test_logout_ends_the_visitors_session_beside_an_invalid_value(self, content_client, app, idp, audit):
+        await _complete_content_login(content_client, idp, return_to="/fin/rapport/")
+        visitor_id = check_signature(
+            app.state.settings.session_secret, content_client.cookies.get(CONTENT_ANCHOR_COOKIE, path="/-/")
+        )
+        self._plant(content_client, "vervalst.abc")
+        audit.records.clear()
+
+        response = await content_client.get("/-/logout")
+
+        assert app.state.session_store.get_session(visitor_id) is None
+        assert _cleared(response) == [
+            (CONTENT_ANCHOR_COOKIE, "/-/"),
+            (CONTENT_SESSION_COOKIE, "/fin/rapport/"),
+            (CONTENT_ANCHOR_COOKIE, "/"),
+        ]
+        assert audit.only().actor.identifier == "gebruiker-1"
+
+    async def test_logout_with_only_an_invalid_value_ends_nothing(self, content_client, app, audit):
+        bystander, _ = _content_session(app, sub="ander")
+        self._plant(content_client, "vervalst.abc")
+
+        response = await content_client.get("/-/logout")
+
+        assert response.status_code == 303
+        assert _cleared(response) == [(CONTENT_ANCHOR_COOKIE, "/-/")]
+        assert audit.records == []
+        assert app.state.session_store.get_session(bystander.id) is not None
+
+    async def test_logout_with_two_invalid_values_ends_nothing_and_clears_both(self, content_client, app, audit):
+        content_client.cookies.set(
+            CONTENT_ANCHOR_COOKIE, "vervalst.abc", domain="content.toon.example", path="/-/"
+        )
+        self._plant(content_client, "ook-vervalst.def")
+
+        response = await content_client.get("/-/logout")
+
+        assert _cleared(response) == [(CONTENT_ANCHOR_COOKIE, "/-/"), (CONTENT_ANCHOR_COOKIE, "/")]
+        assert audit.records == []
+
+    async def test_a_login_ends_the_previous_session_beside_a_second_anchor(self, content_client, app, idp):
+        secret = app.state.settings.session_secret
+        await _complete_content_login(content_client, idp, return_to="/fin/")
+        previous = check_signature(secret, content_client.cookies.get(CONTENT_ANCHOR_COOKIE, path="/-/"))
+        other, other_value = _content_session(app, sub="ander")
+        self._plant(content_client, other_value)
+
+        await _complete_content_login(content_client, idp, return_to="/fin/")
+
+        current = check_signature(secret, content_client.cookies.get(CONTENT_ANCHOR_COOKIE, path="/-/"))
+        store = app.state.session_store
+        assert current != previous
+        assert store.get_session(previous) is None
+        assert store.get_session(other.id) is None
+        assert store.get_session(current) is not None
+
+    async def test_a_login_clears_a_second_anchor_at_the_root(self, content_client, app, idp):
+        await _complete_content_login(content_client, idp, return_to="/fin/")
+        _, other_value = _content_session(app, sub="ander")
+        self._plant(content_client, other_value)
+
+        response = await _complete_content_login(content_client, idp, return_to="/fin/")
+
+        assert (CONTENT_ANCHOR_COOKIE, "/") in _cleared(response)
+        anchors = [cookie for cookie in content_client.cookies.jar if cookie.name == CONTENT_ANCHOR_COOKIE]
+        assert [cookie.path for cookie in anchors] == ["/-/"]
+
+    async def test_a_login_with_one_anchor_clears_none(self, content_client, app, idp):
+        await _complete_content_login(content_client, idp, return_to="/fin/")
+
+        response = await _complete_content_login(content_client, idp, return_to="/fin/")
+
+        assert not any(name == CONTENT_ANCHOR_COOKIE for name, _ in _cleared(response))
+
+    NAVIGATION: ClassVar[dict[str, str]] = {"Sec-Fetch-Dest": "document"}
+
+    async def test_the_shortcut_to_another_site_needs_the_anchor_once(self, content_client, app, idp):
+        await _complete_content_login(content_client, idp, return_to="/fin/rapport/")
+
+        once = await content_client.get(
+            PATH_CONTENT_LOGIN, params={"returnTo": "/fin/jaarverslag/"}, headers=self.NAVIGATION
+        )
+        assert once.status_code == 303
+        assert "path=/fin/jaarverslag/" in _set_cookie_header(once, CONTENT_SESSION_COOKIE).lower()
+
+        other, other_value = _content_session(app, sub="ander")
+        self._plant(content_client, other_value)
+        twice = await content_client.get(
+            PATH_CONTENT_LOGIN, params={"returnTo": "/ander/site/"}, headers=self.NAVIGATION
+        )
+
+        assert twice.status_code == 302
+        assert twice.headers["location"].startswith(idp.issuer + "/authorize?")
+        assert not any(k.startswith(CONTENT_SESSION_COOKIE + "=") for k in twice.headers.get_list("set-cookie"))
+        assert app.state.session_store.get_session(other.id).content_sites == frozenset()
 
 
 def _cookie_names_sent_to(client: httpx.AsyncClient, path: str) -> set[str]:

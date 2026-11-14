@@ -29,7 +29,7 @@ from helpers_oidc import (
 from toon.audit import vocabulary
 from toon.auth.oidc import RefreshRejectedError
 from toon.auth.revalidation import RECHECK_BACKOFF, idp_fault, revalidation_status
-from toon.auth.sessions import SessionStore
+from toon.auth.sessions import CONTENT_ANCHOR_COOKIE, SessionKind, SessionStore, sign
 from toon.models.audit import ActorKind
 
 pytestmark = pytest.mark.asyncio
@@ -379,6 +379,38 @@ async def test_a_content_session_is_rechecked_too() -> None:
 
         assert app.state.session_store.get_session(session.id) is None
         assert recorder.only().refs == {"kind": "content"}
+
+
+async def test_an_anchor_that_arrives_more_than_once_is_not_rechecked() -> None:
+    """Nothing tells which of two anchor values is the visitor's own, so the
+    anchor counts as absent, as on a request without one."""
+    idp, app = _make()
+    idp.refresh_error = "invalid_grant"
+    idp.refresh_status = 400
+    async with make_content_test_client(app) as client:
+        visitor = set_content_session_cookie(client, app, refresh_token="ververstoken-1")
+        other = app.state.session_store.create_session(
+            sub="ander",
+            email=None,
+            email_verified=False,
+            acr="urn:acr:hoog",
+            kind=SessionKind.CONTENT,
+            refresh_token="ververstoken-2",
+        )
+        client.cookies.set(
+            CONTENT_ANCHOR_COOKIE,
+            sign(app.state.settings.session_secret, other.id),
+            domain="content.toon.example",
+            path="/",
+        )
+        _age(app, visitor, seconds=RECHECK_S + 1)
+        _age(app, other, seconds=RECHECK_S + 1)
+
+        await client.get("/-/login")
+
+        assert _refresh_grants(idp) == []
+        assert app.state.session_store.get_session(visitor.id) is not None
+        assert app.state.session_store.get_session(other.id) is not None
 
 
 async def test_no_token_material_in_logs_or_audit_refs(caplog: pytest.LogCaptureFixture) -> None:
