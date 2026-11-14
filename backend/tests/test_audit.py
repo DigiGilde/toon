@@ -380,9 +380,9 @@ async def _committed_row(dsn: str, action: str, result: str, age: timedelta) -> 
 async def test_purge_removes_what_has_expired_and_nothing_else(
     migrated_dsn: str, db_connection: asyncpg.Connection
 ) -> None:
-    looked_long_ago = await _committed_row(migrated_dsn, "content_access", "allowed", timedelta(days=91))
+    looked_long_ago = await _committed_row(migrated_dsn, "content_access", "allowed", timedelta(days=181))
     looked_last_week = await _committed_row(migrated_dsn, "content_access", "allowed", timedelta(days=7))
-    refused_long_ago = await _committed_row(migrated_dsn, "content_access", "refused", timedelta(days=91))
+    refused_long_ago = await _committed_row(migrated_dsn, "content_access", "refused", timedelta(days=181))
 
     deleted = await purge(migrated_dsn, batch=1)
 
@@ -395,8 +395,8 @@ async def test_purge_removes_what_has_expired_and_nothing_else(
 
 
 async def test_purge_records_that_it_ran(migrated_dsn: str, db_connection: asyncpg.Connection) -> None:
-    await _committed_row(migrated_dsn, "logout", "allowed", timedelta(days=91))
-    await _committed_row(migrated_dsn, "logout", "allowed", timedelta(days=92))
+    await _committed_row(migrated_dsn, "logout", "allowed", timedelta(days=181))
+    await _committed_row(migrated_dsn, "logout", "allowed", timedelta(days=182))
 
     await purge(migrated_dsn, batch=1)
 
@@ -429,7 +429,7 @@ async def _committed_viewer(dsn: str, age: timedelta) -> uuid.UUID:
 async def test_purge_removes_content_viewers_after_90_days(
     migrated_dsn: str, db_connection: asyncpg.Connection
 ) -> None:
-    stale = await _committed_viewer(migrated_dsn, timedelta(days=91))
+    stale = await _committed_viewer(migrated_dsn, timedelta(days=181))
     fresh = await _committed_viewer(migrated_dsn, timedelta(days=7))
 
     deleted = await purge(migrated_dsn, batch=1)
@@ -446,8 +446,8 @@ async def test_purge_continues_the_other_table_when_one_fails(
     """A failure purging content_viewers must not stop audit_log_entries from
     being purged (they run independently), and whatever did get deleted still
     lands in the audit_purge row."""
-    await _committed_row(migrated_dsn, "logout", "allowed", timedelta(days=91))
-    stale_viewer = await _committed_viewer(migrated_dsn, timedelta(days=91))
+    await _committed_row(migrated_dsn, "logout", "allowed", timedelta(days=181))
+    stale_viewer = await _committed_viewer(migrated_dsn, timedelta(days=181))
 
     original = retention._delete_in_batches
 
@@ -490,7 +490,7 @@ def test_the_job_refuses_to_run_without_a_dsn(
 def test_the_job_purges_and_logs_the_count_on(
     migrated_dsn: str, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    asyncio.run(_committed_row(migrated_dsn, "logout", "allowed", timedelta(days=91)))
+    asyncio.run(_committed_row(migrated_dsn, "logout", "allowed", timedelta(days=181)))
     monkeypatch.setenv(retention.DB_URL_VAR, migrated_dsn)
     caplog.set_level("INFO")
 
@@ -524,7 +524,7 @@ async def test_purge_logs_and_continues_when_the_audit_table_delete_fails(
     """Mirrors test_purge_continues_the_other_table_when_one_fails, but with
     the failure on the other table: audit_log_entries fails, content_viewers
     still gets purged."""
-    stale_viewer = await _committed_viewer(migrated_dsn, timedelta(days=91))
+    stale_viewer = await _committed_viewer(migrated_dsn, timedelta(days=181))
 
     original = retention._delete_in_batches
 

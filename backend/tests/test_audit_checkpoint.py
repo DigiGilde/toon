@@ -425,7 +425,7 @@ async def test_a_head_that_aged_out_is_not_an_accusation(
 ) -> None:
     """The published head row is gone after its deadline: the whole quiet chain
     went in the purge, which is what it is supposed to do."""
-    await insert_chained_audit_row(connection, "logout", "allowed", timedelta(days=100))
+    await insert_chained_audit_row(connection, "logout", "allowed", timedelta(days=190))
     published = checkpoint.parse((await checkpoint.collect(migrated_dsn)).as_json())
     (head,) = published.heads
 
@@ -490,7 +490,7 @@ async def test_a_purged_front_is_reported_but_is_not_an_accusation(
     """The purge takes the oldest rows every night, so a published front that
     is gone after its published deadline is the normal state of an old
     environment. It is reported, and it does not make the check fail."""
-    await _two_in_one_chain(connection, "content_access", timedelta(days=95))
+    await _two_in_one_chain(connection, "content_access", timedelta(days=185))
     published = checkpoint.parse((await checkpoint.collect(migrated_dsn)).as_json())
     (head,) = [one for one in published.heads if one.first_seq != one.seq]
 
@@ -651,7 +651,7 @@ async def test_main_does_not_fail_on_what_the_purge_did(
 ) -> None:
     """A nightly check that goes red on the nightly purge would be turned off
     within a week, so this one reports it and exits 0."""
-    await _two_in_one_chain(connection, "login", timedelta(days=95))
+    await _two_in_one_chain(connection, "login", timedelta(days=185))
     line = tmp_path / "kop.log"
     line.write_text(f"INFO {checkpoint.MARKER} {(await checkpoint.collect(migrated_dsn)).as_json()}\n")
     await retention.purge(migrated_dsn)

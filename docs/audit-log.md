@@ -33,7 +33,7 @@ via SSO. Without this table such a person would not be traceable to anything
 in the audit log: a content-only visitor never gets a `members` row (that
 comes into being only on the first admin visit, `auth/members.py`). Updated
 on every successful content-host login (so `last_seen_at` is the last
-*login*, not every individual page view); rows older than 90 days (by
+*login*, not every individual page view); rows older than 180 days (by
 `last_seen_at`) go along in the same purge as the audit log
 (`audit_purge`), see "Retention" below. Only a verified email address counts
 in the forward lookup (`actor-pseudonym` below); the SSO subject itself
@@ -392,13 +392,18 @@ As short as it can be, as long as BIO2 asks.
 
 | Period | What |
 |---|---|
-| **90 days** | viewing and presence: `content_access` with `allowed`, `login` with `allowed`, `logout`, `cli_logout` with `allowed` |
+| **180 days** | viewing and presence: `content_access` with `allowed`, `login` with `allowed`, `logout`, `cli_logout` with `allowed` |
 | **3 years** (1096 days) | everything else: every refusal, login redirect, admin operation, publication, and every access to the audit log itself. Also `cli_login` and `cli_token_issued`: those hand out a credential that lives up to 90 days, so whoever approved it must be traceable for longer than the credential itself |
 
 Three years is the floor BIO2 5.28.01 sets for information about security
 incidents; every refusal and every admin operation can become part of one.
-Viewing behaviour is not, and therefore does not stay any longer than needed
-to trace a leak in the weeks after.
+Viewing behaviour is not, but it is what shows who read a leaked page, and
+BIO2 8.15.04 sets the term of logging by risk, counting on attackers who stay
+inside for a long time. An intrusion is often found months after it began, so
+viewing and presence stay half a year, the period BIO2 8.18.02 names for the
+logging of system tools. `content_viewers` keeps the same term, or a
+pseudonym in a viewing row could no longer be traced to a content-only
+viewer.
 
 The periods are a SQL function in the database and are enforced by a
 trigger: only what is older than its period may be deleted. A shorter period
@@ -412,13 +417,13 @@ head ("Publishing the chain head"), in a background job
 (`audit/retention_job.py`). A run that fails logs an ERROR, and the next night
 tries again. `python -m toon.audit.retention` (`just purge-audit-log`) does the
 same purge by hand, on `TOON_DB_URL`. `content_viewers` follows the same
-fixed period of 90 days (by `last_seen_at`), without the per-(action,
+fixed period of 180 days (by `last_seen_at`), without the per-(action,
 result) function that `audit_log_entries` has.
 
 ### During an incident
 
 BIO2 5.28.01 keeps the information about a (suspected) security incident for
-at least three years, logging included. A 90-day row that belongs to an
+at least three years, logging included. A 180-day row that belongs to an
 incident found today would otherwise be purged within days. So:
 
 1. Set `TOON_AUDIT_PURGE_PAUSED=true` and roll it out with a deployment
@@ -453,7 +458,7 @@ The guarantee therefore rests entirely on the triggers from migration
 - `audit_log_delete_after_retention` refuses every `DELETE` of a row that
   has not yet reached its retention period.
 - `content_viewer_delete_after_retention` does the same for
-  `content_viewers` at 90 days.
+  `content_viewers` at 180 days.
 - `audit_log_entries_no_truncate`, `audit_log_chain_heads_no_truncate` and
   `content_viewers_no_truncate` refuse `TRUNCATE` on those tables. It fires
   no row trigger, so without these it would get past every guard above in
@@ -496,7 +501,7 @@ point: an insert has to read the tail of its chain under a lock, and audit rows
 are written on essentially every request. One global chain would put every
 audit write in the application behind a single lock. Which chain a row lands
 in follows from its retention period and its id: chains 0 to 15 hold the
-90-day rows, chains 16 to 31 the three-year rows, and the id picks one of the
+180-day rows, chains 16 to 31 the three-year rows, and the id picks one of the
 sixteen. That spreads the contention sixteen ways while the shard stays part of
 the hash (a row cannot be moved to another chain unnoticed). The lock is a
 transaction-scoped advisory lock, so it is released on commit or rollback and
@@ -506,14 +511,14 @@ its own.
 Keeping the two periods apart is what makes the purge and the chain fit
 together. Within a chain `occurred_at` rises with `chain_seq`, and every row
 has the same period, so what has expired is always the oldest stretch of the
-chain. Were the periods mixed in one chain, the purge would cut the 90-day
-rows out from between the three-year rows, and from day ninety on every chain
+chain. Were the periods mixed in one chain, the purge would cut the 180-day
+rows out from between the three-year rows, and from day 180 on every chain
 would show gaps that look exactly like a deletion.
 
 **The head lives apart from the rows.** `audit_log_chain_heads` keeps, per
 chain, the last position, its hash and when that row was written; the trigger
 chains a new row onto that, not onto the newest row still in the table. A
-quiet 90-day chain can age out completely, and a chain that then restarted at
+quiet 180-day chain can age out completely, and a chain that then restarted at
 position 1 would hand out positions a published checkpoint already holds a
 different hash for. The head table holds no personal data, only positions and
 hashes, so it outlives the rows without stretching any retention period.
@@ -524,7 +529,7 @@ It recomputes the hashes with the very same SQL function the trigger uses, so
 the check cannot drift away from the write.
 
 **A chain does not have to start at position 1.** The retention purge removes
-the oldest rows of a chain, so on any environment older than ninety days the
+the oldest rows of a chain, so on any environment older than 180 days the
 chains begin somewhere above 1, and the row they begin at was hashed over a
 predecessor that is gone. That row is the anchor. Its own hash is still
 checked, recomputed over the `chain_prev_hash` it carries, so rewriting it is a
@@ -743,7 +748,7 @@ no member, content viewer or linked repository that pseudonymises to that
 pseudonym. Several causes: the pepper has been rotated since that row was
 written and the pepper it was made under is no longer in
 `TOON_AUDIT_PEPPER_PREVIOUS`; the actor only ever visited content via the
-content-host SSO and that visit is more than 90 days ago, so its
+content-host SSO and that visit is more than 180 days ago, so its
 `content_viewers` row has been purged; or the repository has since been
 unlinked, or deleted along with its site or group (`ON DELETE CASCADE`). A
 repository that has never been linked cannot be traced by `actor-identity` by
@@ -906,7 +911,7 @@ but it already follows the intent of that standard:
   encrypted, identifying code of the data subject.
 - **Fixed vocabulary.** Actions, results and reasons are a contract
   (`vocabulary.py`), not free text.
-- **Retention.** 90 days or three years, enforced in the database
+- **Retention.** 180 days or three years, enforced in the database
   ("Retention").
 - **Reading is logged.** `audit_read`, `audit_actor_lookup`,
   `audit_actor_identity` and `audit_ip_reveal` each write a row with a

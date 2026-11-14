@@ -175,11 +175,11 @@ async def _deletable(conn: asyncpg.Connection, audit_id: uuid.UUID) -> bool:
 
 
 @pytest.mark.parametrize(("action", "result"), sorted(vocabulary.SHORT_RETENTION))
-async def test_looking_goes_after_ninety_days(
+async def test_looking_goes_after_180_days(
     db_connection: asyncpg.Connection, action: str, result: str
 ) -> None:
-    fresh = await _audit_row(db_connection, action, result, timedelta(days=89))
-    expired = await _audit_row(db_connection, action, result, timedelta(days=91))
+    fresh = await _audit_row(db_connection, action, result, timedelta(days=179))
+    expired = await _audit_row(db_connection, action, result, timedelta(days=181))
 
     assert not await _deletable(db_connection, fresh)
     assert await _deletable(db_connection, expired)
@@ -229,7 +229,7 @@ async def test_the_database_and_the_code_agree_on_the_terms(db_connection: async
 
 async def test_a_chain_keeps_the_term_of_its_tier(db_connection: asyncpg.Connection) -> None:
     """The delete guard and the purge ask the chain, not the row: chains 0 to
-    15 hold the 90-day rows, 16 to 31 the rest."""
+    15 hold the 180-day rows, 16 to 31 the rest."""
     for shard in (0, 15):
         assert await db_connection.fetchval(
             "SELECT audit_log_chain_retention($1::smallint) = audit_log_retention(0)", shard
@@ -328,7 +328,7 @@ async def test_truncate_cascading_from_elsewhere_is_refused(db_connection: async
     assert await db_connection.fetchval("SELECT count(*) FROM audit_log_entries") == 1
 
 
-async def test_content_viewers_deletable_only_after_ninety_days(db_connection: asyncpg.Connection) -> None:
+async def test_content_viewers_deletable_only_after_180_days(db_connection: asyncpg.Connection) -> None:
     """The BEFORE DELETE trigger on content_viewers bounds the retention job,
     not the WHERE clause in audit/retention.py: a row that is still within its
     term stays, whoever issues the DELETE."""
@@ -342,10 +342,23 @@ async def test_content_viewers_deletable_only_after_ninety_days(db_connection: a
         async with db_connection.transaction():
             await db_connection.execute("DELETE FROM content_viewers WHERE id = $1", fresh)
 
+    almost = await db_connection.fetchval(
+        """
+        INSERT INTO content_viewers (id, sso_subject, email, last_seen_at)
+        VALUES ($1, $2, $3, now() - interval '179 days')
+        RETURNING id
+        """,
+        uuid.uuid4(),
+        f"sub-{uuid.uuid4().hex}",
+        "viewer@example.nl",
+    )
+    refusal = await _refusal(db_connection, "DELETE FROM content_viewers WHERE id = $1", almost)
+    assert f"content_viewers keeps a row until its retention has passed: {almost} may not be deleted yet" in refusal
+
     expired = await db_connection.fetchval(
         """
         INSERT INTO content_viewers (id, sso_subject, email, last_seen_at)
-        VALUES ($1, $2, $3, now() - interval '91 days')
+        VALUES ($1, $2, $3, now() - interval '181 days')
         RETURNING id
         """,
         uuid.uuid4(),
@@ -1332,6 +1345,74 @@ async def test_dropping_storage_ref_goes_down_and_up_again(postgres_container) -
     finally:
         await admin.execute(f'DROP DATABASE "{name}" WITH (FORCE)')
         await admin.close()
+
+
+async def _short_terms(dsn: str) -> tuple[int, int, bool]:
+    """The short audit term and the long one in days, and whether a
+    content_viewers row of 100 days may be deleted."""
+    conn = await asyncpg.connect(dsn)
+    try:
+        short = await conn.fetchval("SELECT extract(day FROM audit_log_retention(0))::int")
+        long = await conn.fetchval("SELECT extract(day FROM audit_log_retention(1))::int")
+        viewer = await conn.fetchval(
+            """
+            INSERT INTO content_viewers (id, sso_subject, email, last_seen_at)
+            VALUES ($1, $2, 'viewer@example.nl', now() - interval '100 days')
+            RETURNING id
+            """,
+            uuid.uuid4(),
+            f"sub-{uuid.uuid4().hex}",
+        )
+        try:
+            async with conn.transaction():
+                await conn.execute("DELETE FROM content_viewers WHERE id = $1", viewer)
+        except asyncpg.RaiseError:
+            return short, long, False
+        return short, long, True
+    finally:
+        await conn.close()
+
+
+async def test_the_180_day_migration_goes_down_to_90_days_and_up_again(postgres_container) -> None:
+    """The audit term and the content_viewers term move together, both ways,
+    and the three-year term stays where it is."""
+    base = postgres_container.get_connection_url(driver=None)
+    name = f"bewaartermijn_{uuid.uuid4().hex[:8]}"
+    admin = await asyncpg.connect(base)
+    await admin.execute(f'CREATE DATABASE "{name}"')
+    dsn = f"{base.rsplit('/', 1)[0]}/{name}"
+    try:
+        await asyncio.to_thread(_alembic, dsn, "upgrade", "head")
+        assert await _short_terms(dsn) == (180, 1096, False)
+
+        await asyncio.to_thread(_alembic, dsn, "downgrade", "0007_drop_storage_ref")
+        assert await _short_terms(dsn) == (90, 1096, True)
+
+        await asyncio.to_thread(_alembic, dsn, "upgrade", "head")
+        assert await _short_terms(dsn) == (180, 1096, False)
+    finally:
+        await admin.execute(f'DROP DATABASE "{name}" WITH (FORCE)')
+        await admin.close()
+
+
+async def test_nothing_stored_depends_on_the_retention_functions(db_connection: asyncpg.Connection) -> None:
+    """They are IMMUTABLE, so an index, a generated column, a default or a
+    CHECK built on them would keep the value of the old term after 0008
+    replaced the function. None exists: what calls them asks at run time."""
+    dependents = await db_connection.fetch(
+        """
+        SELECT classid::regclass::text AS kind, objid
+        FROM pg_depend
+        WHERE refclassid = 'pg_proc'::regclass
+          AND refobjid IN (
+              'audit_log_retention(integer)'::regprocedure,
+              'audit_log_chain_retention(smallint)'::regprocedure,
+              'audit_log_retention_tier(text, text)'::regprocedure
+          )
+          AND deptype = 'n'
+        """
+    )
+    assert [dict(row) for row in dependents] == []
 
 
 async def _version_columns(dsn: str) -> dict[str, str]:

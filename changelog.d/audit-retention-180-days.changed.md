@@ -1,0 +1,1 @@
+- Visit data, sign-in moments and the SSO details of content viewers are now kept 180 days instead of 90, as BIO2 8.15.04 asks of logging that must cover attackers who stay inside for months.

@@ -2049,7 +2049,7 @@ NL: Final[dict[str, str]] = {
         "If the lookup finds nothing, there is no member, content viewer or repository that pseudonymises to this "
         "pseudonym. Several causes are possible: the pepper has been rotated since that row was written and the "
         "previous pepper is no longer configured; the actor only ever visited content through the content-host SSO "
-        "and that visit was more than 90 days ago "
+        "and that visit was more than 180 days ago "
         "(`content_viewers` is then cleaned up, like the related `content_access` rows); or the repository has since "
         "been unlinked, or deleted along with its site or group (`ON DELETE CASCADE`).\n"
         "\n"
@@ -2070,7 +2070,7 @@ NL: Final[dict[str, str]] = {
         "pseudonimiseert. Meerdere oorzaken komen daarvoor in aanmerking: de pepper is geroteerd sinds die regel "
         "geschreven werd en de vorige pepper is niet meer ingesteld; de actor bezocht alleen ooit content via de "
         "content-host-SSO en dat bezoek ligt al langer "
-        "dan 90 dagen terug (`content_viewers` wordt dan net als de bijbehorende `content_access`-regels opgeruimd); "
+        "dan 180 dagen terug (`content_viewers` wordt dan net als de bijbehorende `content_access`-regels opgeruimd); "
         "of de repository is inmiddels ontkoppeld, of met haar site of groep verwijderd (`ON DELETE CASCADE`).\n"
         "\n"
         "Dat dit een POST is en geen queryparameter, is met opzet, net als bij de andere kant van deze zoekslag.\n"
@@ -2086,11 +2086,11 @@ NL: Final[dict[str, str]] = {
     (
         "Not found. No member, content viewer or linked repository pseudonymises to this value (`PSEUDONYM_UNKNOWN`): "
         "the pepper has been rotated and the previous one is no longer configured, the content viewer was cleaned up "
-        "after 90 days without a visit, or the repository was unlinked or deleted along with its site."
+        "after 180 days without a visit, or the repository was unlinked or deleted along with its site."
     ): (
         "Niet gevonden. Geen lid, content-viewer of gekoppelde repository pseudonimiseert tot deze waarde "
         "(`PSEUDONYM_UNKNOWN`): de pepper is geroteerd en de vorige is niet meer ingesteld, de content-viewer is "
-        "opgeruimd na 90 dagen zonder bezoek, of de repository is ontkoppeld of met haar site verwijderd."
+        "opgeruimd na 180 dagen zonder bezoek, of de repository is ontkoppeld of met haar site verwijderd."
     ),
     (
         "Unprocessable input. `reason` is missing, is shorter than 10 or longer than 500 characters (after stripping "
@@ -2493,14 +2493,14 @@ NL: Final[dict[str, str]] = {
     ),
     (
         "What the identifier belonged to: `member` (translated to their SSO subject), `content_viewer` (an SSO viewer "
-        "of protected content, seen in the last 90 days), `ci` (a repository linked to a site) or `unknown` "
+        "of protected content, seen in the last 180 days), `ci` (a repository linked to a site) or `unknown` "
         "(pseudonymised as given, only for an identifier that is not an e-mail address: an e-mail address that belongs "
         "to nothing gives a 404)."
     ): (
         "Waar de identifier bij hoorde: `member` (vertaald naar zijn SSO-subject), `content_viewer` (een SSO-viewer "
-        "van afgeschermde content, gezien in de laatste 90 dagen), `ci` (een repository die aan een site gekoppeld is) "
-        "of `unknown` (letterlijk gepseudonimiseerd, alleen bij een niet-e-mailadres: een e-mailadres dat nergens bij "
-        "hoort geeft een 404)."
+        "van afgeschermde content, gezien in de laatste 180 dagen), `ci` (een repository die aan een site gekoppeld "
+        "is) of `unknown` (letterlijk gepseudonimiseerd, alleen bij een niet-e-mailadres: een e-mailadres dat nergens "
+        "bij hoort geeft een 404)."
     ),
     "The audit pseudonym that belongs to an identifier.": "Het auditpseudoniem dat bij een identifier hoort.",
     "ID of the audit row; also the second sort key after `occurredAt`.": (

@@ -47,7 +47,7 @@ _DELETE_BATCH = text(
     """
 )
 
-# content_viewers has one term, fixed at 90 days like content_access/allowed
+# content_viewers has one term, fixed at 180 days like content_access/allowed
 # (docs/audit-log.md): no per-row (action, result) lookup, so no function of
 # its own next to audit_log_chain_retention().
 _DELETE_CONTENT_VIEWERS_BATCH = text(
@@ -56,7 +56,7 @@ _DELETE_CONTENT_VIEWERS_BATCH = text(
     WHERE id IN (
         SELECT id
         FROM content_viewers
-        WHERE last_seen_at <= now() - interval '90 days'
+        WHERE last_seen_at <= now() - interval '180 days'
         ORDER BY last_seen_at
         LIMIT :batch
     )

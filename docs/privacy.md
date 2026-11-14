@@ -38,10 +38,10 @@ such rather than assumed.
 |---|---|---|---|---|
 | `members` (`models/identity.py`) | `sso_subject`, `email`, `name`, `platform_role`, `status`, `language`, `created_at`, `last_login_at` | administering group/site membership and roles | SSO Rijk OIDC claims, on first admin-host visit | not time-bounded; tied to account lifecycle (deactivation), see "Retention and deletion" |
 | `group_members` / `site_members` (`models/identity.py`) | `member_id`, `role`, `added_by`, `added_at` | who has what role where | set by an admin | tied to membership |
-| `content_viewers` (`models/audit.py`) | `sso_subject`, `email` (nullable, may be unverified), `email_verified`, `last_seen_at` | makes a content-host SSO login traceable to a person for the audit log; a content-only viewer gets no `members` row | SSO Rijk OIDC claims, on every successful content-host login | 90 days from `last_seen_at`, purged by `audit/retention.py` (`docs/audit-log.md`, "Retention") |
+| `content_viewers` (`models/audit.py`) | `sso_subject`, `email` (nullable, may be unverified), `email_verified`, `last_seen_at` | makes a content-host SSO login traceable to a person for the audit log; a content-only viewer gets no `members` row | SSO Rijk OIDC claims, on every successful content-host login | 180 days from `last_seen_at`, purged by `audit/retention.py` (`docs/audit-log.md`, "Retention") |
 | `invitees` (`models/publication.py`) | `identifier` (email address or `sub`, lowercased), `added_by`, `added_at` | per-site invitee access list | admin input | until removed by an admin; no automatic expiry |
 | `access_keys` (`models/publication.py`) | `label`, `selector`, `verifier_hash` (SHA-256 of a random secret) | secret-link credential, not itself tied to a person | generated on creation | mandatory `expires_at`, 90 days default, 365 days maximum (BIO2 5.18.02, `docs/security.md`) |
-| `audit_log_entries` (`models/audit.py`) | `actor_pseudonym` (HMAC-SHA256 of the actor identifier under `TOON_AUDIT_PEPPER`), `ip_truncated` (/24 IPv4, /48 IPv6), `ip_encrypted` (AES-256-GCM, reversible, under the separate `TOON_AUDIT_IP_KEY`), `action`, `result`, `reason_code`, `refs` (for `group_name` and `site_title` also the previous name or title: free text that members choose, see below) | security and access audit trail | every login, access decision, admin action and CLI event | 90 days for pure viewing/login-success actions, 3 years for everything else, including every refusal, admin operation and publication (`docs/audit-log.md`, "Retention"; enforced in the database by `audit_log_retention()`, `backend/alembic/versions/0001_base.py`) |
+| `audit_log_entries` (`models/audit.py`) | `actor_pseudonym` (HMAC-SHA256 of the actor identifier under `TOON_AUDIT_PEPPER`), `ip_truncated` (/24 IPv4, /48 IPv6), `ip_encrypted` (AES-256-GCM, reversible, under the separate `TOON_AUDIT_IP_KEY`), `action`, `result`, `reason_code`, `refs` (for `group_name` and `site_title` also the previous name or title: free text that members choose, see below) | security and access audit trail | every login, access decision, admin action and CLI event | 180 days for pure viewing/login-success actions (BIO2 8.15.04), 3 years for everything else, including every refusal, admin operation and publication (`docs/audit-log.md`, "Retention"; enforced in the database by `audit_log_retention()`, `backend/alembic/versions/0001_base.py`, short term from `0008_short_retention_180_days.py`) |
 | Admin/content sessions (`auth/sessions.py`) | `sub`, `email`, `name`, refresh token (kept in process memory only, `repr=False`, never logged) | keeps someone logged in | OIDC login | in-memory only, not persisted to the database; expires after 12 hours (`MAX_SESSION_AGE`) or on logout; lost entirely on a restart (`docs/security.md`, "Sessions do not survive a restart") |
 | `cli_device_authorizations` (`models/cli.py`) | `device_hash`, `user_code_hash`, `client_name`, `ip_truncated`, `member_id` | `toon login` device pairing | CLI device flow (RFC 8628) | short-lived: expires after 10 minutes, deleted once exchanged, swept by the cleanup job |
 | `cli_sessions` / `cli_refresh_tokens` (`models/cli.py`) | `member_id`, `client_name`, token selector/hash pairs | CLI publishing sessions | approved by a member in an admin session | access token 1 hour; session up to 30 days after last refresh, 90 days absolute (`docs/security.md`, "CI id token"/"CLI device flow") |
@@ -115,13 +115,13 @@ confirmation belongs with whoever operates the ZAD deployment.
 What Toon does today:
 
 - Audit log rows are deleted by `audit/retention.py` once their retention
-  term (90 days or 3 years, see the table above) has passed. The app runs it
+  term (180 days or 3 years, see the table above) has passed. The app runs it
   every night at 04:00 UTC (`audit/retention_job.py`), which enforces the
   maximum. A database trigger (`audit_log_delete_after_retention`,
   `backend/alembic/versions/0001_base.py`) enforces the minimum: it refuses
   to delete a row before its term is up, even from the application's own
   database account.
-- `content_viewers` rows are purged the same way at a fixed 90 days from
+- `content_viewers` rows are purged the same way at a fixed 180 days from
   `last_seen_at`.
 - During a (suspected) security incident `TOON_AUDIT_PURGE_PAUSED` holds
   both purges, so the information about it stays for the three years BIO2

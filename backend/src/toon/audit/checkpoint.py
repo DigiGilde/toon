@@ -190,7 +190,7 @@ class Finding:
     `serious` is false only for a published row that is gone after its
     published retention deadline: that is what the purge does by itself, and
     a check that reported it as tampering would go off on every environment
-    older than ninety days, so the real finding after it would be read as the
+    older than 180 days, so the real finding after it would be read as the
     purge again. The same absence before the deadline is a removal.
     """
 

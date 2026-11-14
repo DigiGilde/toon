@@ -19,7 +19,7 @@ Rows dropped from the front of a chain are invisible here for the same reason
 a missing first page is: nothing that is left points at them. That is not even
 suspicious, because the retention purge removes the oldest rows of a chain as
 a matter of routine, so a chain that starts above position 1 is the normal
-state of a system that has been running for ninety days. Only a head published
+state of a system that has been running for 180 days. Only a head published
 before those rows went (audit/checkpoint.py) can tell a purge from a
 truncation. The newest end is different: audit_log_chain_heads registers where
 every chain stands, so the newest surviving row is held against that, and a
