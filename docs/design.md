@@ -352,14 +352,11 @@ in the same second, so a date cannot tell them apart. Range on a copy covers
 its compressed bytes. `_encoded` is refused in the root of a bundle, and the
 store never serves a path under it, so a site's own files and these never
 meet. Versions published before this keep their files as they were.
-`TOON_STORE_COMPRESSED=false` keeps new deploys as published, and the
-container's entrypoint then puts every file kept compressed only back at its
-own path (`ingest/uncompress.py`): the way back to an image from before this.
 Code:
-`ingest/precompress.py`, `ingest/store.py`, `ingest/uncompress.py`,
+`ingest/precompress.py`, `ingest/store.py`,
 `serving/resolution.py` (`locate`, `choose_encoding`, `representation`),
 `serving/response.py`. Guarded by: `test_precompress.py`, `test_store.py`,
-`test_uncompress.py`, `test_resolution.py`, `test_serving.py`,
+`test_resolution.py`, `test_serving.py`,
 `test_ingest_service.py`.
 
 ### 5.5 Cache-Control
