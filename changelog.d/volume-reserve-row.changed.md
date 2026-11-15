@@ -1,1 +1,0 @@
-- The "Content volume" block on the platform page no longer shows a "Reserve" row. The warning when a deploy of the maximum size would cross the reserve stays.

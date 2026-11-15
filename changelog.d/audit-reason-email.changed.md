@@ -1,1 +1,0 @@
-- The reason for an audit lookup or IP reveal is refused only when it holds an e-mail address, no longer for any `@`, so a mention like `@team-security` is accepted.

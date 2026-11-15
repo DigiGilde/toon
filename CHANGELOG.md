@@ -14,6 +14,40 @@ write a fragment and the rest of the model are in
 
 Merged but not released yet: the fragments in [changelog.d/](changelog.d/README.md).
 
+## [2026.11.15]
+
+### Added
+
+- During a security incident a platform administrator can hold the nightly audit purge with "Pause purge" on the platform page and lift it with "Resume purge", without a restart. The database refuses every delete while the hold is on, and every platform administrator sees a warning on the other admin pages.
+
+### Changed
+
+- The reason for an audit lookup or IP reveal is refused only when it holds an e-mail address, no longer for any `@`, so a mention like `@team-security` is accepted.
+- Visit data, sign-in moments and the SSO details of content viewers are now kept 180 days instead of 90, as BIO2 8.15.04 asks of logging that must cover attackers who stay inside for months.
+- When `toon` refuses a host or a repository, the message names where the value came from (`--host`, `TOON_HOST`, your last login, the repository argument or the git remote `origin`) and how to fix it.
+- The admin runs on design system 0.24.0, with rounder corners and small controls 2px taller.
+- The pull request comment of the publish action opens with a visible heading that names the preview and the site, instead of a hidden HTML marker, so it reads cleanly where it is quoted or forwarded. The link stands on its own line, and teardown writes "Removed.". A comment from before the rename to Toon is no longer found, so a pull request open since then gets a new one.
+- The "Content volume" block on the platform page no longer shows a "Reserve" row. The warning when a deploy of the maximum size would cross the reserve stays.
+
+### Removed
+
+- The setting `TOON_STORE_COMPRESSED` is gone: a deploy always keeps its text files compressed, and the container no longer puts compressed-only files back at start. A leftover `TOON_STORE_COMPRESSED` is ignored. To roll back past compression, go back to 2026.11.11 first and follow its rollback steps.
+
+### Fixed
+
+- The app now deletes audit log entries and the SSO details of content viewers past their retention every night at 04:00 UTC, right after publishing the audit chain head to the log. Until now nothing purged them on production.
+- The English admin now shows the design system's own English wherever its components add text themselves, such as on a busy button.
+- The fold-out boxes on a site's Members and Deploy tabs have their border again.
+- `toon site link` stops with an error line and exit code 2 instead of a traceback for a repository URL that cannot be parsed, such as one with a bracket that is never closed.
+- `toon login` stops with an error line instead of a traceback when the server's sign-in URL has a port that cannot be read.
+
+### Security
+
+- When the browser sends the content anchor cookie more than once, logging out on the content host and logging in there again end every content session a correctly signed value names, not only the last one, and opening another site goes through the identity provider instead of reusing the session.
+- The CLI refuses a host with a query, a fragment or an `@` after the host name, so a password of digits, as in `https://user:12345#@host`, no longer passes for the port and ends up in every message that names the host.
+- `toon site link` no longer repeats the repository in its error messages, so a token in the URL of the git remote `origin` stays out of the output.
+- A preview ref or a slug that ends in a line break is refused, by the server and by the CLI.
+
 ## [2026.11.11]
 
 ### Changed
@@ -419,7 +453,8 @@ The first tagged version: what ran in production on 30 September 2026.
 - Deployment on ZAD as one component, from an image that is scanned by
   Trivy and carries SBOM and provenance attestations.
 
-[Unreleased]: https://github.com/DigiGilde/toon/compare/v2026.11.11...HEAD
+[Unreleased]: https://github.com/DigiGilde/toon/compare/v2026.11.15...HEAD
+[2026.11.15]: https://github.com/DigiGilde/toon/compare/v2026.11.11...v2026.11.15
 [2026.11.11]: https://github.com/DigiGilde/toon/compare/v2026.11.4...v2026.11.11
 [2026.11.4]: https://github.com/DigiGilde/toon/compare/v2026.11.2.1...v2026.11.4
 [2026.11.2.1]: https://github.com/DigiGilde/toon/compare/v2026.11.2...v2026.11.2.1

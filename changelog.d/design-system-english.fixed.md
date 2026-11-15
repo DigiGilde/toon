@@ -1,1 +1,0 @@
-- The English admin now shows the design system's own English wherever its components add text themselves, such as on a busy button.

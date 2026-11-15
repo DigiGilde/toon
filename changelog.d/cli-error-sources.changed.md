@@ -1,1 +1,0 @@
-- When `toon` refuses a host or a repository, the message names where the value came from (`--host`, `TOON_HOST`, your last login, the repository argument or the git remote `origin`) and how to fix it.
