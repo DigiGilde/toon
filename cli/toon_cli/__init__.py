@@ -213,7 +213,16 @@ _LOOPBACK_RE = re.compile(
 )
 
 
-def _require_valid_url(host: str) -> None:
+# Where the host came from, and the way out of a refusal. None of them names
+# the host: it can carry a password.
+INVALID_HOST = {
+    "--host": "The host in --host is not valid: pass an address like https://beheer.toon.example.org",
+    "TOON_HOST": "The host in TOON_HOST is not valid: set it to an address like https://beheer.toon.example.org, or unset it",
+    "login": "The host from your last login is not valid: log in again with 'toon login --host <host>'",
+}
+
+
+def _require_valid_url(host: str, source: str) -> None:
     # httpx builds every request from the host, urllib reads it in the checks
     # below and in _same_origin, and each refuses strings the other takes. Some
     # of that only shows on use: urllib parses the port when it is read, httpx
@@ -221,7 +230,7 @@ def _require_valid_url(host: str) -> None:
     # name httpx hands them (.raw_host) like .encode("idna") does, where an
     # empty label or one over 63 characters is a UnicodeError that httpx lets
     # through.
-    not_valid = UsageError("The host is not valid (--host, TOON_HOST or your last login)")
+    not_valid = UsageError(INVALID_HOST[source])
     try:
         url = httpx.URL(host)
         _ = url.host
@@ -253,29 +262,32 @@ def _require_https(host: str) -> None:
     raise UsageError(f"Use https:// for {host} (http only for loopback)")
 
 
-def _resolve_host(args: argparse.Namespace) -> str:
+def _resolve_host(args: argparse.Namespace) -> tuple[str, str]:
     """Host from --host, TOON_HOST in the environment, the host you last
-    logged in to, or DEFAULT_HOST. An old host of the DigiGilde instance
+    logged in to, or DEFAULT_HOST, with the key in INVALID_HOST of where it
+    came from. An old host of the DigiGilde instance
     becomes its new one here, before anything is built from it: the requests,
     the CI audience and the key a session is stored under all name the new
     one, so a session stored under the old host never goes along."""
-    host = (
-        getattr(args, "host", None)
-        or os.environ.get("TOON_HOST")
-        or _stored_default_host()
-        or DEFAULT_HOST
-    ).rstrip("/")
+    if getattr(args, "host", None):
+        host, source = args.host, "--host"
+    elif os.environ.get("TOON_HOST"):
+        host, source = os.environ["TOON_HOST"], "TOON_HOST"
+    else:
+        # DEFAULT_HOST always passes the checks, so only a stored host is refused.
+        host, source = _stored_default_host() or DEFAULT_HOST, "login"
+    host = host.rstrip("/")
     # A hostname has no case, but str.lower() also turns the Kelvin sign into a
     # k, and a host spelled with that only looks like an old one.
     moved = MOVED_HOSTS.get(host.lower()) if host.isascii() else None
     if moved is None:
-        return host
+        return host, source
     print(
         f"Warning: {host} has moved to {moved}. Using the new host. Update --host, "
         "host: in the workflow or TOON_HOST, or log in again if it came from your last login.",
         file=sys.stderr,
     )
-    return moved
+    return moved, source
 
 
 def _same_origin(url: str, host: str) -> bool:
@@ -622,8 +634,8 @@ def _request(host: str, method: str, url: str, **kwargs: Any) -> httpx.Response 
 def _setup(args: argparse.Namespace) -> str:
     """The host a command talks to, checked for a valid URL and for https. A
     UsageError ends in `main` as an error line and exit code 2."""
-    host = _resolve_host(args)
-    _require_valid_url(host)
+    host, source = _resolve_host(args)
+    _require_valid_url(host, source)
     _require_https(host)
     return host
 
@@ -1166,16 +1178,19 @@ MAX_PROVIDER_ID = 2**63 - 1
 SUBPROCESS_TIMEOUT_S = 30
 # A refusal of a repository says where it came from instead of quoting it:
 # the URL of the git remote 'origin' can carry a token.
-REPOSITORY_SOURCE = "(the argument or the git remote 'origin')"
+REPOSITORY_ARGUMENT = "The repository argument"
+GIT_ORIGIN = "The git remote 'origin'"
+VALID_REPOSITORY = "pass 'owner/repo' or a URL like https://github.com/owner/repo"
 
 
 def _repository_name(value: str) -> str | None:
     return value if REPOSITORY_NAME_RE.match(value) and value not in (".", "..") else None
 
 
-def _parse_repository(reference: str) -> tuple[str, str, str]:
+def _parse_repository(reference: str, source: str) -> tuple[str, str, str]:
     """`owner/repo`, an https or ssh URL, or a git@ address into (hostname,
-    owner, repo); a bare `owner/repo` is on github.com."""
+    owner, repo); a bare `owner/repo` is on github.com. A refusal starts with
+    source, REPOSITORY_ARGUMENT or GIT_ORIGIN."""
     value = reference.strip()
     hostname = GITHUB_HOSTNAME
     scp = re.match(r"^[^@/\s]+@([^:/\s]+):(.+)$", value)
@@ -1186,13 +1201,13 @@ def _parse_repository(reference: str) -> tuple[str, str, str]:
             parsed = urllib.parse.urlsplit(value)
         except ValueError:
             # Not urllib's message, which can quote the URL.
-            raise UsageError(f"The repository URL is not valid {REPOSITORY_SOURCE}") from None
+            raise UsageError(f"{source} is not a valid URL: {VALID_REPOSITORY}") from None
         try:
             port = parsed.port
         except ValueError:
             port = -1
         if parsed.scheme not in ("https", "ssh", "git") or not parsed.hostname or port == -1:
-            raise UsageError(f"Not a repository URL {REPOSITORY_SOURCE}")
+            raise UsageError(f"{source} is not a repository URL: {VALID_REPOSITORY}")
         hostname, path = parsed.hostname, parsed.path
         # An ssh port says nothing about where the web host listens.
         if parsed.scheme == "https" and port is not None:
@@ -1200,15 +1215,15 @@ def _parse_repository(reference: str) -> tuple[str, str, str]:
     else:
         path = value
     if not HOSTNAME_RE.match(hostname.lower()):
-        raise UsageError(f"Not a valid host in the repository URL {REPOSITORY_SOURCE}")
+        raise UsageError(f"{source} names no valid host: {VALID_REPOSITORY}")
     parts = [part for part in path.split("/") if part]
     if "://" not in value and not scp and len(parts) != 2:
-        raise UsageError(f"The repository must be 'owner/repo' or a URL {REPOSITORY_SOURCE}")
+        raise UsageError(f"{source} is neither 'owner/repo' nor a URL: {VALID_REPOSITORY}")
     if len(parts) < 2:
-        raise UsageError(f"The URL names no owner and repository {REPOSITORY_SOURCE}")
+        raise UsageError(f"{source} names no owner and repository: {VALID_REPOSITORY}")
     owner, repo = _repository_name(parts[0]), _repository_name(parts[1].removesuffix(".git"))
     if owner is None or repo is None:
-        raise UsageError(f"Not a valid owner or repository name {REPOSITORY_SOURCE}")
+        raise UsageError(f"{source} names no valid owner or repository name: {VALID_REPOSITORY}")
     return hostname.lower(), owner, repo
 
 
@@ -1288,7 +1303,10 @@ def cmd_site_link(args: argparse.Namespace) -> int:
     for value in (args.repository_id, args.owner_id):
         if value is not None and not 0 < value <= MAX_PROVIDER_ID:
             raise UsageError("--repository-id and --owner-id must be positive whole numbers")
-    hostname, owner, repo = _parse_repository(args.repository or _git_origin())
+    if args.repository:
+        hostname, owner, repo = _parse_repository(args.repository, REPOSITORY_ARGUMENT)
+    else:
+        hostname, owner, repo = _parse_repository(_git_origin(), GIT_ORIGIN)
     token = _get_member_token(host)
 
     body: dict[str, object] = {"owner": owner, "repo": repo, "liveBranch": args.live_branch}

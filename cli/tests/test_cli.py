@@ -796,7 +796,11 @@ def test_credentials_in_the_host_are_refused(host):
 
 # --- a host that a URL parser refuses ----------------------------------------
 
-NOT_A_VALID_HOST = "The host is not valid (--host, TOON_HOST or your last login)"
+NOT_A_VALID_HOST = "The host in --host is not valid: pass an address like https://beheer.toon.example.org"
+NOT_A_VALID_TOON_HOST = (
+    "The host in TOON_HOST is not valid: set it to an address like https://beheer.toon.example.org, or unset it"
+)
+NOT_A_VALID_STORED_HOST = "The host from your last login is not valid: log in again with 'toon login --host <host>'"
 
 
 @pytest.fixture
@@ -857,19 +861,49 @@ def test_every_command_refuses_an_unusable_host(no_request, token_env, capsys, a
     assert capsys.readouterr().err == f"Error: {NOT_A_VALID_HOST}\n"
 
 
-@pytest.mark.parametrize("source", ["--host", "TOON_HOST", "stored"])
-def test_an_unusable_host_is_refused_wherever_it_came_from(no_request, token_env, monkeypatch, capsys, source):
-    argv = ["whoami"]
-    if source == "--host":
-        argv += ["--host", "https://[bad"]
-    elif source == "TOON_HOST":
-        monkeypatch.setenv("TOON_HOST", "https://[bad")
-    else:
-        cli._write_hosts({"default_host": "https://[bad"})
+_REFUSAL_PER_HOST_SOURCE = {
+    "--host": NOT_A_VALID_HOST,
+    "TOON_HOST": NOT_A_VALID_TOON_HOST,
+    "stored": NOT_A_VALID_STORED_HOST,
+}
+
+
+@pytest.mark.parametrize(("source", "message"), _REFUSAL_PER_HOST_SOURCE.items(), ids=_REFUSAL_PER_HOST_SOURCE)
+def test_an_unusable_host_is_refused_with_where_it_came_from_and_a_way_out(
+    no_request, token_env, monkeypatch, capsys, source, message
+):
+    argv = ["whoami", *_name_host(source, "https://[bad", monkeypatch)]
 
     assert cli.main(argv) == 2
 
+    assert capsys.readouterr().err == f"Error: {message}\n"
+
+
+def test_an_unusable_host_from_the_flag_wins_over_one_in_toon_host_and_the_last_login(
+    no_request, token_env, monkeypatch, capsys
+):
+    """The refusal names the source that was used, not one further down."""
+    monkeypatch.setenv("TOON_HOST", "https://[bad")
+    cli._write_hosts({"default_host": "https://[bad"})
+
+    assert cli.main(["whoami", "--host", "https://[bad"]) == 2
     assert capsys.readouterr().err == f"Error: {NOT_A_VALID_HOST}\n"
+
+    assert cli.main(["whoami"]) == 2
+    assert capsys.readouterr().err == f"Error: {NOT_A_VALID_TOON_HOST}\n"
+
+
+@pytest.mark.parametrize(("source", "message"), _REFUSAL_PER_HOST_SOURCE.items(), ids=_REFUSAL_PER_HOST_SOURCE)
+def test_an_unusable_host_with_a_password_is_not_printed_from_any_source(
+    no_request, token_env, monkeypatch, capsys, source, message
+):
+    argv = ["whoami", *_name_host(source, "https://user:hunter2#@beheer.toon.rijks.app", monkeypatch)]
+
+    assert cli.main(argv) == 2
+
+    captured = capsys.readouterr()
+    assert captured.err == f"Error: {message}\n"
+    assert "hunter2" not in captured.out + captured.err
 
 
 @pytest.mark.parametrize(
@@ -967,7 +1001,7 @@ def test_credentials_in_the_userinfo_still_get_their_own_message(no_request, tok
     ],
 )
 def test_a_host_that_both_parsers_take_is_not_refused(good_host):
-    cli._require_valid_url(good_host)
+    cli._require_valid_url(good_host, "--host")
 
 
 @pytest.mark.parametrize("bad_host", ["https://[bad", "https://beheer..toon.rijks.app"], ids=["urllib", "socket"])
@@ -2912,15 +2946,15 @@ def test_default_host_is_used_when_no_host_flag_given(stub_server, host, monkeyp
 def test_the_host_comes_from_the_flag_then_toon_host_then_the_last_login_then_the_default(
     monkeypatch,
 ):
-    assert _resolved_host() == TEST_DEFAULT_HOST
+    assert cli._resolve_host(argparse.Namespace()) == (TEST_DEFAULT_HOST, "login")
 
     _store_session("https://laatst.example")
-    assert _resolved_host() == "https://laatst.example"
+    assert cli._resolve_host(argparse.Namespace()) == ("https://laatst.example", "login")
 
     monkeypatch.setenv("TOON_HOST", "https://omgeving.example/")
-    assert _resolved_host() == "https://omgeving.example"
+    assert cli._resolve_host(argparse.Namespace()) == ("https://omgeving.example", "TOON_HOST")
 
-    assert cli._resolve_host(argparse.Namespace(host="https://vlag.example/")) == "https://vlag.example"
+    assert cli._resolve_host(argparse.Namespace(host="https://vlag.example/")) == ("https://vlag.example", "--host")
 
 
 @pytest.mark.parametrize(
@@ -2978,7 +3012,7 @@ def test_the_session_holds_in_any_directory(stub_server, host, tmp_path, monkeyp
 
 
 def _resolved_host() -> str:
-    return cli._resolve_host(argparse.Namespace())
+    return cli._resolve_host(argparse.Namespace())[0]
 
 
 @posix_only
@@ -5116,22 +5150,25 @@ def test_site_link_without_a_usable_gh_answer_sends_no_ids(stub_server, host, to
     ],
 )
 def test_site_link_understands_the_usual_ways_to_name_a_repository(reference, expected):
-    assert cli._parse_repository(reference) == expected
+    assert cli._parse_repository(reference, cli.REPOSITORY_ARGUMENT) == expected
+
+
+VALID_REPOSITORY = "pass 'owner/repo' or a URL like https://github.com/owner/repo"
 
 
 @pytest.mark.parametrize(
     ("reference", "message"),
     [
-        ("o/r/x", "must be 'owner/repo' or a URL"),
-        ("websiteonly", "must be 'owner/repo' or a URL"),
-        ("http://github.com/o/r", "Not a repository URL"),
-        ("https:///o/r", "Not a repository URL"),
-        ("https://forge.example:poort/o/r", "Not a repository URL"),
-        ("x@bad\x1bhost:o/r", "Not a valid host"),
-        ("https://-forge.example/o/r", "Not a valid host"),
+        ("o/r/x", "is neither 'owner/repo' nor a URL"),
+        ("websiteonly", "is neither 'owner/repo' nor a URL"),
+        ("http://github.com/o/r", "is not a repository URL"),
+        ("https:///o/r", "is not a repository URL"),
+        ("https://forge.example:poort/o/r", "is not a repository URL"),
+        ("x@bad\x1bhost:o/r", "names no valid host"),
+        ("https://-forge.example/o/r", "names no valid host"),
         ("https://github.com/o", "names no owner and repository"),
-        ("o/..", "Not a valid owner or repository name"),
-        ("git@github.com:o/re po", "Not a valid owner or repository name"),
+        ("o/..", "names no valid owner or repository name"),
+        ("git@github.com:o/re po", "names no valid owner or repository name"),
     ],
 )
 def test_site_link_refuses_what_is_not_a_repository(
@@ -5140,11 +5177,11 @@ def test_site_link_refuses_what_is_not_a_repository(
     code = cli.main(["site", "link", "team/docs", reference, "--host", host])
 
     assert code == 2
-    assert message in capsys.readouterr().err
+    assert capsys.readouterr().err == f"Error: The repository argument {message}: {VALID_REPOSITORY}\n"
     assert stub_server.requests == []
 
 
-NOT_A_VALID_REPOSITORY_URL = "The repository URL is not valid (the argument or the git remote 'origin')"
+NOT_A_VALID_REPOSITORY_URL = f"is not a valid URL: {VALID_REPOSITORY}"
 
 # URLs that urllib refuses outright, with a message that can quote them.
 _UNPARSEABLE_REPOSITORY_URLS = [
@@ -5161,7 +5198,7 @@ def test_site_link_refuses_a_repository_url_no_parser_takes_in_one_line(
     code = cli.main(["site", "link", "team/docs", reference, "--host", host])
 
     assert code == 2
-    assert capsys.readouterr().err == f"Error: {NOT_A_VALID_REPOSITORY_URL}\n"
+    assert capsys.readouterr().err == f"Error: The repository argument {NOT_A_VALID_REPOSITORY_URL}\n"
     assert stub_server.requests == []
 
 
@@ -5176,7 +5213,7 @@ def test_site_link_does_not_print_an_origin_url_no_parser_takes(
 
     assert code == 2
     captured = capsys.readouterr()
-    assert captured.err == f"Error: {NOT_A_VALID_REPOSITORY_URL}\n"
+    assert captured.err == f"Error: The git remote 'origin' {NOT_A_VALID_REPOSITORY_URL}\n"
     assert "s3cret" not in captured.out + captured.err
     assert stub_server.requests == []
 
@@ -5184,42 +5221,56 @@ def test_site_link_does_not_print_an_origin_url_no_parser_takes(
 @pytest.mark.parametrize(
     ("origin", "message"),
     [
-        pytest.param("http://x-access-token:s3cret@github.com/o/r", "Not a repository URL", id="http"),
-        pytest.param("https://user:s3cret#@github.com/o/r", "Not a repository URL", id="password-as-port"),
-        pytest.param(
-            "https://x-access-token:s3cret@-forge.example/o/r",
-            "Not a valid host in the repository URL",
-            id="bad-host",
-        ),
-        pytest.param(
-            "x-access-token:s3cret@bad\x1bhost:o/r", "Not a valid host in the repository URL", id="scp-bad-host"
-        ),
-        pytest.param(
-            "s3cret@github.com/o/r", "The repository must be 'owner/repo' or a URL", id="no-scheme-three-parts"
-        ),
-        pytest.param(
-            "https://x-access-token:s3cret@github.com/o", "The URL names no owner and repository", id="no-repository"
-        ),
+        pytest.param("http://x-access-token:s3cret@github.com/o/r", "is not a repository URL", id="http"),
+        pytest.param("https://user:s3cret#@github.com/o/r", "is not a repository URL", id="password-as-port"),
+        pytest.param("https://x-access-token:s3cret@-forge.example/o/r", "names no valid host", id="bad-host"),
+        pytest.param("x-access-token:s3cret@bad\x1bhost:o/r", "names no valid host", id="scp-bad-host"),
+        pytest.param("s3cret@github.com/o/r", "is neither 'owner/repo' nor a URL", id="no-scheme-three-parts"),
+        pytest.param("https://x-access-token:s3cret@github.com/o", "names no owner and repository", id="no-repository"),
         pytest.param(
             "https://x-access-token:s3cret@github.com/o/..",
-            "Not a valid owner or repository name",
+            "names no valid owner or repository name",
             id="dot-dot-repository",
         ),
     ],
 )
-def test_site_link_does_not_print_an_origin_url_it_refuses(
-    stub_server, host, token_env, fake_run, capsys, origin, message
+@pytest.mark.parametrize("source", ["argument", "origin"])
+def test_site_link_does_not_print_a_repository_it_refuses(
+    stub_server, host, token_env, fake_run, capsys, origin, message, source
 ):
-    """Every refusal names where the repository came from, never the URL."""
-    fake_run.outcomes["git"] = _completed(origin + "\n")
+    """Every refusal names where the repository came from, never the URL:
+    the remote 'origin' can carry a token, and so can a URL pasted as the
+    argument."""
+    argv = ["site", "link", "team/docs", "--host", host]
+    if source == "argument":
+        argv.insert(3, origin)
+        named = "The repository argument"
+    else:
+        fake_run.outcomes["git"] = _completed(origin + "\n")
+        named = "The git remote 'origin'"
 
-    code = cli.main(["site", "link", "team/docs", "--host", host])
+    code = cli.main(argv)
 
     assert code == 2
     captured = capsys.readouterr()
-    assert captured.err == f"Error: {message} (the argument or the git remote 'origin')\n"
+    assert captured.err == f"Error: {named} {message}: {VALID_REPOSITORY}\n"
     assert "s3cret" not in captured.out + captured.err
     assert stub_server.requests == []
+
+
+def test_site_link_names_the_argument_and_not_the_origin_when_both_are_there(
+    stub_server, host, token_env, fake_run, capsys
+):
+    """An argument wins, so git is not asked and a refusal names the argument."""
+    fake_run.outcomes["git"] = _completed("https://github.com/o/r\n")
+
+    code = cli.main(["site", "link", "team/docs", "o/r/x", "--host", host])
+
+    assert code == 2
+    assert capsys.readouterr().err == (
+        f"Error: The repository argument is neither 'owner/repo' nor a URL: {VALID_REPOSITORY}\n"
+    )
+    assert all(call[0] != "git" for call in fake_run.calls)
 
 
 @pytest.mark.parametrize(
@@ -6005,7 +6056,7 @@ def test_an_old_host_is_translated_with_one_warning_from_every_source(source, gi
     argv = _name_host(source, given, monkeypatch)
     args = argparse.Namespace(host=argv[1]) if argv else argparse.Namespace()
 
-    assert cli._resolve_host(args) == new
+    assert cli._resolve_host(args) == (new, {"stored": "login"}.get(source, source))
 
     assert capsys.readouterr().err == (
         f"Warning: {given.rstrip('/')} has moved to {new}. Using the new host. Update --host, "
@@ -6042,14 +6093,14 @@ _LOOK_ALIKES = [
 
 @pytest.mark.parametrize("given", _LOOK_ALIKES)
 def test_a_host_that_only_looks_like_an_old_one_stays_as_it_is(given, capsys):
-    assert cli._resolve_host(argparse.Namespace(host=given)) == given
+    assert cli._resolve_host(argparse.Namespace(host=given)) == (given, "--host")
 
     assert capsys.readouterr().err == ""
 
 
 @pytest.mark.parametrize("given", [NEW_ADMIN_HOST, NEW_CONTENT_HOST])
 def test_a_new_host_stays_as_it_is_without_a_warning(given, capsys):
-    assert cli._resolve_host(argparse.Namespace(host=given)) == given
+    assert cli._resolve_host(argparse.Namespace(host=given)) == (given, "--host")
 
     assert capsys.readouterr().err == ""
 
@@ -6063,7 +6114,7 @@ def test_empty_values_name_no_host_and_translate_nothing(monkeypatch, capsys):
     monkeypatch.setenv("TOON_HOST", "")
     _write_raw_hosts(json.dumps({"default_host": ""}))
 
-    assert cli._resolve_host(argparse.Namespace(host="")) == TEST_DEFAULT_HOST
+    assert cli._resolve_host(argparse.Namespace(host="")) == (TEST_DEFAULT_HOST, "login")
 
     assert capsys.readouterr().err == ""
 
@@ -6082,7 +6133,7 @@ def test_an_old_host_further_down_the_order_is_not_used_and_not_warned_about(mon
     assert _resolved_host() == NEW_ADMIN_HOST
 
     monkeypatch.setenv("TOON_HOST", OLD_ADMIN_HOST)
-    assert cli._resolve_host(argparse.Namespace(host="https://ander.example/")) == "https://ander.example"
+    assert cli._resolve_host(argparse.Namespace(host="https://ander.example/")) == ("https://ander.example", "--host")
 
     assert capsys.readouterr().err == ""
 
