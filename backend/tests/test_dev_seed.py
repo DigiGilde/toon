@@ -19,6 +19,7 @@ import pytest_asyncio
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from toon.auth.members import PREVIEW_GROUP
 from toon.config import Settings
 from toon.constants import AccessBase, Role
 from toon.db import make_engine, make_session_factory
@@ -272,6 +273,10 @@ class TestSeed:
             dev.versions,
             dev.previews,
         )
+
+
+def test_a_preview_makes_editors_of_the_group_the_seed_puts_down(seed_module) -> None:
+    assert seed_module.GROUP_PUBLIC == PREVIEW_GROUP
 
 
 def _preview(settings: Settings) -> Settings:
