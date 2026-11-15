@@ -102,11 +102,11 @@ export const pagesEn: Record<keyof typeof pagesNl, string> = {
   'page.privacy.retention.heading':
     'Retention period',
   'page.privacy.retention.body':
-    'Visit data and sign-in moments are deleted after 180 days. Other audit data, such as refused access and administrative actions, is kept for three years, because it may become part of the investigation into a security incident. Only a platform administrator can view it, and every viewing is itself recorded, with a mandatory reason that every platform administrator can read. Your name and e-mail address are not in there in readable form. Previews and their access data expire automatically after thirty days without a new deploy.',
+    'Visit data and sign-in moments are deleted after 180 days. During the investigation of a security incident Toon keeps them longer, until the investigation no longer needs them. Other audit data, such as refused access and administrative actions, is kept for three years, because it may become part of the investigation into a security incident. Only a platform administrator can view it, and every viewing is itself recorded, with a mandatory reason that every platform administrator can read. Your name and e-mail address are not in there in readable form. Previews and their access data expire automatically after thirty days without a new deploy.',
   'page.privacy.retention.ip':
     'Every audit entry also carries the IP address something happened from: a truncated network (not the full address) is simply in the log, kept as long as the entry itself. The full address sits beside it, encrypted, kept just as long, and only a platform administrator can request it, with the same mandatory, recorded reason.',
   'page.privacy.retention.session':
-    'If you view restricted content after signing in with your organisation, Toon keeps your SSO ID and e-mail address until 180 days after the last time you signed in. That is needed to trace an entry in the audit log back to a person, for instance during the investigation into a leak.',
+    'If you view restricted content after signing in with your organisation, Toon keeps your SSO ID and e-mail address until 180 days after the last time you signed in. That is needed to trace an entry in the audit log back to a person, for instance during the investigation into a leak. During the investigation of a security incident Toon keeps them longer, until the investigation no longer needs them.',
   'page.privacy.visibility.heading':
     'Who can see what',
   'page.privacy.visibility.body':

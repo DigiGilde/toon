@@ -1,0 +1,1 @@
+- A preview ref or a slug that ends in a line break is refused, by the server and by the CLI.

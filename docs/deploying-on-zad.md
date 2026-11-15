@@ -490,6 +490,12 @@ The rename to Toon adds no migration, so going back over it needs no stamp. A
 CLI session signed in on one side of it does not work on the other, because a
 stored hash covers the token prefix.
 
+An image from before compression (design.md §5.4a) cannot serve a file that a
+newer one keeps compressed only: it answers 404. The current image has no way
+to put those files back, and it ignores a leftover `TOON_STORE_COMPRESSED`.
+To roll back past compression, go back to `v2026.11.11` first and follow the
+steps in its own copy of this section.
+
 An image from before the `TOON_` names, so older than `v2026.11.2`, reads only
 the `PLAK_` variables, and without them its entrypoint stops with `database
 unreachable after 30 attempts`. Put them back before you switch to such an

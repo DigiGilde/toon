@@ -1,1 +1,1 @@
-- The setting `TOON_STORE_COMPRESSED` is gone: a deploy always keeps its text files compressed, and the container no longer puts compressed-only files back at start.
+- The setting `TOON_STORE_COMPRESSED` is gone: a deploy always keeps its text files compressed, and the container no longer puts compressed-only files back at start. A leftover `TOON_STORE_COMPRESSED` is ignored. To roll back past compression, go back to 2026.11.11 first and follow its rollback steps.

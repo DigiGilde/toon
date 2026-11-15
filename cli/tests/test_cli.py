@@ -4645,8 +4645,9 @@ def test_group_create_never_trades_for_a_ci_oidc_token(stub_server, host, isolat
     assert stub_server.requests == []
 
 
-def test_group_create_refuses_an_invalid_slug(stub_server, host, token_env, capsys):
-    code = cli.main(["group", "create", "Team Aurora", "--name", "Team", "--host", host])
+@pytest.mark.parametrize("slug", ["Team Aurora", "team\n"], ids=["space", "trailing-line-break"])
+def test_group_create_refuses_an_invalid_slug(stub_server, host, token_env, capsys, slug):
+    code = cli.main(["group", "create", slug, "--name", "Team", "--host", host])
 
     assert code == 2
     assert "group must be a valid slug" in capsys.readouterr().err

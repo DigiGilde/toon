@@ -447,8 +447,9 @@ incident found today would otherwise be purged within days. So:
 
 `GET /-/api/v1/platform/audit/purge-hold` says whether a hold is open, since
 when and by whom. One hold is open at a time. Starting and ending one are
-audited (`audit_purge_hold_started`, `audit_purge_hold_ended`), and a hold is
-never deleted or rewritten: a trigger only lets an open hold be ended, once.
+audited (`audit_purge_hold_started`, `audit_purge_hold_ended`), without that
+row nothing changes (503 `AUDIT_UNAVAILABLE`), and a hold is never deleted or
+rewritten: a trigger only lets an open hold be ended, once.
 
 ## One database account
 
@@ -794,7 +795,9 @@ Every access writes a row of its own, and it stays for three years. For
 these endpoints (`GET /platform/audit`, `actor-pseudonym`, `actor-identity`,
 the IP reveal) that writing is even strict: if the audit row fails, no
 answer comes back (503 `AUDIT_UNAVAILABLE`) instead of the fail-open
-behaviour that the rest of the audit log has.
+behaviour that the rest of the audit log has. Starting and ending a hold on
+the purge are strict the same way: without the audit row the hold stays as
+it was.
 
 The full IP address on a single row comes separately: `POST
 /-/api/v1/platform/audit/entries/{id}/ip`, with the same `reason`

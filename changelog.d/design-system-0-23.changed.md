@@ -1,1 +1,0 @@
-- The admin runs on design system 0.23.0, with rounder corners and small controls 2px taller.

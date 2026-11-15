@@ -178,10 +178,10 @@ async function confirm(): Promise<void> {
 
       <nldd-form @submit.prevent="ask">
         <nldd-form-field
-          :label="t('admin.purge.reason.label')"
+          :label="t(status?.onHold ? 'admin.purge.reason.label.resume' : 'admin.purge.reason.label.pause')"
           :supporting-label="t('admin.purge.reason.hint')"
         >
-          <nldd-text-editor
+          <nldd-multi-line-text-field
             ref="field"
             input-id="audit-purge-reason"
             name="reason"
@@ -191,7 +191,7 @@ async function confirm(): Promise<void> {
             :unmet="reasonHasEmail ? reasonEmailId : reasonEmpty ? reasonUnmetId : undefined"
             data-testid="audit-purge-reason"
             @input="edit"
-          ></nldd-text-editor>
+          ></nldd-multi-line-text-field>
           <nldd-validation-list>
             <nldd-validation-item v-if="reasonHasEmail" :id="reasonEmailId">
               {{ t('admin.purge.reason.email') }}

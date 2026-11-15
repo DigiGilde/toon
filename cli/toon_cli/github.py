@@ -160,7 +160,8 @@ def _find_comment(github: GitHub, number: int, markers: tuple[str, str]) -> dict
     for comment in github.pages(f"/issues/{number}/comments", {}):
         body = comment.get("body") or ""
         # The whole first line: site website is a prefix of site website-2.
-        if (body.split("\n", 1)[0] == heading or body.startswith(old_marker)) and _is_ours(github, comment):
+        first_line = body.splitlines()[0] if body else ""
+        if (first_line == heading or body.startswith(old_marker)) and _is_ours(github, comment):
             return comment
     return None
 

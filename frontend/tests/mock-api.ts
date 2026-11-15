@@ -1234,17 +1234,25 @@ export function makeMockBackend(seed: MockData = defaultData()): MockBackend {
       if (method === 'GET' && rest.length === 3) return json(200, state());
       const ending = rest.length === 4 && rest[3] === 'end';
       if (method === 'POST' && (rest.length === 3 || ending)) {
-        const reason = String(readJson().reason).trim();
+        const reason = String(readJson().reason).replace(/\r\n?/g, '\n').trim();
         // The bounds and refusals of the real backend's reason field.
-        if (reason.length < 10 || reason.length > 500) {
+        if (reason.length < 1 || reason.length > 10_000) {
           return problem(
             422,
             'Ongeldige invoer',
-            'reason must be 10 to 500 characters after stripping whitespace',
+            'reason must be 1 to 10000 characters after stripping whitespace',
             'VALIDATION_ERROR',
           );
         }
-        if (reason.includes('@')) {
+        if (/[\p{Cc}\p{Cf}]/u.test(reason.replace(/\n/g, ' '))) {
+          return problem(
+            422,
+            'Ongeldige invoer',
+            'reason must not contain control or formatting characters other than line breaks',
+            'VALIDATION_ERROR',
+          );
+        }
+        if (/[^\s@]+@[^\s@]+\.[^\s@]+/.test(reason)) {
           return problem(
             422,
             'Ongeldige invoer',

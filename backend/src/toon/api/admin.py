@@ -299,6 +299,12 @@ _ERROR_HOLD_REASON = {
 }
 _ERROR_ALREADY_ON_HOLD = {409: "The audit purge is already on hold (`AUDIT_PURGE_ALREADY_ON_HOLD`)."}
 _ERROR_NOT_ON_HOLD = {409: "The audit purge is not on hold (`AUDIT_PURGE_NOT_ON_HOLD`)."}
+_ERROR_HOLD_AUDIT_UNAVAILABLE = {
+    503: (
+        "The audit row for this change could not be written (`AUDIT_UNAVAILABLE`), so the hold is as it was. "
+        "Try again later."
+    )
+}
 _ERROR_LOOKUP_LIMIT = {
     429: (
         "The daily limit on audit lookups by this platform administrator has been reached "
@@ -1445,7 +1451,7 @@ AUDIT_PSEUDONYM_LENGTH = 64
 REASON_MIN_LENGTH = 10
 REASON_MAX_LENGTH = 500
 HOLD_REASON_MAX_LENGTH = 10_000
-_EMAIL_ADDRESS = re.compile(r"[^\s@]+@[^\s@]+\.[^\s@]+")
+_EMAIL_ADDRESS = re.compile(r"[^\s@]@[^\s@]+\.[^\s@]")
 
 
 class AuditFilters(ApiModel):
@@ -2147,7 +2153,7 @@ async def _group_keeps_an_admin(db: AsyncSession) -> AsyncIterator[None]:
 
 def _validate_slug(slug: str, *, reserved_refused: bool = False) -> str:
     normalised = slug.strip()
-    if not SLUG_RE.match(normalised) or (
+    if not SLUG_RE.fullmatch(normalised) or (
         reserved_refused and normalised in RESERVED_SLUGS
     ):
         raise ApiError(422, "SLUG_INVALID", params={"slug": normalised})
@@ -5266,11 +5272,14 @@ def make_admin_router() -> APIRouter:
             "From now on nothing is purged from the audit log or from the content viewers, not even rows past "
             "their retention: the database refuses every delete while the hold is open. It takes effect at "
             "once, without a restart. The nightly job keeps publishing the chain head and logs a warning "
-            "every night the purge is on hold. Starting the hold is audited, with the reason.\n\n"
+            "every night the purge is on hold. Starting the hold is audited, with the reason: without that audit row "
+            "no hold starts.\n\n"
             "**Who can call this:** only a platform administrator, with a valid CSRF header and a `reason`. It "
             "does not count towards the daily limit on audit lookups."
         ),
-        responses=_errors(_ERROR_CSRF, _ERROR_ADMIN, _ERROR_HOLD_REASON, _ERROR_ALREADY_ON_HOLD),
+        responses=_errors(
+            _ERROR_CSRF, _ERROR_ADMIN, _ERROR_HOLD_REASON, _ERROR_ALREADY_ON_HOLD, _ERROR_HOLD_AUDIT_UNAVAILABLE
+        ),
     )
     async def start_audit_purge_hold(
         request: Request, body: PurgeHoldReason, _csrf: Csrf, member: PlatformAdmin, db: Db
@@ -5278,15 +5287,21 @@ def make_admin_router() -> APIRouter:
         hold = AuditPurgeHold(reason=body.reason, started_by=member.id)
         db.add(hold)
         try:
-            await db.commit()
+            await db.flush()
         except IntegrityError as error:
             await db.rollback()
             if violated_constraint(error) != _OPEN_HOLD_INDEX:
                 raise
             raise ApiError(409, "AUDIT_PURGE_ALREADY_ON_HOLD") from error
-        await _audit(
-            request, member, vocabulary.AUDIT_PURGE_HOLD_STARTED, {"hold": str(hold.id), "reason": body.reason}
-        )
+        # The audit row commits on its own session; the hold only commits once that row is in.
+        try:
+            await _audit_strict(
+                request, member, vocabulary.AUDIT_PURGE_HOLD_STARTED, {"hold": str(hold.id), "reason": body.reason}
+            )
+        except ApiError:
+            await db.rollback()
+            raise
+        await db.commit()
         return await _purge_hold_status(db)
 
     @router.post(
@@ -5296,10 +5311,12 @@ def make_admin_router() -> APIRouter:
         response_description="The purge is no longer on hold.",
         description=(
             "Ends the open hold. The next nightly run purges everything that passed its retention in the "
-            "meantime. Ending the hold is audited, with the reason.\n\n"
+            "meantime. Ending the hold is audited, with the reason: without that audit row the hold stays open.\n\n"
             "**Who can call this:** only a platform administrator, with a valid CSRF header and a `reason`."
         ),
-        responses=_errors(_ERROR_CSRF, _ERROR_ADMIN, _ERROR_HOLD_REASON, _ERROR_NOT_ON_HOLD),
+        responses=_errors(
+            _ERROR_CSRF, _ERROR_ADMIN, _ERROR_HOLD_REASON, _ERROR_NOT_ON_HOLD, _ERROR_HOLD_AUDIT_UNAVAILABLE
+        ),
     )
     async def end_audit_purge_hold(
         request: Request, body: PurgeHoldReason, _csrf: Csrf, member: PlatformAdmin, db: Db
@@ -5315,10 +5332,14 @@ def make_admin_router() -> APIRouter:
         if hold_id is None:
             await db.rollback()
             raise ApiError(409, "AUDIT_PURGE_NOT_ON_HOLD")
+        try:
+            await _audit_strict(
+                request, member, vocabulary.AUDIT_PURGE_HOLD_ENDED, {"hold": str(hold_id), "reason": body.reason}
+            )
+        except ApiError:
+            await db.rollback()
+            raise
         await db.commit()
-        await _audit(
-            request, member, vocabulary.AUDIT_PURGE_HOLD_ENDED, {"hold": str(hold_id), "reason": body.reason}
-        )
         return PurgeHoldStatus(on_hold=False, hold=None)
 
     # -- Site members ---------------------------------------------------------

@@ -979,6 +979,23 @@ async def test_preview_ref_becomes_slug_validated(environment: Environment) -> N
     assert count == 0
 
 
+async def test_preview_ref_with_a_trailing_newline_422(environment: Environment) -> None:
+    """A `$` anchor also matches before a final newline: the ref is the slug and nothing after it."""
+    async with environment.client() as client:
+        resp = await client.post(
+            DEPLOY_PATH,
+            files=_upload(),
+            data={"preview": "pr-1\n"},
+            headers=_bearer(environment.ci_token),
+        )
+
+    content = _assert_problem(resp, 422)
+    assert content["code"] == "PREVIEW_REF_INVALID"
+    async with environment.session_factory() as db:
+        count = await db.scalar(select(func.count()).select_from(Version))
+    assert count == 0
+
+
 async def test_long_base_path_is_capped_in_the_audit_refs(environment: Environment) -> None:
     """A form field is attacker-controlled up to MAX_FIELD_BYTES; the log keeps
     no more of it than a CI claim."""
@@ -1356,6 +1373,16 @@ async def test_teardown_invalid_ref_422(environment: Environment) -> None:
             "/-/api/v1/sites/team-aurora/website/previews/PR_7", headers=_bearer(environment.ci_token)
         )
     _assert_problem(resp, 422)
+
+
+async def test_teardown_ref_with_a_trailing_newline_422(environment: Environment) -> None:
+    async with environment.client() as client:
+        resp = await client.delete(
+            "/-/api/v1/sites/team-aurora/website/previews/pr-7%0A", headers=_bearer(environment.ci_token)
+        )
+
+    content = _assert_problem(resp, 422)
+    assert content["code"] == "PREVIEW_REF_INVALID"
 
 
 async def test_teardown_via_session(environment: Environment) -> None:
