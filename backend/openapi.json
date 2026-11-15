@@ -9,7 +9,7 @@
       "url": "https://github.com/DigiGilde/toon/issues",
       "email": "digigilde@rijksoverheid.nl"
     },
-    "version": "1.4.1"
+    "version": "1.5.0"
   },
   "servers": [
     {
@@ -6581,7 +6581,7 @@
             }
           },
           "422": {
-            "description": "Unprocessable input. `reason` is missing, is shorter than 10 or longer than 500 characters (after stripping spaces), contains a control or formatting character, or contains an `@` (not an e-mail address; give a case or ticket number).",
+            "description": "Unprocessable input. `reason` is missing, is shorter than 10 or longer than 500 characters (after stripping spaces), contains a control or formatting character, or contains an e-mail address (give a case or ticket number).",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -6644,7 +6644,7 @@
           "Audit log"
         ],
         "summary": "Look up the actor behind a pseudonym",
-        "description": "The opposite direction of `POST /platform/audit/actor-pseudonym`: give a pseudonym from a log row, get back who is behind it. Every member, every content viewer and every linked repository is pseudonymised again with the current `TOON_AUDIT_PEPPER` and with each pepper in `TOON_AUDIT_PEPPER_PREVIOUS`, and compared with the given pseudonym; nothing is kept to speed up this lookup, so expect a full pass over all three.\n\nIf the lookup finds nothing, there is no member, content viewer or repository that pseudonymises to this pseudonym. Several causes are possible: the pepper has been rotated since that row was written and the previous pepper is no longer configured; the actor only ever visited content through the content-host SSO and that visit was more than 90 days ago (`content_viewers` is then cleaned up, like the related `content_access` rows); or the repository has since been unlinked, or deleted along with its site or group (`ON DELETE CASCADE`).\n\nThat this is a POST and not a query parameter is deliberate, as with the other side of this lookup.\n\n**Who can call this:** only a platform administrator, with a valid CSRF header and a `reason` of 10 to 500 characters. The lookup itself is audited, with the given pseudonym, `resolved_as` and the reason, never the identifier found. If writing that audit row fails, no response is returned: see the `503`. Counts towards the daily limit on such lookups, even on a 404.",
+        "description": "The opposite direction of `POST /platform/audit/actor-pseudonym`: give a pseudonym from a log row, get back who is behind it. Every member, every content viewer and every linked repository is pseudonymised again with the current `TOON_AUDIT_PEPPER` and with each pepper in `TOON_AUDIT_PEPPER_PREVIOUS`, and compared with the given pseudonym; nothing is kept to speed up this lookup, so expect a full pass over all three.\n\nIf the lookup finds nothing, there is no member, content viewer or repository that pseudonymises to this pseudonym. Several causes are possible: the pepper has been rotated since that row was written and the previous pepper is no longer configured; the actor only ever visited content through the content-host SSO and that visit was more than 180 days ago (`content_viewers` is then cleaned up, like the related `content_access` rows); or the repository has since been unlinked, or deleted along with its site or group (`ON DELETE CASCADE`).\n\nThat this is a POST and not a query parameter is deliberate, as with the other side of this lookup.\n\n**Who can call this:** only a platform administrator, with a valid CSRF header and a `reason` of 10 to 500 characters. The lookup itself is audited, with the given pseudonym, `resolved_as` and the reason, never the identifier found. If writing that audit row fails, no response is returned: see the `503`. Counts towards the daily limit on such lookups, even on a 404.",
         "operationId": "audit_actor_identity___api_v1_platform_audit_actor_identity_post",
         "requestBody": {
           "content": {
@@ -6702,7 +6702,7 @@
             }
           },
           "404": {
-            "description": "Not found. No member, content viewer or linked repository pseudonymises to this value (`PSEUDONYM_UNKNOWN`): the pepper has been rotated and the previous one is no longer configured, the content viewer was cleaned up after 90 days without a visit, or the repository was unlinked or deleted along with its site.",
+            "description": "Not found. No member, content viewer or linked repository pseudonymises to this value (`PSEUDONYM_UNKNOWN`): the pepper has been rotated and the previous one is no longer configured, the content viewer was cleaned up after 180 days without a visit, or the repository was unlinked or deleted along with its site.",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -6719,7 +6719,7 @@
             }
           },
           "422": {
-            "description": "Unprocessable input. `reason` is missing, is shorter than 10 or longer than 500 characters (after stripping spaces), contains a control or formatting character, or contains an `@` (not an e-mail address; give a case or ticket number). Not 64 hexadecimal characters (`ACTOR_PSEUDONYM_INVALID`).",
+            "description": "Unprocessable input. `reason` is missing, is shorter than 10 or longer than 500 characters (after stripping spaces), contains a control or formatting character, or contains an e-mail address (give a case or ticket number). Not 64 hexadecimal characters (`ACTOR_PSEUDONYM_INVALID`).",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -6872,7 +6872,7 @@
             }
           },
           "422": {
-            "description": "Unprocessable input. `reason` is missing, is shorter than 10 or longer than 500 characters (after stripping spaces), contains a control or formatting character, or contains an `@` (not an e-mail address; give a case or ticket number).",
+            "description": "Unprocessable input. `reason` is missing, is shorter than 10 or longer than 500 characters (after stripping spaces), contains a control or formatting character, or contains an e-mail address (give a case or ticket number).",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -6906,6 +6906,340 @@
           },
           "503": {
             "description": "Unavailable. The action itself writes an audit row, and that write failed (`AUDIT_UNAVAILABLE`); nothing was returned. Try again later.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Unavailable",
+                  "status": 503,
+                  "detail": "Something went wrong.",
+                  "code": "AUDIT_UNAVAILABLE"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminSession": []
+          }
+        ]
+      }
+    },
+    "/-/api/v1/platform/audit/purge-hold": {
+      "get": {
+        "tags": [
+          "Audit log"
+        ],
+        "summary": "Whether the audit purge is on hold",
+        "description": "The nightly purge deletes audit rows and content viewers past their retention. During a (suspected) security incident a platform administrator puts it on hold, so the logging of the incident stays for the three years BIO2 5.28.01 asks.\n\n**Who can call this:** only a platform administrator.",
+        "operationId": "audit_purge_hold___api_v1_platform_audit_purge_hold_get",
+        "responses": {
+          "200": {
+            "description": "Whether a hold is open, and if so why, since when and by whom.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurgeHoldStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated. There is no valid admin session: the cookie is missing, invalid or expired (`NO_SESSION`).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Not authenticated",
+                  "status": 401,
+                  "detail": "There is no active session.",
+                  "code": "NO_SESSION"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden. The request comes from an origin other than the admin host, or the member is not (or no longer) active (`ORIGIN_REFUSED`, `MEMBER_NOT_ACTIVE`). Only a platform administrator is allowed to do this (`NOT_ADMIN`).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Forbidden",
+                  "status": 403,
+                  "detail": "You have no access here.",
+                  "code": "ORIGIN_REFUSED"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. The rate limit budget for this session is used up; try again later.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Too many requests",
+                  "status": 429,
+                  "detail": "Too many requests. Try again later."
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminSession": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Audit log"
+        ],
+        "summary": "Put the audit purge on hold",
+        "description": "From now on nothing is purged from the audit log or from the content viewers, not even rows past their retention: the database refuses every delete while the hold is open. It takes effect at once, without a restart. The nightly job keeps publishing the chain head and logs a warning every night the purge is on hold. Starting the hold is audited, with the reason. A failed audit write does not stop the hold: the hold itself records who started it and why.\n\n**Who can call this:** only a platform administrator, with a valid CSRF header and a `reason`. It does not count towards the daily limit on audit lookups.",
+        "operationId": "start_audit_purge_hold___api_v1_platform_audit_purge_hold_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PurgeHoldReason"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The open hold.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurgeHoldStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated. There is no valid admin session: the cookie is missing, invalid or expired (`NO_SESSION`).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Not authenticated",
+                  "status": 401,
+                  "detail": "There is no active session.",
+                  "code": "NO_SESSION"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden. The request comes from an origin other than the admin host, or the member is not (or no longer) active (`ORIGIN_REFUSED`, `MEMBER_NOT_ACTIVE`). The `X-CSRF-Token` header is missing or does not match the CSRF cookie (`CSRF_INVALID`). Only a platform administrator is allowed to do this (`NOT_ADMIN`).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Forbidden",
+                  "status": 403,
+                  "detail": "You have no access here.",
+                  "code": "ORIGIN_REFUSED"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict. The audit purge is already on hold (`AUDIT_PURGE_ALREADY_ON_HOLD`).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Conflict",
+                  "status": 409,
+                  "detail": "This clashes with the current state.",
+                  "code": "AUDIT_PURGE_ALREADY_ON_HOLD"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable input. `reason` is empty after stripping spaces (`HOLD_REASON_EMPTY`), is longer than 10000 characters (`HOLD_REASON_TOO_LONG`), contains a control or formatting character other than a line break or a tab, such as a zero-width space (`HOLD_REASON_INVISIBLE_CHARACTER`), contains an e-mail address (`HOLD_REASON_EMAIL`), or is missing.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Unprocessable input",
+                  "status": 422,
+                  "detail": "The input is not right.",
+                  "code": "HOLD_REASON_EMPTY"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. The rate limit budget for this session is used up; try again later.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Too many requests",
+                  "status": 429,
+                  "detail": "Too many requests. Try again later."
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminSession": []
+          }
+        ]
+      }
+    },
+    "/-/api/v1/platform/audit/purge-hold/end": {
+      "post": {
+        "tags": [
+          "Audit log"
+        ],
+        "summary": "End the hold on the audit purge",
+        "description": "Ends the open hold. The next nightly run purges everything that passed its retention in the meantime. Ending the hold is audited, with the reason: without that audit row the hold stays open.\n\n**Who can call this:** only a platform administrator, with a valid CSRF header and a `reason`.",
+        "operationId": "end_audit_purge_hold___api_v1_platform_audit_purge_hold_end_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PurgeHoldReason"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The purge is no longer on hold.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurgeHoldStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated. There is no valid admin session: the cookie is missing, invalid or expired (`NO_SESSION`).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Not authenticated",
+                  "status": 401,
+                  "detail": "There is no active session.",
+                  "code": "NO_SESSION"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden. The request comes from an origin other than the admin host, or the member is not (or no longer) active (`ORIGIN_REFUSED`, `MEMBER_NOT_ACTIVE`). The `X-CSRF-Token` header is missing or does not match the CSRF cookie (`CSRF_INVALID`). Only a platform administrator is allowed to do this (`NOT_ADMIN`).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Forbidden",
+                  "status": 403,
+                  "detail": "You have no access here.",
+                  "code": "ORIGIN_REFUSED"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict. The audit purge is not on hold (`AUDIT_PURGE_NOT_ON_HOLD`).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Conflict",
+                  "status": 409,
+                  "detail": "This clashes with the current state.",
+                  "code": "AUDIT_PURGE_NOT_ON_HOLD"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable input. `reason` is empty after stripping spaces (`HOLD_REASON_EMPTY`), is longer than 10000 characters (`HOLD_REASON_TOO_LONG`), contains a control or formatting character other than a line break or a tab, such as a zero-width space (`HOLD_REASON_INVISIBLE_CHARACTER`), contains an e-mail address (`HOLD_REASON_EMAIL`), or is missing.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Unprocessable input",
+                  "status": 422,
+                  "detail": "The input is not right.",
+                  "code": "HOLD_REASON_EMPTY"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. The rate limit budget for this session is used up; try again later.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                },
+                "example": {
+                  "type": "about:blank",
+                  "title": "Too many requests",
+                  "status": 429,
+                  "detail": "Too many requests. Try again later."
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable. The audit row for this change could not be written (`AUDIT_UNAVAILABLE`), so the hold is as it was. Try again later.",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -8745,7 +9079,7 @@
               "unknown"
             ],
             "title": "Resolvedas",
-            "description": "What the identifier belonged to: `member` (translated to their SSO subject), `content_viewer` (an SSO viewer of protected content, seen in the last 90 days), `ci` (a repository linked to a site) or `unknown` (pseudonymised as given, only for an identifier that is not an e-mail address: an e-mail address that belongs to nothing gives a 404)."
+            "description": "What the identifier belonged to: `member` (translated to their SSO subject), `content_viewer` (an SSO viewer of protected content, seen in the last 180 days), `ci` (a repository linked to a site) or `unknown` (pseudonymised as given, only for an identifier that is not an e-mail address: an e-mail address that belongs to nothing gives a 404)."
           }
         },
         "type": "object",
@@ -10627,6 +10961,86 @@
         "title": "PreviousSlugOut",
         "description": "An old slug whose addresses still redirect to the current ones."
       },
+      "PurgeHoldOut": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "title": "Reason",
+            "description": "Why the hold was started."
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Startedat",
+            "description": "When the hold was started.",
+            "examples": [
+              "2026-09-12T09:30:00Z"
+            ]
+          },
+          "startedByName": {
+            "type": "string",
+            "title": "Startedbyname",
+            "description": "Who started the hold: their name, or their e-mail address if no name is known."
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason",
+          "startedAt",
+          "startedByName"
+        ],
+        "title": "PurgeHoldOut",
+        "description": "The open hold on the audit purge."
+      },
+      "PurgeHoldReason": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "title": "Reason",
+            "description": "Why, at least one character. Line breaks are allowed, and a tab becomes a space. Give a case or ticket number, not an e-mail address or other personal data: this field ends up readable in the audit log, for every platform administrator.",
+            "examples": [
+              "incident 2026-091"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "title": "PurgeHoldReason",
+        "description": "Why the audit purge is put on hold, or why the hold ends.",
+        "examples": [
+          {
+            "reason": "incident 2026-091"
+          }
+        ]
+      },
+      "PurgeHoldStatus": {
+        "properties": {
+          "onHold": {
+            "type": "boolean",
+            "title": "Onhold",
+            "description": "`true` while a hold is open: nothing is purged, not even rows past their retention."
+          },
+          "hold": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PurgeHoldOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The open hold, or `null` when there is none."
+          }
+        },
+        "type": "object",
+        "required": [
+          "onHold"
+        ],
+        "title": "PurgeHoldStatus",
+        "description": "Whether the nightly audit purge is on hold, and since when."
+      },
       "Role": {
         "type": "string",
         "enum": [
@@ -10635,7 +11049,7 @@
           "admin"
         ],
         "title": "Role",
-        "description": "Role within a group or within a site.\n\nA reader looks on, an editor changes content, an admin changes policy: who\nmay look, who may join in, and what disappears for good. The interface\nlabels these Reader, Editor and Administrator in English and lezer,\nredacteur and beheerder in Dutch."
+        "description": "Role within a group or within a site.\n\nA reader looks on, an editor changes content, an admin changes policy: who\nmay look, who may join in, and what disappears for good. The interface\nlabels these Reader, Editor and Administrator in English and \"lezer\",\n\"redacteur\" and \"beheerder\" in Dutch."
       },
       "SandboxBody": {
         "properties": {

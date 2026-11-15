@@ -1,1 +1,0 @@
-- During a security incident a platform administrator can hold the nightly audit purge with "Pause purge" on the platform page and lift it with "Resume purge", without a restart. The database refuses every delete while the hold is on, and every platform administrator sees a warning on the other admin pages.

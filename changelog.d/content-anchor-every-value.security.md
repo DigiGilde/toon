@@ -1,1 +1,0 @@
-- When the browser sends the content anchor cookie more than once, logging out on the content host and logging in there again end every content session a correctly signed value names, not only the last one, and opening another site goes through the identity provider instead of reusing the session.
