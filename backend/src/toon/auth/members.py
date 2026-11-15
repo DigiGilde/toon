@@ -18,8 +18,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from toon.api.errors import ApiError
 from toon.auth.sessions import Session, session_from_request
+from toon.constants import Role
 from toon.db import request_db
-from toon.models.identity import Member, MemberStatus, PlatformRole
+from toon.models.identity import Group, GroupMember, Member, MemberStatus, PlatformRole
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -32,15 +33,22 @@ KEY_DEACTIVATED = "MEMBER_DEACTIVATED"
 REASON_DEACTIVATED = "MEMBER_DEACTIVATED"
 REASON_NO_SESSION = "NO_SESSION"
 
+# The demo group of the seed (dev/seed.py GROUP_PUBLIC): in a preview, whoever
+# signs in for the first time becomes an editor there.
+PREVIEW_GROUP = "rijksoverheid"
 
-async def get_or_create_member(db: AsyncSession, session: Session, bootstrap_sub: str) -> Member:
+
+async def get_or_create_member(
+    db: AsyncSession, session: Session, bootstrap_sub: str, preview_group: str | None = None
+) -> Member:
     """Looks up the member for the session sub, or creates it active.
 
     Anyone who can complete SSO Rijk login may use Toon, so a first admin
     visit needs no approval: the member is created active straight away. The
     bootstrap sub (TOON_BOOTSTRAP_ADMIN_SUB) becomes admin besides, also when
     the record already existed before the bootstrap was configured
-    (idempotent promotion).
+    (idempotent promotion). With `preview_group`, a member created here also
+    becomes an editor of the group with that slug, if there is one.
     """
     is_bootstrap = bool(bootstrap_sub) and session.sub == bootstrap_sub
     # Only an address the IdP vouched for is stored: adding a member with a
@@ -55,6 +63,13 @@ async def get_or_create_member(db: AsyncSession, session: Session, bootstrap_sub
     member = result.scalar_one_or_none()
 
     if member is None:
+        # Looked up before the member is added: a query after it would
+        # autoflush the insert outside the IntegrityError handling below.
+        group_id = (
+            await db.scalar(select(Group.id).where(Group.slug == preview_group))
+            if preview_group
+            else None
+        )
         member = Member(
             sso_subject=session.sub,
             email=verified_email,
@@ -65,6 +80,11 @@ async def get_or_create_member(db: AsyncSession, session: Session, bootstrap_sub
         )
         db.add(member)
         try:
+            if group_id is not None:
+                # Without a relationship between the two models the flush does
+                # not order the inserts, so the member goes in first.
+                await db.flush()
+                db.add(GroupMember(group_id=group_id, member_id=member.id, role=Role.EDITOR))
             await db.commit()
         except IntegrityError:
             # Two concurrent first visits: the unique on sso_subject wins,
@@ -121,8 +141,9 @@ async def require_active_member(
         # and the SPA should not have to tell them apart by their wording.
         raise ApiError(401, KEY_NOT_LOGGED_IN)
 
-    bootstrap_sub = request.app.state.settings.bootstrap_admin_sub
-    member = await get_or_create_member(db, session, bootstrap_sub)
+    settings = request.app.state.settings
+    preview_group = PREVIEW_GROUP if settings.is_preview else None
+    member = await get_or_create_member(db, session, settings.bootstrap_admin_sub, preview_group)
 
     if member.status != MemberStatus.ACTIVE:
         raise ApiError(403, KEY_DEACTIVATED)
@@ -132,6 +153,7 @@ async def require_active_member(
 __all__ = [
     "KEY_DEACTIVATED",
     "KEY_NOT_LOGGED_IN",
+    "PREVIEW_GROUP",
     "REASON_DEACTIVATED",
     "REASON_NO_SESSION",
     "get_or_create_member",

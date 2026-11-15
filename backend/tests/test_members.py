@@ -27,10 +27,16 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
 from toon.api.errors import register_error_handlers
-from toon.auth.members import REASON_DEACTIVATED, get_or_create_member, require_active_member
+from toon.auth.members import (
+    PREVIEW_GROUP,
+    REASON_DEACTIVATED,
+    get_or_create_member,
+    require_active_member,
+)
 from toon.auth.sessions import SessionStore
+from toon.constants import AccessBase, Role
 from toon.db import make_session_factory
-from toon.models.identity import Member, MemberStatus, PlatformRole
+from toon.models.identity import Group, GroupMember, Member, MemberStatus, PlatformRole
 from toon.platform import pages
 
 BOOTSTRAP_SUB = "bootstrap-beheerder-sub"
@@ -49,6 +55,7 @@ async def db_environment(migrated_dsn: str):
         yield engine, factory
     finally:
         async with engine.begin() as connection:
+            await connection.execute(text("DELETE FROM groups"))
             await connection.execute(text("DELETE FROM group_members"))
             await connection.execute(text("DELETE FROM members"))
         await engine.dispose()
@@ -453,3 +460,167 @@ class TestTheDisplayName:
 
         members = await _members(factory)
         assert members[0].name is None
+
+
+DEMO_ADMIN_SUB = "demo-beheerder-sub"
+
+
+async def _demo_group(factory) -> Group:
+    """The demo group as the seed leaves it: a group always keeps an admin
+    (the ck_groups_keep_one_admin trigger)."""
+    async with factory() as db:
+        group = Group(slug=PREVIEW_GROUP, name="Rijksoverheid", default_access_base=AccessBase.PUBLIC)
+        admin = Member(
+            sso_subject=DEMO_ADMIN_SUB, email="", platform_role=PlatformRole.MEMBER, status=MemberStatus.ACTIVE
+        )
+        db.add_all([group, admin])
+        await db.flush()
+        db.add(GroupMember(group_id=group.id, member_id=admin.id, role=Role.ADMIN))
+        await db.commit()
+        return group
+
+
+async def _memberships(factory) -> list[tuple[str, str, Role]]:
+    """Every group membership but the demo admin's."""
+    async with factory() as db:
+        rows = await db.execute(
+            select(Member.sso_subject, Group.slug, GroupMember.role)
+            .join(GroupMember, GroupMember.member_id == Member.id)
+            .join(Group, Group.id == GroupMember.group_id)
+            .where(Member.sso_subject != DEMO_ADMIN_SUB)
+        )
+        return [tuple(row) for row in rows]
+
+
+async def _subs(factory) -> list[str]:
+    return sorted(member.sso_subject for member in await _members(factory) if member.sso_subject != DEMO_ADMIN_SUB)
+
+
+def _make_preview_app(idp: MockIdP, factory, **settings_overrides):
+    app = _make_admin_app(idp, factory, **settings_overrides)
+    app.state.settings = app.state.settings.model_copy(update={"environment": "preview"})
+    return app
+
+
+class TestPreviewEditorRole:
+    """In a preview, whoever signs in for the first time becomes an editor of
+    the demo group, so a colleague can try the change without anyone adding
+    them first."""
+
+    async def test_first_sign_in_to_a_preview_makes_an_editor_of_the_demo_group(self, idp, db_environment):
+        _, factory = db_environment
+        await _demo_group(factory)
+        app = _make_preview_app(idp, factory)
+        async with make_test_client(app) as client:
+            set_session_cookie(client, app, sub="collega-sub")
+            response = await client.get("/admin")
+            assert response.status_code == 200
+            assert response.json()["role"] == "member"
+        assert await _memberships(factory) == [("collega-sub", PREVIEW_GROUP, Role.EDITOR)]
+
+    async def test_second_sign_in_adds_no_second_membership(self, idp, db_environment):
+        _, factory = db_environment
+        await _demo_group(factory)
+        app = _make_preview_app(idp, factory)
+        async with make_test_client(app) as client:
+            set_session_cookie(client, app, sub="collega-sub")
+            assert (await client.get("/admin")).status_code == 200
+            assert (await client.get("/admin")).status_code == 200
+        assert await _memberships(factory) == [("collega-sub", PREVIEW_GROUP, Role.EDITOR)]
+
+    async def test_an_existing_member_gets_no_membership(self, idp, db_environment):
+        """A seeded member already has the roles the seed gave it: signing in
+        to the preview adds nothing on top."""
+        _, factory = db_environment
+        await _demo_group(factory)
+        async with factory() as db:
+            db.add(
+                Member(
+                    sso_subject="gezaaid-sub",
+                    email="",
+                    platform_role=PlatformRole.MEMBER,
+                    status=MemberStatus.ACTIVE,
+                )
+            )
+            await db.commit()
+        app = _make_preview_app(idp, factory)
+        async with make_test_client(app) as client:
+            set_session_cookie(client, app, sub="gezaaid-sub")
+            assert (await client.get("/admin")).status_code == 200
+        assert await _memberships(factory) == []
+
+    async def test_a_removed_editor_is_not_added_back_on_the_next_visit(self, idp, db_environment):
+        _, factory = db_environment
+        await _demo_group(factory)
+        app = _make_preview_app(idp, factory)
+        async with make_test_client(app) as client:
+            set_session_cookie(client, app, sub="collega-sub")
+            assert (await client.get("/admin")).status_code == 200
+            async with factory() as db:
+                await db.execute(text("DELETE FROM group_members WHERE role = 'editor'"))
+                await db.commit()
+            assert (await client.get("/admin")).status_code == 200
+        assert await _memberships(factory) == []
+
+    async def test_a_preview_without_the_demo_group_still_creates_the_member(self, idp, db_environment):
+        _, factory = db_environment
+        app = _make_preview_app(idp, factory)
+        async with make_test_client(app) as client:
+            set_session_cookie(client, app, sub="collega-sub")
+            assert (await client.get("/admin")).status_code == 200
+        assert await _subs(factory) == ["collega-sub"]
+        assert await _memberships(factory) == []
+
+    async def test_outside_a_preview_no_membership_is_added(self, idp, db_environment):
+        _, factory = db_environment
+        await _demo_group(factory)
+        app = _make_admin_app(idp, factory)
+        async with make_test_client(app) as client:
+            set_session_cookie(client, app, sub="collega-sub")
+            assert (await client.get("/admin")).status_code == 200
+        assert await _subs(factory) == ["collega-sub"]
+        assert await _memberships(factory) == []
+
+    async def test_the_bootstrap_admin_is_an_editor_too(self, idp, db_environment):
+        _, factory = db_environment
+        await _demo_group(factory)
+        app = _make_preview_app(idp, factory, bootstrap_admin_sub=BOOTSTRAP_SUB)
+        async with make_test_client(app) as client:
+            set_session_cookie(client, app, sub=BOOTSTRAP_SUB)
+            response = await client.get("/admin")
+            assert response.json()["role"] == "admin"
+        assert await _memberships(factory) == [(BOOTSTRAP_SUB, PREVIEW_GROUP, Role.EDITOR)]
+
+    async def test_a_concurrent_first_visit_adds_no_second_membership(self, idp, db_environment):
+        """The losing request of two concurrent first visits adopts the
+        winner's member and leaves the membership to the winner. In a preview
+        the unique constraint bites on the flush that puts the member in
+        before its membership, not on the commit."""
+        _, factory = db_environment
+        group = await _demo_group(factory)
+        store = SessionStore()
+        session = store.create_session(
+            sub="race-sub", email="race@example.nl", email_verified=True, acr="urn:acr:hoog"
+        )
+
+        async with factory() as db:
+            async def racing_flush() -> None:
+                async with factory() as other:
+                    winner = Member(
+                        sso_subject="race-sub",
+                        email="",
+                        platform_role=PlatformRole.MEMBER,
+                        status=MemberStatus.ACTIVE,
+                    )
+                    other.add(winner)
+                    await other.flush()
+                    other.add(GroupMember(group_id=group.id, member_id=winner.id, role=Role.EDITOR))
+                    await other.commit()
+                raise IntegrityError("insert", {}, Exception("duplicate key value violates unique constraint"))
+
+            db.flush = AsyncMock(side_effect=racing_flush)
+            member = await get_or_create_member(db, session, "", PREVIEW_GROUP)
+
+        assert member.sso_subject == "race-sub"
+        assert await _subs(factory) == ["race-sub"]
+        assert await _memberships(factory) == [("race-sub", PREVIEW_GROUP, Role.EDITOR)]
