@@ -24,12 +24,6 @@ import { fireDetailEvent } from './site/testHelpers';
   };
 }
 
-// jsdom has no execCommand: CodeMirror, under nldd-text-editor, calls it to read the selection.
-document.execCommand ??= () => false;
-// jsdom has no layout either: CodeMirror measures text ranges after an edit.
-Range.prototype.getClientRects ??= () => [] as unknown as DOMRectList;
-Range.prototype.getBoundingClientRect ??= () => new DOMRect();
-
 vi.mock('@/api/toon', () => ({
   auditPurgeHold: vi.fn(),
   startAuditPurgeHold: vi.fn(),
@@ -112,7 +106,7 @@ describe('AuditPurgeHold', () => {
       expect(wrapper.find('nldd-rich-text').text()).toContain('Elke nacht');
       expect(wrapper.find('nldd-rich-text').text()).toContain('beveiligingsincident');
       const field = wrapper.find('nldd-form-field').element;
-      expect(property(field, 'label')).toBe('Reden');
+      expect(property(field, 'label')).toBe('Reden om te pauzeren');
       expect(property(wrapper.find('[data-testid="audit-purge-action"]').element, 'text')).toBe(
         'Opruimen pauzeren',
       );
@@ -125,7 +119,9 @@ describe('AuditPurgeHold', () => {
 
       expect(wrapper.find('h2').text()).toBe('Audit purge');
       expect(wrapper.find('nldd-rich-text').text()).toContain('Every night');
-      expect(property(wrapper.find('nldd-form-field').element, 'label')).toBe('Reason');
+      expect(property(wrapper.find('nldd-form-field').element, 'label')).toBe(
+        'Reason for pausing',
+      );
       expect(property(wrapper.find('[data-testid="audit-purge-action"]').element, 'text')).toBe(
         'Pause purge',
       );
@@ -135,11 +131,11 @@ describe('AuditPurgeHold', () => {
       const wrapper = await mountWith(RUNNING);
 
       const field = wrapper.find('[data-testid="audit-purge-reason"]');
-      expect(field.element.tagName.toLowerCase()).toBe('nldd-text-editor');
+      expect(field.element.tagName.toLowerCase()).toBe('nldd-multi-line-text-field');
       expect(property(field.element, 'inputId')).toBe('audit-purge-reason');
       expect(property(field.element, 'rows')).toBe(3);
       expect(property(wrapper.find('nldd-form-field').element, 'supportingLabel')).toBe(
-        'Platformbeheerders kunnen dit 3 jaar lang lezen in het auditlog.',
+        'Blijft voorgoed bij de pauze bewaard en 3 jaar in het auditlog. Platformbeheerders kunnen dit lezen.',
       );
     });
 
@@ -148,7 +144,7 @@ describe('AuditPurgeHold', () => {
       const wrapper = await mountWith(RUNNING);
 
       expect(property(wrapper.find('nldd-form-field').element, 'supportingLabel')).toBe(
-        'Platform administrators can read this in the audit log for 3 years.',
+        'Kept with the pause for good, and in the audit log for 3 years. Platform administrators can read it.',
       );
     });
 
@@ -164,7 +160,7 @@ describe('AuditPurgeHold', () => {
       expect(field.attributes('unmet')).toBeTruthy();
       expect(wrapper.findAll('nldd-validation-item')).toHaveLength(1);
       expect(wrapper.find('nldd-validation-item').text()).toBe(
-        'Geen e-mailadres: het auditlog bewaart deze reden 3 jaar en kan hem niet wissen.',
+        'Geen e-mailadres: Toon bewaart deze reden voorgoed en kan hem niet wissen.',
       );
 
       type(wrapper, '');
@@ -182,7 +178,7 @@ describe('AuditPurgeHold', () => {
       await flushPromises();
 
       expect(wrapper.find('nldd-validation-item').text()).toBe(
-        'No e-mail address: the audit log keeps this reason for 3 years and cannot erase it.',
+        'No e-mail address: Toon keeps this reason for good and cannot erase it.',
       );
     });
 
@@ -369,7 +365,7 @@ describe('AuditPurgeHold', () => {
       const wrapper = await mountWith(HELD);
 
       expect(wrapper.find('[role="status"]').text()).toContain(
-        `The purge is paused since ${formatTimestamp(STARTED_AT)} by Robbert Bos.`,
+        `The purge has been paused since ${formatTimestamp(STARTED_AT)}, by Robbert Bos.`,
       );
       expect(wrapper.find('[role="status"]').text()).toContain(`Reason: ${REASON}`);
     });
@@ -385,7 +381,14 @@ describe('AuditPurgeHold', () => {
       expect(property(wrapper.find('[data-testid="audit-purge-action"]').element, 'text')).toBe(
         'Opruimen hervatten',
       );
-      expect(property(wrapper.find('nldd-form-field').element, 'label')).toBe('Reden');
+      expect(property(wrapper.find('nldd-form-field').element, 'label')).toBe('Reden om te hervatten');
+    });
+
+    it('labels the reason field for resuming in English', async () => {
+      _setLocaleForTest('en');
+      const wrapper = await mountWith(HELD);
+
+      expect(property(wrapper.find('nldd-form-field').element, 'label')).toBe('Reason for resuming');
     });
 
     it('warns that entries will be deleted the next night before resuming', async () => {

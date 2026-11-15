@@ -110,8 +110,9 @@ describe('audit purge hold', () => {
   });
 
   it.each([
-    ['too short', 'kort'],
-    ['too long', 'x'.repeat(501)],
+    ['empty', '   '],
+    ['too long', 'x'.repeat(10_001)],
+    ['a control character', 'regel\u0007een'],
     ['an e-mail address', 'mail mij op a@b.nl svp'],
   ])('refuses a reason that is %s with a 422', async (_name, reason) => {
     const refused = await refusedWith(toon.startAuditPurgeHold(reason));

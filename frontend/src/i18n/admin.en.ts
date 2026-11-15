@@ -130,14 +130,15 @@ export const adminEn: Record<keyof typeof adminNl, string> = {
   'admin.purge.loading': 'Loading the status of the purge...',
   'admin.purge.running':
     'Every night, audit log entries past their retention are deleted. Pause this during a (suspected) security incident, so the entries are kept.',
-  'admin.purge.paused': 'The purge is paused since {date} by {name}.',
+  'admin.purge.paused': 'The purge has been paused since {date}, by {name}.',
   'admin.purge.paused.reason': 'Reason: {reason}',
   'admin.purge.resumed': 'The purge is running again.',
-  'admin.purge.reason.label': 'Reason',
-  'admin.purge.reason.hint': 'Platform administrators can read this in the audit log for 3 years.',
+  'admin.purge.reason.label.pause': 'Reason for pausing',
+  'admin.purge.reason.label.resume': 'Reason for resuming',
+  'admin.purge.reason.hint': 'Kept with the pause for good, and in the audit log for 3 years. Platform administrators can read it.',
   'admin.purge.reason.empty': 'Give a reason.',
   'admin.purge.reason.email':
-    'No e-mail address: the audit log keeps this reason for 3 years and cannot erase it.',
+    'No e-mail address: Toon keeps this reason for good and cannot erase it.',
   'admin.purge.pause.action': 'Pause purge',
   'admin.purge.pause.title': 'Pause the purge?',
   'admin.purge.pause.text':

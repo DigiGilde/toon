@@ -814,7 +814,7 @@ async def deploy(request: Request, group_slug: str, site_slug: str) -> DeployRes
         if base_path is not None:
             refs["base_path"] = base_path[: trust.MAX_CLAIM_LENGTH]
         if preview is not None:
-            if not SLUG_RE.match(preview):
+            if not SLUG_RE.fullmatch(preview):
                 raise ApiError(422, "PREVIEW_REF_INVALID")
             refs["preview"] = preview[: trust.MAX_CLAIM_LENGTH]
         elif auth.ci is not None and auth.ci.repository is not None:
@@ -914,7 +914,7 @@ async def delete_preview(request: Request, group_slug: str, site_slug: str, ref:
             auth = await _authenticate(request, db)
             actor = auth.actor
             refs.update(_auth_refs(auth))
-            if not SLUG_RE.match(ref):
+            if not SLUG_RE.fullmatch(ref):
                 raise ApiError(422, "PREVIEW_REF_INVALID")
             _, site = await _target_site(request, db, auth, group_slug, site_slug, refs)
             auth = await _authorize(request, db, auth, group_slug, site)

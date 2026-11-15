@@ -1,1 +1,1 @@
-- The app now purges the audit log and `content_viewers` of rows past their retention every night at 04:00 UTC, right after publishing the audit chain head to the log. Until now nothing purged them on production.
+- The app now deletes audit log entries and the SSO details of content viewers past their retention every night at 04:00 UTC, right after publishing the audit chain head to the log. Until now nothing purged them on production.

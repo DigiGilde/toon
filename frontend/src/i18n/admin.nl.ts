@@ -134,11 +134,12 @@ export const adminNl = {
   'admin.purge.paused': 'Opruimen staat sinds {date} op pauze, gezet door {name}.',
   'admin.purge.paused.reason': 'Reden: {reason}',
   'admin.purge.resumed': 'Opruimen loopt weer.',
-  'admin.purge.reason.label': 'Reden',
-  'admin.purge.reason.hint': 'Platformbeheerders kunnen dit 3 jaar lang lezen in het auditlog.',
+  'admin.purge.reason.label.pause': 'Reden om te pauzeren',
+  'admin.purge.reason.label.resume': 'Reden om te hervatten',
+  'admin.purge.reason.hint': 'Blijft voorgoed bij de pauze bewaard en 3 jaar in het auditlog. Platformbeheerders kunnen dit lezen.',
   'admin.purge.reason.empty': 'Geef een reden.',
   'admin.purge.reason.email':
-    'Geen e-mailadres: het auditlog bewaart deze reden 3 jaar en kan hem niet wissen.',
+    'Geen e-mailadres: Toon bewaart deze reden voorgoed en kan hem niet wissen.',
   'admin.purge.pause.action': 'Opruimen pauzeren',
   'admin.purge.pause.title': 'Opruimen pauzeren?',
   'admin.purge.pause.text':

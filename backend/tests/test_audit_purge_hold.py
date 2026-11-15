@@ -12,6 +12,9 @@ Reuses the admin API fixtures.
 from __future__ import annotations
 
 import asyncio
+import itertools
+import re
+import time
 
 import pytest
 from sqlalchemy import select, text, update
@@ -56,6 +59,19 @@ async def _holds(factory) -> list[AuditPurgeHold]:
 async def _audit_rows(factory, action: str) -> list[AuditLogEntry]:
     async with factory() as db:
         return list(await db.scalars(select(AuditLogEntry).where(AuditLogEntry.action == action)))
+
+
+def _fail_audit_of(app, monkeypatch, action: str) -> None:
+    """Fails the strict audit write of `action` only, so every other audit row
+    (such as a generic refusal row) would still land."""
+    write_strict = app.state.audit_log.write_strict
+
+    async def _write_strict(written_action, *args, **kwargs):
+        if written_action == action:
+            raise RuntimeError("audit log write error")
+        await write_strict(written_action, *args, **kwargs)
+
+    monkeypatch.setattr(app.state.audit_log, "write_strict", _write_strict)
 
 
 class TestStatus:
@@ -165,6 +181,33 @@ class TestStarting:
 
         assert len(await _holds(factory)) == 1
 
+    async def test_a_failed_audit_write_starts_no_hold(self, client, app, factory, data, monkeypatch):
+        headers = _as_admin(client, app)
+        _fail_audit_of(app, monkeypatch, vocabulary.AUDIT_PURGE_HOLD_STARTED)
+
+        response = await client.post(HOLD, json={"reason": REASON}, headers=headers)
+
+        assert response.status_code == 503
+        assert response.headers["content-type"] == PROBLEM
+        assert response.json()["code"] == "AUDIT_UNAVAILABLE"
+        assert await _holds(factory) == []
+        assert (await client.get(HOLD, headers=headers)).json() == NOT_HELD
+        assert await _audit_rows(factory, vocabulary.AUDIT_PURGE_HOLD_STARTED) == []
+        assert await _audit_rows(factory, vocabulary.ADMIN_ACCESS) == []
+
+        monkeypatch.undo()
+        assert (await client.post(HOLD, json={"reason": REASON}, headers=headers)).status_code == 201
+
+    async def test_without_an_audit_log_no_hold_starts(self, client, app, factory, data):
+        headers = _as_admin(client, app)
+        app.state.audit_log = None
+
+        response = await client.post(HOLD, json={"reason": REASON}, headers=headers)
+
+        assert response.status_code == 503
+        assert response.json()["code"] == "AUDIT_UNAVAILABLE"
+        assert await _holds(factory) == []
+
     async def test_a_new_hold_may_follow_an_ended_one(self, client, app, factory, data):
         headers = _as_admin(client, app)
         await client.post(HOLD, json={"reason": REASON}, headers=headers)
@@ -216,6 +259,25 @@ class TestEnding:
         [hold] = await _holds(factory)
         assert hold.end_reason == END_REASON
 
+    async def test_a_failed_audit_write_leaves_the_hold_open(self, client, app, factory, data, monkeypatch):
+        headers = _as_admin(client, app)
+        await client.post(HOLD, json={"reason": REASON}, headers=headers)
+        _fail_audit_of(app, monkeypatch, vocabulary.AUDIT_PURGE_HOLD_ENDED)
+
+        response = await client.post(END, json={"reason": END_REASON}, headers=headers)
+
+        assert response.status_code == 503
+        assert response.headers["content-type"] == PROBLEM
+        assert response.json()["code"] == "AUDIT_UNAVAILABLE"
+        [hold] = await _holds(factory)
+        assert (hold.ended_at, hold.ended_by, hold.end_reason) == (None, None, None)
+        assert (await client.get(HOLD, headers=headers)).json()["onHold"] is True
+        assert await _audit_rows(factory, vocabulary.AUDIT_PURGE_HOLD_ENDED) == []
+        assert await _audit_rows(factory, vocabulary.ADMIN_ACCESS) == []
+
+        monkeypatch.undo()
+        assert (await client.post(END, json={"reason": END_REASON}, headers=headers)).status_code == 200
+
     async def test_two_admins_at_once_end_it_once(self, client, app, factory, data):
         headers = _as_admin(client, app)
         await client.post(HOLD, json={"reason": REASON}, headers=headers)
@@ -260,6 +322,27 @@ class TestReason:
 
         assert response.status_code == 201
         assert [hold.reason for hold in await _holds(factory)] == [reason]
+
+    def test_the_longest_reason_without_an_address_is_checked_quickly(self):
+        """A pattern like `[^\\s@]+@...` backtracks over the whole rest of the
+        text from every start position: about half a second for 10,000
+        characters, on the event loop. Twenty checks have to fit in a second."""
+        reason = "a" * admin.HOLD_REASON_MAX_LENGTH
+        start = time.perf_counter()
+
+        for _ in range(20):
+            assert admin._validated_hold_reason(reason) == reason
+
+        assert time.perf_counter() - start < 1
+
+    def test_the_address_check_finds_what_the_plain_pattern_finds(self):
+        """The linear pattern is a rewrite of this readable one, and finds an
+        address in exactly the same texts."""
+        plain = re.compile(r"[^\s@]+@[^\s@]+\.[^\s@]+")
+        for length in range(7):
+            for characters in itertools.product("a@. \n", repeat=length):
+                text = "".join(characters)
+                assert bool(admin._EMAIL_ADDRESS.search(text)) == bool(plain.search(text)), repr(text)
 
     @pytest.mark.parametrize(
         ("sent", "kept"),

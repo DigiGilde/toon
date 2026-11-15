@@ -543,6 +543,18 @@ def test_teardown_leaves_a_comment_that_only_resembles_ours_alone(fake, runner_e
     assert fake.calls() == [("GET", "/issues/42/comments")]
 
 
+def test_a_comment_edited_in_the_browser_is_still_found(fake, runner_env):
+    """An edit on github.com stores CRLF line endings."""
+    fake.on("GET", "/issues/42/comments", [_by_bot(6, f"{HEADING}\r\n\r\nedited")])
+    fake.on("PATCH", "/issues/comments/6", {})
+
+    assert _publish_preview(fake, "--comment") == 0
+
+    assert fake.calls("POST") == []
+    [update] = fake.sent("PATCH", "/issues/comments/6")
+    assert update["body"].startswith(f"{HEADING}\n\n{PREVIEW_URL}")
+
+
 def test_with_comments_under_both_markers_the_first_is_updated_and_none_is_added(fake, runner_env):
     fake.on(
         "GET",

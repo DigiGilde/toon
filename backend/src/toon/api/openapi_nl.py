@@ -2150,7 +2150,7 @@ NL: Final[dict[str, str]] = {
         "From now on nothing is purged from the audit log or from the content viewers, not even rows past their "
         "retention: the database refuses every delete while the hold is open. It takes effect at once, without a "
         "restart. The nightly job keeps publishing the chain head and logs a warning every night the purge is on "
-        "hold. Starting the hold is audited, with the reason.\n"
+        "hold. Starting the hold is audited, with the reason: without that audit row no hold starts.\n"
         "\n"
         "**Who can call this:** only a platform administrator, with a valid CSRF header and a `reason`. It does not "
         "count towards the daily limit on audit lookups."
@@ -2158,7 +2158,8 @@ NL: Final[dict[str, str]] = {
         "Vanaf nu wordt niets meer opgeruimd uit het auditlog of uit de content-viewers, ook geen regels waarvan de "
         "bewaartermijn om is: de database weigert elke verwijdering zolang de pauze loopt. Het werkt meteen, zonder "
         "herstart. De nachtelijke taak blijft de ketenkop publiceren en logt elke nacht een waarschuwing zolang de "
-        "pauze loopt. Het starten van de pauze wordt geaudit, met de reden.\n"
+        "pauze loopt. Het starten van de pauze wordt geaudit, met de reden: zonder die auditregel start er geen "
+        "pauze.\n"
         "\n"
         "**Mag:** alleen een platformbeheerder, met een geldige CSRF-header en een `reason`. Telt niet mee voor de "
         "dagelijkse limiet op auditopzoekingen."
@@ -2170,18 +2171,26 @@ NL: Final[dict[str, str]] = {
     "End the hold on the audit purge": "Het opruimen van het auditlog hervatten",
     (
         "Ends the open hold. The next nightly run purges everything that passed its retention in the meantime. "
-        "Ending the hold is audited, with the reason.\n"
+        "Ending the hold is audited, with the reason: without that audit row the hold stays open.\n"
         "\n"
         "**Who can call this:** only a platform administrator, with a valid CSRF header and a `reason`."
     ): (
         "Beëindigt de lopende pauze. De volgende nachtelijke run ruimt alles op waarvan de bewaartermijn intussen "
-        "om is. Het beëindigen van de pauze wordt geaudit, met de reden.\n"
+        "om is. Het beëindigen van de pauze wordt geaudit, met de reden: zonder die auditregel blijft de pauze "
+        "lopen.\n"
         "\n"
         "**Mag:** alleen een platformbeheerder, met een geldige CSRF-header en een `reason`."
     ),
     "The purge is no longer on hold.": "Het opruimen staat niet langer op pauze.",
     "Conflict. The audit purge is not on hold (`AUDIT_PURGE_NOT_ON_HOLD`).": (
         "Conflict. Het opruimen van het auditlog staat niet op pauze (`AUDIT_PURGE_NOT_ON_HOLD`)."
+    ),
+    (
+        "Unavailable. The audit row for this change could not be written (`AUDIT_UNAVAILABLE`), so the hold is as "
+        "it was. Try again later."
+    ): (
+        "Niet beschikbaar. De auditregel voor deze wijziging kon niet worden geschreven (`AUDIT_UNAVAILABLE`), dus "
+        "de pauze is zoals hij was. Probeer het later opnieuw."
     ),
     "Members of a site": "Leden van een site",
     (

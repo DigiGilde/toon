@@ -155,7 +155,7 @@ class UsageError(Exception):
 
 
 def _valid_slug(value: str, what: str) -> str:
-    if not SLUG_RE.match(value):
+    if not SLUG_RE.fullmatch(value):
         raise UsageError(
             f"{what} must be a valid slug (a-z, 0-9, hyphen), got: {value!r}"
         )
