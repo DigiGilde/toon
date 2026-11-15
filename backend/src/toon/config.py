@@ -169,7 +169,8 @@ class Settings(BaseSettings):
     # to start (see _production_requirements below) instead of silently
     # skipping every production validator (trusted proxies, OIDC issuer
     # requirements, base url, https). dev/compose.yml sets TOON_ENVIRONMENT=
-    # dev explicitly for local development.
+    # dev explicitly for local development. "preview" (a pull request preview
+    # on ZAD) is held to every production requirement as well.
     environment: str = "productie"
     base_url: str | None = None
     # Two origins, always: the admin host and the content host are
@@ -396,9 +397,18 @@ class Settings(BaseSettings):
     @field_validator("environment")
     @classmethod
     def _environment_valid(cls, value: str) -> str:
-        if value not in ("dev", "productie"):
-            raise ValueError("TOON_ENVIRONMENT must be 'dev' or 'productie'")
+        if value not in ("dev", "productie", "preview"):
+            raise ValueError("TOON_ENVIRONMENT must be 'dev', 'productie' or 'preview'")
         return value
+
+    @property
+    def hardened(self) -> bool:
+        """Production and a preview: everything production enforces."""
+        return self.environment in ("productie", "preview")
+
+    @property
+    def is_preview(self) -> bool:
+        return self.environment == "preview"
 
     @field_validator("oidc_client_auth")
     @classmethod
@@ -463,34 +473,33 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _production_requirements(self) -> Settings:
-        if self.environment == "productie":
+        if self.hardened:
+            where = f"TOON_ENVIRONMENT={self.environment}"
             if self.behind_proxy is None:
                 raise ValueError(
-                    "TOON_BEHIND_PROXY is required when "
-                    "TOON_ENVIRONMENT=productie; 'false' means: no proxy in front"
+                    f"TOON_BEHIND_PROXY is required when {where}; "
+                    "'false' means: no proxy in front"
                 )
             if not self.oidc_iss_required:
                 raise ValueError(
-                    "TOON_OIDC_ISS_REQUIRED must be 'true' when "
-                    "TOON_ENVIRONMENT=productie"
+                    f"TOON_OIDC_ISS_REQUIRED must be 'true' when {where}"
                 )
             if not self.base_url:
                 raise ValueError(
-                    "TOON_BASE_URL is required when TOON_ENVIRONMENT=productie"
+                    f"TOON_BASE_URL is required when {where}"
                 )
             # The issuer is already filled in by _oidc_source_and_secrets above,
             # whether it came from TOON_OIDC_ISSUER or from OIDC_DISCOVERY_URL.
             issuer = urlsplit(self.oidc_issuer)
             if issuer.scheme != "https":
                 raise ValueError(
-                    "TOON_OIDC_ISSUER must be an https URL when "
-                    "TOON_ENVIRONMENT=productie; http is only for the dev mock"
+                    f"TOON_OIDC_ISSUER must be an https URL when {where}; "
+                    "http is only for the dev mock"
                 )
             if not issuer.hostname or is_loopback_host(issuer.hostname):
                 raise ValueError(
-                    "TOON_OIDC_ISSUER must have a real hostname when "
-                    "TOON_ENVIRONMENT=productie; loopback and .localhost are only for "
-                    "the dev mock"
+                    f"TOON_OIDC_ISSUER must have a real hostname when {where}; "
+                    "loopback and .localhost are only for the dev mock"
                 )
         return self
 

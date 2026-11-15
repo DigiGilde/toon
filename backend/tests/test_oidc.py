@@ -303,11 +303,11 @@ class TestEmptyRequiredAcr:
         q = dict(httpx.URL(start.authorization_url).params)
         assert q["acr_values"] == "urn:acr:hoog urn:acr:substantieel"
 
-    def test_warning_in_production(self, idp, caplog):
+    @pytest.mark.parametrize("environment", ["productie", "preview"])
+    def test_warning_in_production(self, idp, caplog, environment):
+        overrides = {**PRODUCTION_OVERRIDES, "environment": environment}
         with caplog.at_level(logging.INFO, logger="toon.auth.oidc"):
-            make_oidc_client(
-                make_settings(idp, oidc_required_acr="", **PRODUCTION_OVERRIDES), idp
-            )
+            make_oidc_client(make_settings(idp, oidc_required_acr="", **overrides), idp)
         warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
         assert len(warnings) == 1
         assert "TOON_OIDC_REQUIRED_ACR is empty" in warnings[0].getMessage()

@@ -484,6 +484,15 @@ def test_unknown_environment_value_refused(monkeypatch):
     with pytest.raises(ConfigurationError) as excinfo:
         load_settings()
     assert "TOON_ENVIRONMENT" in str(excinfo.value)
+    for value in ("'dev'", "'productie'", "'preview'"):
+        assert value in str(excinfo.value)
+
+
+def test_dev_is_neither_hardened_nor_preview(monkeypatch):
+    _set_required_env(monkeypatch)
+    settings = load_settings()
+    assert settings.hardened is False
+    assert settings.is_preview is False
 
 
 @pytest.mark.parametrize("value", ["", "toon.example", "/sites", "https://"])
@@ -611,12 +620,54 @@ def test_production_full_configured_loads(monkeypatch):
 def _production_env(monkeypatch, **overrides):
     _set_required_env(
         monkeypatch,
-        TOON_ENVIRONMENT="productie",
-        TOON_BEHIND_PROXY="true",
-        TOON_OIDC_ISS_REQUIRED="true",
-        TOON_BASE_URL="https://beheer.toon.example",
-        **overrides,
+        **{
+            "TOON_ENVIRONMENT": "productie",
+            "TOON_BEHIND_PROXY": "true",
+            "TOON_OIDC_ISS_REQUIRED": "true",
+            "TOON_BASE_URL": "https://beheer.toon.example",
+            **overrides,
+        },
     )
+
+
+def test_production_is_hardened_and_no_preview(monkeypatch):
+    _production_env(monkeypatch)
+    settings = load_settings()
+    assert settings.hardened is True
+    assert settings.is_preview is False
+
+
+def test_preview_environment_is_accepted(monkeypatch):
+    _production_env(monkeypatch, TOON_ENVIRONMENT="preview")
+    settings = load_settings()
+    assert settings.environment == "preview"
+    assert settings.is_preview is True
+    assert settings.hardened is True
+
+
+@pytest.mark.parametrize(
+    ("overrides", "unset", "named"),
+    [
+        ({}, "TOON_BEHIND_PROXY", "TOON_BEHIND_PROXY"),
+        ({"TOON_OIDC_ISS_REQUIRED": "false"}, None, "TOON_OIDC_ISS_REQUIRED"),
+        ({}, "TOON_BASE_URL", "TOON_BASE_URL"),
+        ({"TOON_OIDC_ISSUER": "http://idp.example.org"}, None, "TOON_OIDC_ISSUER"),
+        ({"TOON_OIDC_ISSUER": "https://127.0.0.1:8443/default"}, None, "TOON_OIDC_ISSUER"),
+    ],
+    ids=["proxy-setting", "iss-required", "base-url", "http-issuer", "loopback-issuer"],
+)
+def test_preview_is_held_to_every_production_requirement(monkeypatch, overrides, unset, named):
+    """A preview runs pull request code on a public host: every check that
+    keeps production from starting half-configured holds there too, and the
+    refusal names the same variable as under productie."""
+    for environment in ("productie", "preview"):
+        _production_env(monkeypatch, TOON_ENVIRONMENT=environment, **overrides)
+        if unset:
+            monkeypatch.delenv(unset)
+        with pytest.raises(ConfigurationError) as excinfo:
+            load_settings()
+        assert named in str(excinfo.value)
+        assert f"TOON_ENVIRONMENT={environment}" in str(excinfo.value)
 
 
 @pytest.mark.parametrize(

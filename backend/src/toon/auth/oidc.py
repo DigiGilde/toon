@@ -272,7 +272,7 @@ class OidcClient:
                 "checked and no acr_values is sent; the "
                 "authentication level then depends entirely on the OP (%s)"
             )
-            if settings.environment == "productie":
+            if settings.hardened:
                 _logger.warning(message, settings.oidc_issuer)
             else:
                 _logger.info(message, settings.oidc_issuer)
