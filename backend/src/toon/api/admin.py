@@ -5272,14 +5272,12 @@ def make_admin_router() -> APIRouter:
             "From now on nothing is purged from the audit log or from the content viewers, not even rows past "
             "their retention: the database refuses every delete while the hold is open. It takes effect at "
             "once, without a restart. The nightly job keeps publishing the chain head and logs a warning "
-            "every night the purge is on hold. Starting the hold is audited, with the reason: without that audit row "
-            "no hold starts.\n\n"
+            "every night the purge is on hold. Starting the hold is audited, with the reason. A failed audit write "
+            "does not stop the hold: the hold itself records who started it and why.\n\n"
             "**Who can call this:** only a platform administrator, with a valid CSRF header and a `reason`. It "
             "does not count towards the daily limit on audit lookups."
         ),
-        responses=_errors(
-            _ERROR_CSRF, _ERROR_ADMIN, _ERROR_HOLD_REASON, _ERROR_ALREADY_ON_HOLD, _ERROR_HOLD_AUDIT_UNAVAILABLE
-        ),
+        responses=_errors(_ERROR_CSRF, _ERROR_ADMIN, _ERROR_HOLD_REASON, _ERROR_ALREADY_ON_HOLD),
     )
     async def start_audit_purge_hold(
         request: Request, body: PurgeHoldReason, _csrf: Csrf, member: PlatformAdmin, db: Db
@@ -5287,21 +5285,17 @@ def make_admin_router() -> APIRouter:
         hold = AuditPurgeHold(reason=body.reason, started_by=member.id)
         db.add(hold)
         try:
-            await db.flush()
+            await db.commit()
         except IntegrityError as error:
             await db.rollback()
             if violated_constraint(error) != _OPEN_HOLD_INDEX:
                 raise
             raise ApiError(409, "AUDIT_PURGE_ALREADY_ON_HOLD") from error
-        # The audit row commits on its own session; the hold only commits once that row is in.
-        try:
-            await _audit_strict(
-                request, member, vocabulary.AUDIT_PURGE_HOLD_STARTED, {"hold": str(hold.id), "reason": body.reason}
-            )
-        except ApiError:
-            await db.rollback()
-            raise
-        await db.commit()
+        # Fail-open on purpose, unlike ending: a hold only protects, so a broken
+        # audit log must not keep it from starting during an incident.
+        await _audit(
+            request, member, vocabulary.AUDIT_PURGE_HOLD_STARTED, {"hold": str(hold.id), "reason": body.reason}
+        )
         return await _purge_hold_status(db)
 
     @router.post(
@@ -5321,6 +5315,7 @@ def make_admin_router() -> APIRouter:
     async def end_audit_purge_hold(
         request: Request, body: PurgeHoldReason, _csrf: Csrf, member: PlatformAdmin, db: Db
     ) -> PurgeHoldStatus:
+        # Strict, unlike starting: ending lets the next night purge for good.
         # Of two admins ending at once, the second waits on the row lock and
         # then no longer matches `ended_at IS NULL`: a 409, not an error.
         hold_id = await db.scalar(

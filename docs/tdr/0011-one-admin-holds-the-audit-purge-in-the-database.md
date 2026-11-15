@@ -22,8 +22,10 @@ The hold is a row in `audit_purge_holds`, started with "Pause purge" and
 ended with "Resume purge" on the platform page (a6fc9f5). One platform
 administrator does either, with a reason, and it takes effect at once.
 While a hold is open the delete guards in the database refuse every
-delete. A hold is never deleted or rewritten, only ended once, and
-starting or ending one is not committed unless its audit row is written.
+delete. A hold is never deleted or rewritten, only ended once. Ending
+one is not committed unless its audit row is written. Starting one is,
+even when that row fails: a hold only protects, and it records who
+started it and why.
 
 ## Consequences
 
