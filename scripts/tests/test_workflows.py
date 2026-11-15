@@ -930,6 +930,30 @@ class TestTheReleaseImage:
         assert _refused(result), result.stdout
         assert output.read_text() == ""
 
+    def test_only_a_pull_request_builds_the_preview_target(self, build) -> None:
+        """The demo seed lives in the `preview` stage only: a release, a
+        push to beta and the merge queue build `runtime`, without it."""
+        push = _step(build, "Build and push the image")
+        assert push["with"]["target"] == "${{ github.event_name == 'pull_request' && 'preview' || 'runtime' }}"
+
+    def test_every_build_of_the_toon_image_names_its_target(self) -> None:
+        """The last stage, the default target, is `preview`: a build that
+        names none would ship the demo seed."""
+        builds = 0
+        for path in sorted(WORKFLOWS.glob("*.yml")):
+            for job in _load(path.name).get("jobs", {}).values():
+                for step in job.get("steps", []):
+                    if step.get("with", {}).get("file") == "containers/toon/Containerfile":
+                        assert step["with"].get("target"), f"{path.name}: {step.get('name')}"
+                        builds += 1
+        compose = yaml.safe_load((ROOT / "dev" / "compose.yml").read_text(encoding="utf-8"))
+        for name, service in compose["services"].items():
+            build = service.get("build", {})
+            if build.get("dockerfile") == "containers/toon/Containerfile":
+                assert build["target"] == "runtime", name
+                builds += 1
+        assert builds == 3
+
 
 class TestCodeQL:
     def test_it_is_its_own_workflow_with_a_weekly_run(self, codeql) -> None:

@@ -123,6 +123,9 @@ jobs:
         with:
           context: .
           file: containers/toon/Containerfile
+          # A pull request builds the preview target, the runtime image plus
+          # the demo seed; everything else builds runtime, without it.
+          target: ${{ github.event_name == 'pull_request' && 'preview' || 'runtime' }}
           push: true
           tags: ${{ steps.release.outputs.image || steps.tag.outputs.image }}
           build-args: ${{ steps.release.outputs.build-args }}

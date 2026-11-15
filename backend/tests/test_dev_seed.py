@@ -33,7 +33,9 @@ SEED_PATH = Path(__file__).resolve().parents[2] / "dev" / "seed.py"
 @pytest.fixture(scope="session")
 def seed_module():
     """Loads dev/seed.py by path: it sits outside the installed package on
-    purpose, because it is dev tooling and never ships in the image."""
+    purpose, because it is dev tooling. Only the `preview` build target
+    carries it (/app/demo_seed.py), and the entrypoint runs it under
+    TOON_ENVIRONMENT=preview alone."""
     spec = importlib.util.spec_from_file_location("toon_dev_seed", SEED_PATH)
     module = importlib.util.module_from_spec(spec)
     # Registering before exec: `from __future__ import annotations` leaves the
@@ -258,6 +260,95 @@ class TestSeed:
         with pytest.raises(RuntimeError, match="dev"):
             await seed_module.seed(production)
 
+    async def test_the_seed_runs_under_preview(
+        self, seed_module, settings: Settings, session_factory
+    ) -> None:
+        dev = await seed_module.seed(settings)
+        preview = await seed_module.seed(settings.model_copy(update={"environment": "preview"}))
+        assert (preview.members, preview.groups, preview.sites, preview.versions, preview.previews) == (
+            dev.members,
+            dev.groups,
+            dev.sites,
+            dev.versions,
+            dev.previews,
+        )
+
+
+def _preview(settings: Settings) -> Settings:
+    return settings.model_copy(update={"environment": "preview"})
+
+
+class TestOnlyIfEmpty:
+    """A preview seeds on every start of its pod, so a database that already
+    holds anything must come through untouched: a restart or a new push may
+    never wipe what colleagues did in the preview."""
+
+    async def test_an_empty_database_is_seeded(
+        self, seed_module, settings: Settings, session_factory
+    ) -> None:
+        result = await seed_module.seed(_preview(settings), only_if_empty=True)
+        assert result is not None
+        async with session_factory() as db:
+            assert await _count(db, Group) == 2
+
+    async def test_a_database_with_a_group_is_left_alone(
+        self, seed_module, settings: Settings, session_factory
+    ) -> None:
+        await seed_module.seed(settings)
+        async with session_factory() as db:
+            before = (await _count(db, Member), await _count(db, Group), await _count(db, Version))
+            member_ids = set(await db.scalars(select(Member.id)))
+        dirs = _version_dirs(settings.content_root)
+
+        assert await seed_module.seed(_preview(settings), only_if_empty=True) is None
+
+        async with session_factory() as db:
+            after = (await _count(db, Member), await _count(db, Group), await _count(db, Version))
+            assert set(await db.scalars(select(Member.id))) == member_ids
+        assert after == before
+        assert _version_dirs(settings.content_root) == dirs
+
+    async def test_a_database_with_only_a_member_is_left_alone(
+        self, seed_module, settings: Settings, session_factory
+    ) -> None:
+        """Someone who signed in and then removed every group still has an
+        account: an empty group table alone is no reason to wipe it."""
+        async with session_factory() as db:
+            db.add(seed_module._member("echte-persoon", "p@example.org", "Echte Persoon"))
+            await db.commit()
+
+        assert await seed_module.seed(_preview(settings), only_if_empty=True) is None
+
+        async with session_factory() as db:
+            assert list(await db.scalars(select(Member.sso_subject))) == ["echte-persoon"]
+            assert await _count(db, Group) == 0
+
+
+class TestMain:
+    def test_a_preview_is_seeded_on_its_first_start_only(
+        self, seed_module, settings: Settings, monkeypatch, capsys
+    ) -> None:
+        monkeypatch.setattr(seed_module, "load_settings", lambda: _preview(settings))
+
+        assert seed_module.main() == 0
+        first = capsys.readouterr().out
+        assert seed_module.main() == 0
+        second = capsys.readouterr().out
+
+        assert "gezaaid" in first
+        assert "key=" not in first
+        assert "niet leeg" in second
+        assert "toon login" not in second
+
+    def test_dev_is_seeded_again_on_every_run(
+        self, seed_module, settings: Settings, monkeypatch, capsys
+    ) -> None:
+        monkeypatch.setattr(seed_module, "load_settings", lambda: settings)
+
+        assert seed_module.main() == 0
+        assert seed_module.main() == 0
+        assert capsys.readouterr().out.count("Dev-inhoud gezaaid") == 2
+
 
 class TestReport:
     async def test_the_report_points_at_the_cli_login_and_names_no_secret_but_the_link_key(
@@ -268,3 +359,14 @@ class TestReport:
         assert "toon login" in report
         assert "/cli-link" in report
         assert "toon_" not in report.replace("toon login", "")
+
+    async def test_a_preview_report_leaves_the_secret_link_out(self, seed_module, settings: Settings) -> None:
+        """A preview's report lands in the pod log on ZAD, where a secret
+        link is no secret any more; the dev stack's terminal keeps it."""
+        result = await seed_module.seed(settings)
+        dev = seed_module._report(settings, result)
+        preview = seed_module._report(settings.model_copy(update={"environment": "preview"}), result)
+        assert f"?key={result.secret_link_key}" in dev
+        assert "key=" not in preview
+        assert result.secret_link_key not in preview
+        assert "toon login" in preview

@@ -21,6 +21,18 @@ done
 
 alembic upgrade head
 
+# A pull request preview starts from the demo data; the seed leaves a
+# database that already holds anything alone, so a restart keeps its data.
+# Only the `preview` build target carries it: a production image run as a
+# preview stops here instead of starting empty.
+if [ "${TOON_ENVIRONMENT:-productie}" = "preview" ]; then
+    if [ ! -f /app/demo_seed.py ]; then
+        echo "entrypoint: this image has no demo seed: build it with --target preview" >&2
+        exit 1
+    fi
+    python /app/demo_seed.py
+fi
+
 # exec: uvicorn replaces this shell as PID 1, so the SIGTERM that ends a
 # rollout reaches the server instead of a shell that ignores it.
 #

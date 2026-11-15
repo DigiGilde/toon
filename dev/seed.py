@@ -4,6 +4,12 @@ Run it with `just seed`, which pipes this file into the running app
 container: that container already has the toon package installed, the
 TOON_* environment and the content volume mounted on TOON_CONTENT_ROOT.
 
+A pull request preview on ZAD runs the same file from its image, built with
+`--target preview` (/app/demo_seed.py, started by
+containers/toon/entrypoint.sh; the production image does not carry it),
+but only to fill an empty database: once anything is in there, it is left
+alone.
+
 The seed is destructive and repeatable. It first drops every group and every
 member (cascading to sites, versions, previews, invitees, access keys, linked
 repositories and CLI sessions) plus the matching version directories on the content volume,
@@ -266,11 +272,23 @@ async def _publish(
         source.unlink(missing_ok=True)
 
 
-async def seed(settings: Settings) -> SeedResult:
-    """Wipes and refills the dev database plus the content volume."""
-    if settings.environment != "dev":
+async def _holds_data(session_factory: async_sessionmaker[AsyncSession]) -> bool:
+    async with session_factory() as db:
+        group = await db.scalar(select(Group.id).limit(1))
+        member = await db.scalar(select(Member.id).limit(1))
+    return group is not None or member is not None
+
+
+async def seed(settings: Settings, *, only_if_empty: bool = False) -> SeedResult | None:
+    """Wipes and refills the database plus the content volume.
+
+    With `only_if_empty`, a database that holds any group or member is left
+    alone and None comes back: a preview runs this on every start of its pod.
+    """
+    if settings.environment not in ("dev", "preview"):
         raise RuntimeError(
-            "seed weigert te draaien buiten TOON_ENVIRONMENT=dev: hij wist alle groepen en leden"
+            "seed weigert te draaien buiten TOON_ENVIRONMENT=dev of preview: "
+            "hij wist alle groepen en leden"
         )
 
     engine = make_engine(settings)
@@ -279,6 +297,8 @@ async def seed(settings: Settings) -> SeedResult:
     ingest = IngestService(store, settings)
 
     try:
+        if only_if_empty and await _holds_data(session_factory):
+            return None
         await _wipe(session_factory, store)
 
         admin_sub = settings.bootstrap_admin_sub or DEFAULT_ADMIN_SUB
@@ -482,7 +502,11 @@ def _report(settings: Settings, result: SeedResult) -> str:
         f"  beheer     {admin_base}/",
         f"  live       {annual}",
         f"  preview    {annual}_preview/{PREVIEW_OPEN}/",
-        f"  geheime link  {content_base}/{GROUP_PUBLIC}/kerncijfers/?key={result.secret_link_key}",
+    ]
+    # A preview's report lands in the pod log on ZAD: no secret link there.
+    if not settings.is_preview:
+        lines.append(f"  geheime link  {content_base}/{GROUP_PUBLIC}/kerncijfers/?key={result.secret_link_key}")
+    lines += [
         "",
         "Publiceren vanaf je eigen machine, met de Toon-CLI:",
         f"  toon login   (beheer-URL {admin_base})",
@@ -494,7 +518,10 @@ def _report(settings: Settings, result: SeedResult) -> str:
 
 def main() -> int:
     settings = load_settings()
-    result = asyncio.run(seed(settings))
+    result = asyncio.run(seed(settings, only_if_empty=settings.is_preview))
+    if result is None:
+        sys.stdout.write("Databank is niet leeg: geen demo-inhoud gezaaid.\n")
+        return 0
     sys.stdout.write(_report(settings, result))
     return 0
 
