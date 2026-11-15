@@ -141,6 +141,18 @@ NL: Final[dict[str, str]] = {
     "LOOKUP_LIMIT_REACHED": "De dagelijkse limiet voor herleidingen is bereikt.",
     "AUDIT_PURGE_ALREADY_ON_HOLD": "Het opruimen van het auditlog staat al op pauze.",
     "AUDIT_PURGE_NOT_ON_HOLD": "Het opruimen van het auditlog staat niet op pauze.",
+    "HOLD_REASON_EMPTY": "Geef een reden, zoals een zaak- of ticketnummer.",
+    "HOLD_REASON_TOO_LONG": (
+        "De reden is langer dan {max} tekens. Maak hem korter, of verwijs naar het zaak- of ticketnummer."
+    ),
+    "HOLD_REASON_INVISIBLE_CHARACTER": (
+        "De reden bevat een onzichtbaar teken, zoals een spatie zonder breedte. Typ de reden opnieuw of plak "
+        "hem als platte tekst."
+    ),
+    "HOLD_REASON_EMAIL": (
+        "De reden bevat een e-mailadres. Elke platformbeheerder kan de reden lezen in het auditlog. Noem "
+        "daarom een zaak- of ticketnummer."
+    ),
     "SEARCH_TOO_SHORT": "Zoek op minstens {minimum} tekens.",
     "CURSOR_INVALID": "De cursor is onleesbaar. Vraag de eerste pagina opnieuw op.",
     "ACTOR_PSEUDONYM_INVALID": "Een auditpseudoniem is {length} hexadecimale tekens.",
@@ -447,6 +459,18 @@ EN: Final[dict[str, str]] = {
     "LOOKUP_LIMIT_REACHED": "The daily limit for identity lookups has been reached.",
     "AUDIT_PURGE_ALREADY_ON_HOLD": "The audit purge is already on hold.",
     "AUDIT_PURGE_NOT_ON_HOLD": "The audit purge is not on hold.",
+    "HOLD_REASON_EMPTY": "Give a reason, such as a case or ticket number.",
+    "HOLD_REASON_TOO_LONG": (
+        "The reason is longer than {max} characters. Shorten it, or refer to the case or ticket number."
+    ),
+    "HOLD_REASON_INVISIBLE_CHARACTER": (
+        "The reason holds an invisible character, such as a zero-width space. Type the reason again or paste "
+        "it as plain text."
+    ),
+    "HOLD_REASON_EMAIL": (
+        "The reason holds an e-mail address. Every platform administrator can read the reason in the audit "
+        "log. Give a case or ticket number instead."
+    ),
     "SEARCH_TOO_SHORT": "Search with at least {minimum} characters.",
     "CURSOR_INVALID": "The cursor is unreadable. Ask for the first page again.",
     "ACTOR_PSEUDONYM_INVALID": "An audit pseudonym is {length} hexadecimal characters.",

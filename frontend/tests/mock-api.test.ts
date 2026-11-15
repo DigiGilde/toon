@@ -643,3 +643,19 @@ describe('mockFetch: unmatched methods fall through to the route 404', () => {
     expect(body.title).toBe('Onbekend eindpunt');
   });
 });
+
+describe('mockFetch purge hold', () => {
+  it('refuses a reason in English when no language is asked for', async () => {
+    const backend = makeMockBackend();
+
+    const response = await backend.fetch('/-/api/v1/platform/audit/purge-hold', {
+      method: 'POST',
+      body: JSON.stringify({ reason: ' ' }),
+    });
+
+    expect(response.status).toBe(422);
+    const body = (await response.json()) as { code: string; detail: string };
+    expect(body.code).toBe('HOLD_REASON_EMPTY');
+    expect(body.detail).toBe('Give a reason, such as a case or ticket number.');
+  });
+});

@@ -39,8 +39,8 @@ const HELD: PurgeStatus = {
   hold: { reason: REASON, startedAt: STARTED_AT, startedByName: 'Robbert Bos' },
 };
 
-function refusal(status: number, title: string, detail: string): ApiError {
-  return new ApiError({ type: 'about:blank', title, status, detail });
+function refusal(status: number, title: string, detail?: string, code?: string): ApiError {
+  return new ApiError({ type: 'about:blank', title, status, detail, code });
 }
 
 function property(el: Element, name: string): string {
@@ -554,6 +554,85 @@ describe('AuditPurgeHold', () => {
       await confirm(wrapper);
 
       expect(wrapper.find('[role="status"]').text()).toContain('op pauze');
+    });
+  });
+
+  describe('when the server refuses the reason itself', () => {
+    const INVISIBLE =
+      'The reason holds an invisible character, such as a zero-width space. Type the reason again or paste it as plain text.';
+
+    async function refusedOnce(error: ApiError): Promise<Wrapper> {
+      vi.mocked(toonApi.startAuditPurgeHold).mockRejectedValueOnce(error);
+      const wrapper = await mountWith(RUNNING);
+      type(wrapper, REASON);
+      await submit(wrapper);
+      await confirm(wrapper);
+      return wrapper;
+    }
+
+    it('shows its detail next to the field instead of in a banner, and focuses the field', async () => {
+      _setLocaleForTest('en');
+      vi.mocked(toonApi.startAuditPurgeHold).mockRejectedValueOnce(
+        refusal(422, 'Unprocessable input', INVISIBLE, 'HOLD_REASON_INVISIBLE_CHARACTER'),
+      );
+      const wrapper = await mountWith(RUNNING);
+      const focus = vi.spyOn(wrapper.find('[data-testid="audit-purge-reason"]').element as HTMLElement, 'focus');
+      type(wrapper, REASON);
+      await submit(wrapper);
+      await confirm(wrapper);
+      await dialogGone(wrapper);
+
+      const field = wrapper.find('[data-testid="audit-purge-reason"]');
+      const item = wrapper.find('nldd-validation-item');
+      expect(item.text()).toBe(INVISIBLE);
+      expect(field.attributes('invalid')).toBeDefined();
+      expect(field.attributes('unmet')).toBe(item.attributes('id'));
+      expect(wrapper.find('[data-testid="audit-purge-error"]').exists()).toBe(false);
+      expect(wrapper.text()).not.toContain('Unprocessable input');
+      expect(property(field.element, 'value')).toBe(REASON);
+      expect(focus).toHaveBeenCalled();
+      expect(modalOpen(wrapper)).toBe(false);
+    });
+
+    it('does not send the same refused reason again, but takes a corrected one', async () => {
+      const wrapper = await refusedOnce(
+        refusal(422, 'Onverwerkbare invoer', 'De reden bevat een e-mailadres.', 'HOLD_REASON_EMAIL'),
+      );
+
+      await submit(wrapper);
+      expect(modalOpen(wrapper)).toBe(false);
+      expect(toonApi.startAuditPurgeHold).toHaveBeenCalledTimes(1);
+
+      vi.mocked(toonApi.startAuditPurgeHold).mockResolvedValueOnce(HELD);
+      type(wrapper, 'ticket 4521');
+      await flushPromises();
+      const field = wrapper.find('[data-testid="audit-purge-reason"]');
+      expect(field.attributes('invalid')).toBeUndefined();
+      expect(wrapper.find('nldd-validation-item').text()).toBe('Geef een reden.');
+
+      await submit(wrapper);
+      await confirm(wrapper);
+      expect(toonApi.startAuditPurgeHold).toHaveBeenLastCalledWith('ticket 4521');
+      expect(wrapper.find('[role="status"]').text()).toContain('op pauze');
+    });
+
+    it('falls back on the title when the refusal carries no detail', async () => {
+      const wrapper = await refusedOnce(
+        refusal(422, 'Onverwerkbare invoer', undefined, 'HOLD_REASON_TOO_LONG'),
+      );
+
+      expect(wrapper.find('nldd-validation-item').text()).toBe('Onverwerkbare invoer');
+    });
+
+    it('leaves a 422 that is not about the reason to the banner', async () => {
+      const wrapper = await refusedOnce(
+        refusal(422, 'Onverwerkbare invoer', 'Het verzoek klopt niet.', 'VALIDATION_ERROR'),
+      );
+
+      expect(
+        property(wrapper.find('[data-testid="audit-purge-error"]').element, 'supportingText'),
+      ).toBe('Het verzoek klopt niet.');
+      expect(wrapper.find('nldd-validation-item').text()).toBe('Geef een reden.');
     });
   });
 

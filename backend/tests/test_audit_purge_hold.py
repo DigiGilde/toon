@@ -32,6 +32,7 @@ from test_admin_api import (  # noqa: F401 - fixtures are found by name
 )
 
 from toon.api import admin
+from toon.api.errors import ApiError
 from toon.api.schema import iso_utc
 from toon.audit import vocabulary
 from toon.audit.pseudonymisation import pseudonymise
@@ -287,28 +288,119 @@ class TestEnding:
         assert len(await _audit_rows(factory, vocabulary.AUDIT_PURGE_HOLD_ENDED)) == 1
 
 
-class TestReason:
-    @pytest.mark.parametrize("url", [HOLD, END])
-    @pytest.mark.parametrize(
-        "body",
-        [
-            {},
-            {"reason": ""},
-            {"reason": " \r\n\n  \n "},
-            {"reason": "x" * 10_001},
-            {"reason": "incident\t2026-091"},
-            {"reason": "incident ‮2026-091"},
-            {"reason": "ask admin@example.nl"},
-            {"reason": "incident 2026-091\ncc piet.de.vries@gemeente.example"},
-        ],
-    )
-    async def test_an_invalid_reason_is_422(self, client, app, factory, data, url, body):
-        headers = _as_admin(client, app)
+EMPTY = (
+    "HOLD_REASON_EMPTY",
+    "Give a reason, such as a case or ticket number.",
+    "Geef een reden, zoals een zaak- of ticketnummer.",
+)
+TOO_LONG = (
+    "HOLD_REASON_TOO_LONG",
+    "The reason is longer than 10000 characters. Shorten it, or refer to the case or ticket number.",
+    "De reden is langer dan 10000 tekens. Maak hem korter, of verwijs naar het zaak- of ticketnummer.",
+)
+INVISIBLE = (
+    "HOLD_REASON_INVISIBLE_CHARACTER",
+    "The reason holds an invisible character, such as a zero-width space. Type the reason again or paste it as "
+    "plain text.",
+    "De reden bevat een onzichtbaar teken, zoals een spatie zonder breedte. Typ de reden opnieuw of plak hem als "
+    "platte tekst.",
+)
+EMAIL = (
+    "HOLD_REASON_EMAIL",
+    "The reason holds an e-mail address. Every platform administrator can read the reason in the audit log. Give "
+    "a case or ticket number instead.",
+    "De reden bevat een e-mailadres. Elke platformbeheerder kan de reden lezen in het auditlog. Noem daarom een "
+    "zaak- of ticketnummer.",
+)
 
-        response = await client.post(url, json=body, headers=headers)
+
+class TestReason:
+    async def _refused(self, client, app, factory, url, reason, language):
+        """Posts `reason` to `url` with a hold open for END and none for HOLD,
+        and checks that the refusal changed nothing."""
+        headers = _as_admin(client, app)
+        if url == END:
+            await client.post(HOLD, json={"reason": REASON}, headers=headers)
+
+        response = await client.post(url, json={"reason": reason}, headers={**headers, "Accept-Language": language})
 
         assert response.status_code == 422
+        assert response.headers["content-type"] == PROBLEM
+        holds = await _holds(factory)
+        if url == END:
+            assert [(hold.reason, hold.ended_at) for hold in holds] == [(REASON, None)]
+        else:
+            assert holds == []
+        assert await _count(factory, AuditLogEntry, action=vocabulary.AUDIT_PURGE_HOLD_ENDED) == 0
+        return response.json()
+
+    @pytest.mark.parametrize("url", [HOLD, END])
+    @pytest.mark.parametrize("language", ["en", "nl"])
+    @pytest.mark.parametrize(
+        ("reason", "refusal"),
+        [
+            pytest.param("", EMPTY, id="empty"),
+            pytest.param(" \r\n\t\n  \n ", EMPTY, id="only-whitespace"),
+            pytest.param("x" * 10_001, TOO_LONG, id="too-long"),
+            pytest.param("incident\u200b2026-091", INVISIBLE, id="zero-width-space"),
+            pytest.param("incident \u202e2026-091", INVISIBLE, id="right-to-left-override"),
+            pytest.param("incident\x002026-091", INVISIBLE, id="nul"),
+            pytest.param("ask admin@example.nl", EMAIL, id="email"),
+            pytest.param("incident 2026-091\ncc piet.de.vries@gemeente.example", EMAIL, id="email-on-a-later-line"),
+        ],
+    )
+    async def test_each_invalid_reason_gets_its_own_code_and_says_what_to_change(
+        self, client, app, factory, data, url, language, reason, refusal
+    ):
+        code, english, dutch = refusal
+
+        body = await self._refused(client, app, factory, url, reason, language)
+
+        assert body["code"] == code
+        assert body["detail"] == (dutch if language == "nl" else english)
+        assert body["title"] == ("Onverwerkbare invoer" if language == "nl" else "Unprocessable input")
+
+    @pytest.mark.parametrize("url", [HOLD, END])
+    async def test_a_missing_reason_is_a_plain_422(self, client, app, factory, data, url):
+        headers = _as_admin(client, app)
+
+        response = await client.post(url, json={}, headers=headers)
+
+        assert response.status_code == 422
+        assert "code" not in response.json()
+        assert response.json()["detail"] == "Invalid input: reason"
         assert await _holds(factory) == []
+
+    async def test_a_tab_becomes_a_space(self, client, app, factory, data):
+        headers = _as_admin(client, app)
+
+        response = await client.post(HOLD, json={"reason": "\tincident\t2026-091\t"}, headers=headers)
+
+        assert response.status_code == 201
+        assert response.json()["hold"]["reason"] == "incident 2026-091"
+        [hold] = await _holds(factory)
+        assert hold.reason == "incident 2026-091"
+        [row] = await _audit_rows(factory, vocabulary.AUDIT_PURGE_HOLD_STARTED)
+        assert row.refs["reason"] == "incident 2026-091"
+
+    async def test_a_tab_in_the_end_reason_becomes_a_space(self, client, app, factory, data):
+        headers = _as_admin(client, app)
+        await client.post(HOLD, json={"reason": REASON}, headers=headers)
+
+        response = await client.post(END, json={"reason": "incident\t2026-091 closed"}, headers=headers)
+
+        assert response.status_code == 200
+        [hold] = await _holds(factory)
+        assert hold.end_reason == END_REASON
+        [row] = await _audit_rows(factory, vocabulary.AUDIT_PURGE_HOLD_ENDED)
+        assert row.refs["reason"] == END_REASON
+
+    def test_the_length_is_checked_before_the_characters(self):
+        """A huge text is refused without being scanned character by character."""
+        with pytest.raises(ApiError) as refused:
+            admin._validated_hold_reason("\u200b" * (admin.HOLD_REASON_MAX_LENGTH + 1))
+
+        assert refused.value.code == "HOLD_REASON_TOO_LONG"
 
     @pytest.mark.parametrize("reason", ["7", "x" * 10_000, "INC-1 @ops-team", "zie @piet", "a@b"])
     async def test_a_short_long_or_mentioning_reason_is_accepted(self, client, app, factory, data, reason):

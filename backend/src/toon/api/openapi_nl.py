@@ -2884,18 +2884,24 @@ NL: Final[dict[str, str]] = {
         "Waarom het opruimen van het auditlog op pauze gaat, of waarom de pauze eindigt."
     ),
     (
-        "Why, at least one character. Line breaks are allowed. Give a case or ticket number, not an e-mail address "
-        "or other personal data: this field ends up readable in the audit log, for every platform administrator."
+        "Why, at least one character. Line breaks are allowed, and a tab becomes a space. Give a case or ticket "
+        "number, not an e-mail address or other personal data: this field ends up readable in the audit log, for "
+        "every platform administrator."
     ): (
-        "Waarom, minstens één teken. Regelovergangen mogen. Noem een zaak- of ticketnummer, geen e-mailadres of "
-        "andere persoonsgegevens: dit veld komt leesbaar in het auditlog te staan, voor elke platformbeheerder."
+        "Waarom, minstens één teken. Regelovergangen mogen, en een tab wordt een spatie. Noem een zaak- of "
+        "ticketnummer, geen e-mailadres of andere persoonsgegevens: dit veld komt leesbaar in het auditlog te "
+        "staan, voor elke platformbeheerder."
     ),
     (
-        "Unprocessable input. `reason` is missing, empty or longer than 10000 characters (after stripping spaces), "
-        "contains a control or formatting character other than a line break, or contains an e-mail address."
+        "Unprocessable input. `reason` is empty after stripping spaces (`HOLD_REASON_EMPTY`), is longer than 10000 "
+        "characters (`HOLD_REASON_TOO_LONG`), contains a control or formatting character other than a line break "
+        "or a tab, such as a zero-width space (`HOLD_REASON_INVISIBLE_CHARACTER`), contains an e-mail address "
+        "(`HOLD_REASON_EMAIL`), or is missing."
     ): (
-        "Onverwerkbare invoer. `reason` ontbreekt, is leeg of langer dan 10000 tekens (na spaties strippen), bevat een "
-        "stuur- of opmaakteken anders dan een regelovergang, of bevat een e-mailadres."
+        "Onverwerkbare invoer. `reason` is leeg na spaties strippen (`HOLD_REASON_EMPTY`), is langer dan 10000 "
+        "tekens (`HOLD_REASON_TOO_LONG`), bevat een stuur- of opmaakteken anders dan een regelovergang of een tab, "
+        "zoals een spatie zonder breedte (`HOLD_REASON_INVISIBLE_CHARACTER`), bevat een e-mailadres "
+        "(`HOLD_REASON_EMAIL`), of ontbreekt."
     ),
     "The open hold on the audit purge.": "De lopende pauze op het opruimen van het auditlog.",
     "Why the hold was started.": "Waarom de pauze gestart is.",

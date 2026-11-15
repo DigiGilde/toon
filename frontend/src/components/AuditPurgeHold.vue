@@ -33,6 +33,9 @@ const reason = ref('');
 const reasonEmpty = ref(false);
 const reasonUnmetId = `audit-purge-reason-short-${useId()}`;
 const reasonEmailId = `audit-purge-reason-email-${useId()}`;
+const reasonRefusedId = `audit-purge-reason-refused-${useId()}`;
+/** The server's refusal of the reason as it is typed; empty once it changes. */
+const reasonRefusal = ref('');
 const reasonHasEmail = computed(() => EMAIL_SHAPE.test(reason.value));
 const mode = ref<Mode>('pause');
 const asking = ref(false);
@@ -70,13 +73,14 @@ function inputValue(event: Event): string {
 
 function edit(event: Event): void {
   reason.value = inputValue(event);
+  reasonRefusal.value = '';
   if (reasonEmpty.value && reason.value.trim().length > 0) {
     reasonEmpty.value = false;
   }
 }
 
 function ask(): void {
-  if (reasonHasEmail.value) {
+  if (reasonHasEmail.value || reasonRefusal.value) {
     field.value?.focus();
     return;
   }
@@ -103,6 +107,15 @@ function closed(): void {
   next?.();
 }
 
+/** A refusal of the reason itself, which belongs next to the field. */
+function refusesReason(error: unknown): error is ApiError {
+  return (
+    error instanceof ApiError &&
+    error.problem.status === 422 &&
+    (error.problem.code ?? '').startsWith('HOLD_REASON_')
+  );
+}
+
 async function confirm(): Promise<void> {
   busy.value = true;
   const resuming = mode.value === 'resume';
@@ -114,6 +127,11 @@ async function confirm(): Promise<void> {
     resumed.value = resuming;
     afterClose = () => action.value?.focus();
   } catch (error) {
+    if (refusesReason(error)) {
+      reasonRefusal.value = error.problem.detail ?? error.problem.title;
+      afterClose = () => field.value?.focus();
+      return;
+    }
     actionError.value = error;
     // Someone else changed the switch meanwhile: show what it is now.
     const conflict = error instanceof ApiError && error.problem.status === 409;
@@ -187,14 +205,25 @@ async function confirm(): Promise<void> {
             name="reason"
             :rows="3"
             :value="reason"
-            :invalid="reasonHasEmail || reasonEmpty || undefined"
-            :unmet="reasonHasEmail ? reasonEmailId : reasonEmpty ? reasonUnmetId : undefined"
+            :invalid="reasonHasEmail || reasonRefusal !== '' || reasonEmpty || undefined"
+            :unmet="
+              reasonHasEmail
+                ? reasonEmailId
+                : reasonRefusal
+                  ? reasonRefusedId
+                  : reasonEmpty
+                    ? reasonUnmetId
+                    : undefined
+            "
             data-testid="audit-purge-reason"
             @input="edit"
           ></nldd-multi-line-text-field>
           <nldd-validation-list>
             <nldd-validation-item v-if="reasonHasEmail" :id="reasonEmailId">
               {{ t('admin.purge.reason.email') }}
+            </nldd-validation-item>
+            <nldd-validation-item v-else-if="reasonRefusal" :id="reasonRefusedId">
+              {{ reasonRefusal }}
             </nldd-validation-item>
             <nldd-validation-item v-else :id="reasonUnmetId">
               {{ t('admin.purge.reason.empty') }}
