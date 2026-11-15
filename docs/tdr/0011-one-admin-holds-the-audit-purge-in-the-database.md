@@ -37,8 +37,9 @@ started it and why.
 - No second administrator has to be reachable to start a hold during an
   incident, and none to end it afterwards.
 - A forgotten hold keeps personal data past its term without an end
-  date. It shows only on the platform page and as a WARNING in the
-  nightly log (`docs/privacy.md`, R.5).
+  date. Platform administrators see a warning on every admin page while
+  it is open, and the nightly log has a WARNING (`docs/privacy.md`,
+  R.5). Nobody outside the admin is told.
 - The reasons stay in `audit_purge_holds` for good, and in the audit log
   for three years, so they must not contain personal data. An e-mail
   address is refused.
@@ -46,5 +47,5 @@ started it and why.
 ## Revisit when
 
 A hold is ended while an investigation still needed the data, an audit
-or the BIO asks for dual control over destroying logging, or Toon gets a
-way to warn platform administrators outside the platform page.
+or the BIO asks for dual control over destroying logging, or a hold is
+found open long after its incident was closed.

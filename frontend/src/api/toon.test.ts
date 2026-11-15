@@ -129,6 +129,15 @@ describe('audit purge hold', () => {
 
     expect(started.hold!.reason).toBe('ticket 4521');
   });
+
+  it('refuses a member who is not a platform administrator with a 403', async () => {
+    backend.data.loggedInMemberId = 'lid-3';
+
+    const refused = await refusedWith(toon.auditPurgeHold());
+
+    expect(refused.problem.status).toBe(403);
+    expect(refused.problem.code).toBe('NOT_ADMIN');
+  });
 });
 
 describe('operator', () => {

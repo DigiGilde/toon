@@ -438,7 +438,8 @@ incident found today would otherwise be purged within days. So:
    `content_viewers` refuse every delete, whoever issues it. The nightly job
    still publishes the chain head, skips the purge, and logs a WARNING every
    night with the date the hold started. `just purge-audit-log` refuses with
-   an ERROR.
+   an ERROR. Every platform administrator sees a warning on every admin
+   page until the hold ends.
 3. Export or analyse what the incident needs, and keep that copy under the
    incident's own term.
 4. End the hold: "Resume purge" on the platform page, or

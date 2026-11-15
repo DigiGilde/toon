@@ -150,4 +150,6 @@ export const adminNl = {
   'admin.purge.resume.text':
     'Regels in het auditlog na hun bewaartermijn worden de volgende nacht verwijderd.',
   'admin.purge.resume.keep': 'Pauze laten staan',
+  'admin.purge.warning': 'Het opruimen van het auditlog staat sinds {date} op pauze.',
+  'admin.purge.warning.link': 'Naar {page}',
 } as const;

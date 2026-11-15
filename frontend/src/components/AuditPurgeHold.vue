@@ -11,11 +11,15 @@
 import { computed, onMounted, ref, useId } from 'vue';
 
 import { ApiError } from '@/api/client';
-import { auditPurgeHold, endAuditPurgeHold, startAuditPurgeHold } from '@/api/toon';
-import type { AuditPurgeHold } from '@/api/types';
+import { endAuditPurgeHold, startAuditPurgeHold } from '@/api/toon';
 import ConfirmModal from '@/components/ConfirmModal.vue';
 import ErrorBanner from '@/components/ErrorBanner.vue';
 import SectionHeading from '@/components/SectionHeading.vue';
+import {
+  auditPurgeHoldStatus,
+  loadAuditPurgeHold,
+  setAuditPurgeHold,
+} from '@/composables/auditPurgeHold';
 import { formatTimestamp } from '@/format';
 import { t } from '@/i18n';
 
@@ -24,7 +28,7 @@ const EMAIL_SHAPE = /[^\s@]+@[^\s@]+\.[^\s@]+/;
 
 type Mode = 'pause' | 'resume';
 
-const status = ref<AuditPurgeHold | null>(null);
+const status = auditPurgeHoldStatus();
 const loading = ref(true);
 const loadError = ref<unknown>(null);
 const actionError = ref<unknown>(null);
@@ -48,7 +52,7 @@ const action = ref<HTMLElement | null>(null);
 
 async function load(): Promise<void> {
   try {
-    status.value = await auditPurgeHold();
+    await loadAuditPurgeHold();
     loadError.value = null;
   } catch (error) {
     loadError.value = error;
@@ -120,9 +124,11 @@ async function confirm(): Promise<void> {
   busy.value = true;
   const resuming = mode.value === 'resume';
   try {
-    status.value = resuming
-      ? await endAuditPurgeHold(reason.value.trim())
-      : await startAuditPurgeHold(reason.value.trim());
+    setAuditPurgeHold(
+      resuming
+        ? await endAuditPurgeHold(reason.value.trim())
+        : await startAuditPurgeHold(reason.value.trim()),
+    );
     reason.value = '';
     resumed.value = resuming;
     afterClose = () => action.value?.focus();

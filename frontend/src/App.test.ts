@@ -12,6 +12,7 @@ import { createMemoryHistory, createRouter, type Router } from 'vue-router';
 
 import { makeMockBackend, type MockBackend } from '../tests/mock-api';
 import App from './App.vue';
+import { _resetAuditPurgeHold } from './composables/auditPurgeHold';
 import { _resetCurrentMemberCache } from './composables/currentMember';
 import { _resetBreadcrumbs, setBreadcrumbs } from './composables/breadcrumbs';
 import { _setLocaleForTest } from './i18n';
@@ -27,6 +28,7 @@ beforeEach(() => {
   backend = makeMockBackend();
   vi.stubGlobal('fetch', backend.fetch);
   _resetCurrentMemberCache();
+  _resetAuditPurgeHold();
   _resetBreadcrumbs();
   router = createRouter({
     history: createMemoryHistory(),
@@ -153,6 +155,25 @@ describe('App', () => {
     const content = wrapper.find('#main-content').element;
     expect(
       bar.element.compareDocumentPosition(content) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it('warns a platform administrator of a paused audit purge between the toolbar and the content', async () => {
+    backend.data.auditPurgeHold = {
+      reason: 'ticket 4521',
+      startedAt: '2026-11-14T09:30:00Z',
+      startedByName: 'Bea Heerder',
+    };
+    const wrapper = await mountApp();
+
+    const warning = wrapper.find('[data-testid="audit-purge-warning"]');
+    expect(warning.exists()).toBe(true);
+    // Not in the header, which is the toolbar's, and before the skip link's
+    // target, like the status bar.
+    expect(wrapper.find('[slot="header"]').element.contains(warning.element)).toBe(false);
+    const content = wrapper.find('#main-content').element;
+    expect(
+      warning.element.compareDocumentPosition(content) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
