@@ -1234,30 +1234,41 @@ export function makeMockBackend(seed: MockData = defaultData()): MockBackend {
       if (method === 'GET' && rest.length === 3) return json(200, state());
       const ending = rest.length === 4 && rest[3] === 'end';
       if (method === 'POST' && (rest.length === 3 || ending)) {
-        const reason = String(readJson().reason).replace(/\r\n?/g, '\n').trim();
-        // The bounds and refusals of the real backend's reason field.
-        if (reason.length < 1 || reason.length > 10_000) {
-          return problem(
-            422,
-            'Ongeldige invoer',
-            'reason must be 1 to 10000 characters after stripping whitespace',
-            'VALIDATION_ERROR',
+        // The backend's normalising and refusals of the reason field, each
+        // with its own code and a detail in the language asked for.
+        const reason = String(readJson().reason)
+          .replace(/\r\n?/g, '\n')
+          .replace(/\t/g, ' ')
+          .trim();
+        const dutch = (new Headers(init.headers).get('accept-language') ?? '').startsWith('nl');
+        const refuse = (code: string, nl: string, en: string): Response =>
+          problem(422, dutch ? 'Onverwerkbare invoer' : 'Unprocessable input', dutch ? nl : en, code);
+        if (reason.length === 0) {
+          return refuse(
+            'HOLD_REASON_EMPTY',
+            'Geef een reden, zoals een zaak- of ticketnummer.',
+            'Give a reason, such as a case or ticket number.',
+          );
+        }
+        if (reason.length > 10_000) {
+          return refuse(
+            'HOLD_REASON_TOO_LONG',
+            'De reden is langer dan 10000 tekens. Maak hem korter, of verwijs naar het zaak- of ticketnummer.',
+            'The reason is longer than 10000 characters. Shorten it, or refer to the case or ticket number.',
           );
         }
         if (/[\p{Cc}\p{Cf}]/u.test(reason.replace(/\n/g, ' '))) {
-          return problem(
-            422,
-            'Ongeldige invoer',
-            'reason must not contain control or formatting characters other than line breaks',
-            'VALIDATION_ERROR',
+          return refuse(
+            'HOLD_REASON_INVISIBLE_CHARACTER',
+            'De reden bevat een onzichtbaar teken, zoals een spatie zonder breedte. Typ de reden opnieuw of plak hem als platte tekst.',
+            'The reason holds an invisible character, such as a zero-width space. Type the reason again or paste it as plain text.',
           );
         }
         if (/[^\s@]+@[^\s@]+\.[^\s@]+/.test(reason)) {
-          return problem(
-            422,
-            'Ongeldige invoer',
-            'give a case or ticket number in reason, not an email address',
-            'VALIDATION_ERROR',
+          return refuse(
+            'HOLD_REASON_EMAIL',
+            'De reden bevat een e-mailadres. Elke platformbeheerder kan de reden lezen in het auditlog. Noem daarom een zaak- of ticketnummer.',
+            'The reason holds an e-mail address. Every platform administrator can read the reason in the audit log. Give a case or ticket number instead.',
           );
         }
         if (ending) {

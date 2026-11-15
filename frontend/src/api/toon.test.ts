@@ -110,15 +110,24 @@ describe('audit purge hold', () => {
   });
 
   it.each([
-    ['empty', '   '],
-    ['too long', 'x'.repeat(10_001)],
-    ['a control character', 'regel\u0007een'],
-    ['an e-mail address', 'mail mij op a@b.nl svp'],
-  ])('refuses a reason that is %s with a 422', async (_name, reason) => {
+    ['empty', '  \t ', 'HOLD_REASON_EMPTY'],
+    ['too long', 'x'.repeat(10_001), 'HOLD_REASON_TOO_LONG'],
+    ['a control character', 'regel\u0007een', 'HOLD_REASON_INVISIBLE_CHARACTER'],
+    ['a zero-width space', 'ticket\u200b4521', 'HOLD_REASON_INVISIBLE_CHARACTER'],
+    ['an e-mail address', 'mail mij op a@b.nl svp', 'HOLD_REASON_EMAIL'],
+  ])('refuses a reason that is %s with a 422 and its own code', async (_name, reason, code) => {
     const refused = await refusedWith(toon.startAuditPurgeHold(reason));
 
     expect(refused.problem.status).toBe(422);
+    expect(refused.problem.code).toBe(code);
+    expect(refused.problem.detail).toBeTruthy();
     expect(backend.data.auditPurgeHold).toBeNull();
+  });
+
+  it('keeps a tab in the reason as a space', async () => {
+    const started = await toon.startAuditPurgeHold('ticket\t4521');
+
+    expect(started.hold!.reason).toBe('ticket 4521');
   });
 });
 

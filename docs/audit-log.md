@@ -430,10 +430,10 @@ incident found today would otherwise be purged within days. So:
 
 1. A platform administrator puts the purge on hold: "Pause purge" on the
    platform page, or `POST /-/api/v1/platform/audit/purge-hold` with a
-   `reason` (a case or ticket number, line breaks allowed, no personal
-   data). The hold is a row in the database (`audit_purge_holds`) and holds
-   at once. No deployment refresh, no restart: the pod's logs and everyone's
-   sessions stay.
+   `reason` (a case or ticket number, line breaks allowed, a tab becomes a
+   space, no personal data). The hold is a row in the database
+   (`audit_purge_holds`) and holds at once. No deployment refresh, no
+   restart: the pod's logs and everyone's sessions stay.
 2. While the hold is open, the delete guards on `audit_log_entries` and
    `content_viewers` refuse every delete, whoever issues it. The nightly job
    still publishes the chain head, skips the purge, and logs a WARNING every

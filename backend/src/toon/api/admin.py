@@ -293,8 +293,10 @@ _ERROR_REASON = {
 }
 _ERROR_HOLD_REASON = {
     422: (
-        "`reason` is missing, empty or longer than 10000 characters (after stripping spaces), contains a "
-        "control or formatting character other than a line break, or contains an e-mail address."
+        "`reason` is empty after stripping spaces (`HOLD_REASON_EMPTY`), is longer than 10000 characters "
+        "(`HOLD_REASON_TOO_LONG`), contains a control or formatting character other than a line break or a tab, "
+        "such as a zero-width space (`HOLD_REASON_INVISIBLE_CHARACTER`), contains an e-mail address "
+        "(`HOLD_REASON_EMAIL`), or is missing."
     )
 }
 _ERROR_ALREADY_ON_HOLD = {409: "The audit purge is already on hold (`AUDIT_PURGE_ALREADY_ON_HOLD`)."}
@@ -1598,13 +1600,15 @@ def _validated_reason(value: str) -> str:
 
 
 def _validated_hold_reason(value: str) -> str:
-    normalised = value.replace("\r\n", "\n").replace("\r", "\n").strip()
-    if not (1 <= len(normalised) <= HOLD_REASON_MAX_LENGTH):
-        raise ValueError(f"reason must be 1 to {HOLD_REASON_MAX_LENGTH} characters after stripping whitespace")
+    normalised = value.replace("\r\n", "\n").replace("\r", "\n").replace("\t", " ").strip()
+    if not normalised:
+        raise ApiError(422, "HOLD_REASON_EMPTY")
+    if len(normalised) > HOLD_REASON_MAX_LENGTH:
+        raise ApiError(422, "HOLD_REASON_TOO_LONG", params={"max": HOLD_REASON_MAX_LENGTH})
     if _has_forbidden_characters(normalised.replace("\n", " ")):
-        raise ValueError("reason must not contain control or formatting characters other than line breaks")
+        raise ApiError(422, "HOLD_REASON_INVISIBLE_CHARACTER")
     if _EMAIL_ADDRESS.search(normalised):
-        raise ValueError("give a case or ticket number in reason, not an email address")
+        raise ApiError(422, "HOLD_REASON_EMAIL")
     return normalised
 
 
@@ -1757,17 +1761,12 @@ class PurgeHoldReason(ApiModel):
 
     reason: str = Field(
         description=(
-            "Why, at least one character. Line breaks are allowed. Give a case or ticket number, not an e-mail "
-            "address or other personal data: this field ends up readable in the audit log, for every platform "
-            "administrator."
+            "Why, at least one character. Line breaks are allowed, and a tab becomes a space. Give a case or "
+            "ticket number, not an e-mail address or other personal data: this field ends up readable in the "
+            "audit log, for every platform administrator."
         ),
         examples=["incident 2026-091"],
     )
-
-    @field_validator("reason")
-    @classmethod
-    def _reason_length(cls, value: str) -> str:
-        return _validated_hold_reason(value)
 
 
 class PurgeHoldOut(ApiModel):
@@ -5282,7 +5281,8 @@ def make_admin_router() -> APIRouter:
     async def start_audit_purge_hold(
         request: Request, body: PurgeHoldReason, _csrf: Csrf, member: PlatformAdmin, db: Db
     ) -> PurgeHoldStatus:
-        hold = AuditPurgeHold(reason=body.reason, started_by=member.id)
+        reason = _validated_hold_reason(body.reason)
+        hold = AuditPurgeHold(reason=reason, started_by=member.id)
         db.add(hold)
         try:
             await db.commit()
@@ -5294,7 +5294,7 @@ def make_admin_router() -> APIRouter:
         # Fail-open on purpose, unlike ending: a hold only protects, so a broken
         # audit log must not keep it from starting during an incident.
         await _audit(
-            request, member, vocabulary.AUDIT_PURGE_HOLD_STARTED, {"hold": str(hold.id), "reason": body.reason}
+            request, member, vocabulary.AUDIT_PURGE_HOLD_STARTED, {"hold": str(hold.id), "reason": reason}
         )
         return await _purge_hold_status(db)
 
@@ -5315,13 +5315,14 @@ def make_admin_router() -> APIRouter:
     async def end_audit_purge_hold(
         request: Request, body: PurgeHoldReason, _csrf: Csrf, member: PlatformAdmin, db: Db
     ) -> PurgeHoldStatus:
+        reason = _validated_hold_reason(body.reason)
         # Strict, unlike starting: ending lets the next night purge for good.
         # Of two admins ending at once, the second waits on the row lock and
         # then no longer matches `ended_at IS NULL`: a 409, not an error.
         hold_id = await db.scalar(
             update(AuditPurgeHold)
             .where(AuditPurgeHold.ended_at.is_(None))
-            .values(ended_at=func.now(), ended_by=member.id, end_reason=body.reason)
+            .values(ended_at=func.now(), ended_by=member.id, end_reason=reason)
             .returning(AuditPurgeHold.id)
         )
         if hold_id is None:
@@ -5329,7 +5330,7 @@ def make_admin_router() -> APIRouter:
             raise ApiError(409, "AUDIT_PURGE_NOT_ON_HOLD")
         try:
             await _audit_strict(
-                request, member, vocabulary.AUDIT_PURGE_HOLD_ENDED, {"hold": str(hold_id), "reason": body.reason}
+                request, member, vocabulary.AUDIT_PURGE_HOLD_ENDED, {"hold": str(hold_id), "reason": reason}
             )
         except ApiError:
             await db.rollback()
