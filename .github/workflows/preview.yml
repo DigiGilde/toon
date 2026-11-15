@@ -1,0 +1,470 @@
+# A pull request preview on ZAD: the label `preview` on a pull request
+# from this repository rolls it out to its own deployment pr-<n> in the
+# preview project, every later green run of "Test and deploy" updates it,
+# and taking the label off or closing the pull request deletes it
+# (docs/deploying-on-zad.md §8, TDR-0013).
+#
+# Needed in advance, outside this file:
+#   - the environment `preview` (branch policy `beta`) with the secret
+#     ZAD_PREVIEW_API_KEY, the preview project's key, never production's;
+#   - the repository variable ZAD_PREVIEW_PROJECT_ID, the preview project;
+#   - the components `beheer` and `site` in that project, set up once.
+#
+# These jobs hold the ZAD key, so they never check out or run pull request
+# code: they run in the context of the base branch (pull_request_target,
+# workflow_run) and only name an image that "Test and deploy" built and
+# scanned. A pull request from a fork never gets one.
+#
+# All third-party code is pinned: zadctl by the SHA-256 of its release
+# archive below.
+
+name: Preview
+
+on:
+  pull_request_target:
+    types: [labeled, unlabeled, closed]
+  workflow_run:
+    workflows: [Test and deploy]
+    types: [completed]
+
+env:
+  ZADCTL_VERSION: 0.14.1
+  ZADCTL_SHA256: 65a0f0f6b9e518d00ec217db2703509fff6c3a9ddc94d570bcd3e46fbbe9b70c
+  # haproxy-redirect 2026.10.24, by the digest of its index.
+  PROXY_IMAGE: ghcr.io/rijksictgilde/haproxy-redirect@sha256:aaa29f56e3aa039f576d9f90ab43f5cb38542707aa211f88c464d57c96d87775
+  # The comment is found again by this whole first line, a visible heading:
+  # a hidden marker shows up raw wherever a comment is quoted or forwarded.
+  HEADING: '### Preview of this pull request on ZAD'
+
+permissions: {}
+
+jobs:
+  # Most green runs of "Test and deploy" belong to a pull request without the
+  # label. This job sorts those out without the environment, so only a
+  # labelled pull request gets a job that can reach the ZAD key.
+  pull-request:
+    if: >-
+      vars.ZAD_PREVIEW_PROJECT_ID != ''
+      && (
+        (
+          github.event_name == 'pull_request_target'
+          && github.event.action == 'labeled'
+          && github.event.label.name == 'preview'
+          && github.event.pull_request.head.repo.full_name == github.repository
+        )
+        || (
+          github.event_name == 'workflow_run'
+          && github.event.workflow_run.event == 'pull_request'
+          && github.event.workflow_run.conclusion == 'success'
+          && github.event.workflow_run.head_repository.full_name == github.repository
+        )
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read
+    outputs:
+      number: ${{ steps.pr.outputs.number }}
+      labelled: ${{ steps.pr.outputs.labelled }}
+    steps:
+      - name: Find the pull request
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          EVENT_NUMBER: ${{ github.event.pull_request.number }}
+          PULL_REQUESTS: ${{ toJSON(github.event.workflow_run.pull_requests) }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          REPO_ID: ${{ github.repository_id }}
+        run: |
+          set -euo pipefail
+          NUMBER="${EVENT_NUMBER}"
+          # A run lists every pull request its head belongs to, other
+          # repositories' included: only one into this repository, at this head.
+          if [ -z "${NUMBER}" ]; then
+            NUMBER="$(jq -r --arg sha "${RUN_SHA}" --argjson id "${REPO_ID}" \
+              '[.[]? | select(.base.repo.id == $id and .head.sha == $sha)][0].number // empty' \
+              <<< "${PULL_REQUESTS}")"
+          fi
+          if [[ ! "${NUMBER}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::notice::No pull request belongs to this run"
+            echo "labelled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          labelled="$(gh api "repos/${REPOSITORY}/pulls/${NUMBER}" \
+            | jq '[.labels[].name] | index("preview") != null')"
+          {
+            echo "number=${NUMBER}"
+            echo "labelled=${labelled}"
+          } >> "$GITHUB_OUTPUT"
+
+  # The pull request is read again from the API inside the concurrency
+  # group: the event says what was true when it fired, and this job may
+  # start after the label came off or a newer commit came in.
+  deploy:
+    needs: pull-request
+    if: >-
+      needs.pull-request.outputs.labelled == 'true'
+      && (
+        github.event.pull_request.head.repo.full_name == github.repository
+        || github.event.workflow_run.head_repository.full_name == github.repository
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      attestations: read
+      packages: read
+      pull-requests: write
+    environment:
+      name: preview
+      url: ${{ steps.rollout.outputs.admin }}
+    concurrency:
+      group: preview-${{ needs.pull-request.outputs.number }}
+      cancel-in-progress: false
+    env:
+      REPOSITORY: ${{ github.repository }}
+      NUMBER: ${{ needs.pull-request.outputs.number }}
+    steps:
+      # Rolls out only the pull request's current head, and only once a run
+      # of "Test and deploy" on that commit has passed: the image is pushed
+      # before it is scanned, so an image alone proves nothing.
+      - name: Decide what to roll out
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          skip() {
+            echo "::notice::$1"
+            echo "go=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+          # A teardown that this run overtook may not have run: delete here.
+          unwanted() {
+            echo "remove=true" >> "$GITHUB_OUTPUT"
+            skip "$1"
+          }
+          pr="$(gh api "repos/${REPOSITORY}/pulls/${NUMBER}")"
+          head="$(jq -r '.head.sha' <<< "${pr}")"
+          [ "$(jq -r '.head.repo.full_name' <<< "${pr}")" = "${REPOSITORY}" ] \
+            || skip "Pull request ${NUMBER} comes from another repository"
+          [ "$(jq -r '.state' <<< "${pr}")" = open ] || unwanted "Pull request ${NUMBER} is not open"
+          jq -e '[.labels[].name] | index("preview")' <<< "${pr}" > /dev/null \
+            || unwanted "Pull request ${NUMBER} does not carry the label preview"
+          if [ -n "${RUN_SHA}" ] && [ "${RUN_SHA}" != "${head}" ]; then
+            skip "This run tested ${RUN_SHA}, the pull request is at ${head} now: its own run rolls that out"
+          fi
+          passed="$(gh api "repos/${REPOSITORY}/actions/workflows/deploy.yml/runs?head_sha=${head}&event=pull_request&status=success&per_page=1" | jq -r '.total_count')"
+          [ "${passed}" != 0 ] || skip "No green run of Test and deploy on ${head} yet: the preview follows when there is one"
+          {
+            echo "go=true"
+            echo "head=${head}"
+          } >> "$GITHUB_OUTPUT"
+
+      # The tag pr-<n> moves with every push, so it is read once, here, and
+      # the rollout names the digest. Its revision label says which commit it
+      # was built from; any other commit than the head is not this preview.
+      - name: Resolve the image
+        id: image
+        if: steps.target.outputs.go == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+          HEAD: ${{ steps.target.outputs.head }}
+        run: |
+          set -euo pipefail
+          name="$(echo "ghcr.io/${REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          printf '%s' "${GH_TOKEN}" | skopeo login ghcr.io --username "${ACTOR}" --password-stdin > /dev/null
+          read -r digest revision < <(skopeo inspect \
+            --format '{{.Digest}} {{index .Labels "org.opencontainers.image.revision"}}' \
+            "docker://${name}:pr-${NUMBER}")
+          if [[ ! "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::${name}:pr-${NUMBER} has no usable digest"
+            exit 1
+          fi
+          if [ "${revision:-}" != "${HEAD}" ]; then
+            echo "::notice::${name}:pr-${NUMBER} was built from ${revision:-an unknown commit}, not from ${HEAD}"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Any run that may push packages can move a tag, one from another
+          # pull request's own deploy.yml included. The provenance that
+          # deploy.yml attests for the index ties this digest to a run for
+          # this pull request.
+          if ! gh attestation verify "oci://${name}@${digest}" --repo "${REPOSITORY}" \
+            --signer-workflow "${REPOSITORY}/.github/workflows/deploy.yml" \
+            --source-ref "refs/pull/${NUMBER}/merge" --deny-self-hosted-runners > /dev/null; then
+            echo "::error::${name}@${digest} has no provenance from deploy.yml for pull request ${NUMBER}"
+            exit 1
+          fi
+          {
+            echo "ready=true"
+            echo "image=${name}@${digest}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Install zadctl
+        if: steps.image.outputs.ready == 'true' || steps.target.outputs.remove == 'true'
+        run: |
+          set -euo pipefail
+          archive="${RUNNER_TEMP}/zadctl.tar.gz"
+          curl --fail --silent --show-error --location --output "${archive}" \
+            "https://github.com/RijksICTGilde/zad-cli/releases/download/v${ZADCTL_VERSION}/zadctl_linux_amd64.tar.gz"
+          echo "${ZADCTL_SHA256}  ${archive}" | sha256sum --check --strict
+          mkdir -p "${RUNNER_TEMP}/zadctl"
+          tar -xzf "${archive}" -C "${RUNNER_TEMP}/zadctl" zadctl
+          echo "${RUNNER_TEMP}/zadctl" >> "$GITHUB_PATH"
+
+      # Everything is saved with --no-rollout first and rolled out by the
+      # refresh at the end, so a pod never starts without its own base URLs
+      # and secrets. The secrets are made once per preview and never
+      # rotated; they reach zadctl on stdin, never on a command line.
+      - name: Roll out the preview
+        id: rollout
+        if: steps.image.outputs.ready == 'true'
+        env:
+          ZAD_API_KEY: ${{ secrets.ZAD_PREVIEW_API_KEY }}
+          ZAD_PREVIEW_PROJECT_ID: ${{ vars.ZAD_PREVIEW_PROJECT_ID }}
+          IMAGE: ${{ steps.image.outputs.image }}
+        run: |
+          set -euo pipefail
+          deployment="pr-${NUMBER}"
+
+          https_url() {
+            local url="${1%/}"
+            case "${url}" in
+              https://*) ;;
+              http://*) echo "::error::${url} is not https" >&2; return 1 ;;
+              *) url="https://${url}" ;;
+            esac
+            if [[ ! "${url}" =~ ^https://[a-z0-9.-]+$ ]]; then
+              echo "::error::${url} is not a bare https origin" >&2
+              return 1
+            fi
+            printf '%s' "${url}"
+          }
+
+          jq -n --arg beheer "${IMAGE}" --arg site "${PROXY_IMAGE}" '{
+            components: [{name: "beheer", image: $beheer}, {name: "site", image: $site}],
+            domain_format: "component-deployment-project"
+          }' | zadctl -p "${ZAD_PREVIEW_PROJECT_ID}" --no-rollout deployment create "${deployment}" -f -
+
+          admin="$(https_url "$(zadctl -p "${ZAD_PREVIEW_PROJECT_ID}" deployment url "${deployment}" -c beheer)")"
+          content="$(https_url "$(zadctl -p "${ZAD_PREVIEW_PROJECT_ID}" deployment url "${deployment}" -c site)")"
+
+          # The names only: the values never travel further than this pipe.
+          beheer_set="$(zadctl -p "${ZAD_PREVIEW_PROJECT_ID}" --json env list -c beheer --deployment "${deployment}" | jq -c 'keys')"
+          site_set="$(zadctl -p "${ZAD_PREVIEW_PROJECT_ID}" --json env list -c site --deployment "${deployment}" | jq -c 'keys')"
+          missing() {
+            ! jq -e --arg k "$2" 'index($k) != null' <<< "$1" > /dev/null
+          }
+
+          export TOON_BASE_URL="${admin}" TOON_CONTENT_BASE_URL="${content}"
+          export TOON_APP="${deployment}-beheer:8080"
+          if missing "${beheer_set}" TOON_SESSION_SECRET; then
+            TOON_SESSION_SECRET="$(openssl rand -hex 32)"
+            echo "::add-mask::${TOON_SESSION_SECRET}"
+            export TOON_SESSION_SECRET
+          fi
+          if missing "${beheer_set}" TOON_AUDIT_PEPPER; then
+            TOON_AUDIT_PEPPER="$(openssl rand -hex 32)"
+            echo "::add-mask::${TOON_AUDIT_PEPPER}"
+            export TOON_AUDIT_PEPPER
+          fi
+          if missing "${beheer_set}" TOON_AUDIT_IP_KEY; then
+            TOON_AUDIT_IP_KEY="$(openssl rand -base64 32)"
+            echo "::add-mask::${TOON_AUDIT_IP_KEY}"
+            export TOON_AUDIT_IP_KEY
+          fi
+
+          # Only the names this layer lacks: `env add` refuses one that is set.
+          add() {
+            local component="$1" present="$2" values
+            shift 2
+            values="$(jq -n --argjson present "${present}" '$ARGS.positional
+              | map(. as $name | select($present | index($name) | not))
+              | map({key: ., value: env[.]})
+              | map(select(.value != null))
+              | from_entries' --args "$@")"
+            if [ "${values}" != "{}" ]; then
+              printf '%s' "${values}" \
+                | zadctl -p "${ZAD_PREVIEW_PROJECT_ID}" --no-rollout env add -c "${component}" --deployment "${deployment}" -f -
+            fi
+          }
+          add beheer "${beheer_set}" TOON_BASE_URL TOON_CONTENT_BASE_URL \
+            TOON_SESSION_SECRET TOON_AUDIT_PEPPER TOON_AUDIT_IP_KEY
+          add site "${site_set}" TOON_APP
+
+          zadctl -p "${ZAD_PREVIEW_PROJECT_ID}" deployment refresh "${deployment}"
+
+          # Not pending_rollout: that count is project-wide, and other
+          # deployments' saved changes keep it above zero.
+          for _ in $(seq 1 60); do
+            state="$(zadctl -p "${ZAD_PREVIEW_PROJECT_ID}" --json deployment describe "${deployment}")"
+            if [ "$(jq -r '.status' <<< "${state}")" = Healthy ]; then
+              break
+            fi
+            sleep 10
+          done
+          # Toon's own answer, not just a 200: a sleeping deployment answers
+          # 200 too, with the platform's wake-up page.
+          healthy=false
+          for _ in $(seq 1 12); do
+            if body="$(curl --fail --silent --show-error --max-time 10 "${admin}/-/healthz")" \
+              && jq -e '.status == "ok"' <<< "${body}" > /dev/null 2>&1; then
+              healthy=true
+              break
+            fi
+            sleep 5
+          done
+          if [ "${healthy}" != true ]; then
+            echo "::error::${admin}/-/healthz does not report ok"
+            exit 1
+          fi
+
+          {
+            echo "admin=${admin}"
+            echo "content=${content}"
+          } >> "$GITHUB_OUTPUT"
+
+      # Read once more after the rollout, failed or not: a teardown that ran
+      # while this job was rolling out deleted a deployment this job then
+      # created again. Whichever comes last, the label coming off or this
+      # check, deletes.
+      - name: Delete the preview unless it is still asked for
+        id: wanted
+        if: >-
+          always()
+          && (
+            steps.target.outputs.remove == 'true'
+            || (steps.rollout.outcome != '' && steps.rollout.outcome != 'skipped')
+          )
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ZAD_API_KEY: ${{ secrets.ZAD_PREVIEW_API_KEY }}
+          ZAD_PREVIEW_PROJECT_ID: ${{ vars.ZAD_PREVIEW_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          pr="$(gh api "repos/${REPOSITORY}/pulls/${NUMBER}")"
+          if [ "$(jq -r '.state' <<< "${pr}")" = open ] \
+            && jq -e '[.labels[].name] | index("preview")' <<< "${pr}" > /dev/null; then
+            echo "wanted=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "::notice::Pull request ${NUMBER} no longer asks for a preview: deleting pr-${NUMBER}"
+          zadctl -p "${ZAD_PREVIEW_PROJECT_ID}" deployment delete "pr-${NUMBER}" --yes --ignore-not-found
+          echo "wanted=false" >> "$GITHUB_OUTPUT"
+
+      - name: Update the preview comment
+        if: steps.wanted.outputs.wanted == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ADMIN: ${{ steps.rollout.outputs.admin }}
+          CONTENT: ${{ steps.rollout.outputs.content }}
+          IMAGE: ${{ steps.image.outputs.image }}
+          HEAD: ${{ steps.target.outputs.head }}
+        run: |
+          set -euo pipefail
+          body="${RUNNER_TEMP}/preview-comment.md"
+          {
+            echo "${HEADING}"
+            echo
+            echo "Built from ${HEAD}."
+            echo
+            echo "- Admin: ${ADMIN}/"
+            echo "- Sites: ${CONTENT}/"
+            echo "- Image: \`${IMAGE}\`"
+            echo
+            echo "Sign in with SSO Rijk. You become an editor of the demo group."
+          } > "${body}"
+          existing="$(gh api --paginate "repos/${REPOSITORY}/issues/${NUMBER}/comments" \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | split("\n")[0] | rtrimstr("\r")) == env.HEADING) | .id' \
+            | head -n1)"
+          if [ -n "${existing}" ]; then
+            gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${existing}" -F "body=@${body}" > /dev/null
+          else
+            gh api --method POST "repos/${REPOSITORY}/issues/${NUMBER}/comments" -F "body=@${body}" > /dev/null
+          fi
+
+  # Two moments: the label comes off, or a pull request closes. Every close,
+  # labelled or not: a deploy that overtook the label coming off may have
+  # left a preview behind. The deployment goes with its database and volume.
+  teardown:
+    if: >-
+      vars.ZAD_PREVIEW_PROJECT_ID != ''
+      && github.event_name == 'pull_request_target'
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && (
+        (github.event.action == 'unlabeled' && github.event.label.name == 'preview')
+        || github.event.action == 'closed'
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      pull-requests: write
+    environment:
+      name: preview
+    # Not the deploy group: a group keeps one pending run, so a deploy queued
+    # behind a pending teardown would cancel it. Deleting twice is harmless.
+    concurrency:
+      group: preview-teardown-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    env:
+      REPOSITORY: ${{ github.repository }}
+      NUMBER: ${{ github.event.pull_request.number }}
+    steps:
+      # The label may be back by the time this runs: then the preview stays.
+      - name: Check that nobody asks for the preview
+        id: asked
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          pr="$(gh api "repos/${REPOSITORY}/pulls/${NUMBER}")"
+          if [ "$(jq -r '.state' <<< "${pr}")" = open ] \
+            && jq -e '[.labels[].name] | index("preview")' <<< "${pr}" > /dev/null; then
+            echo "::notice::Pull request ${NUMBER} carries the label preview again: the preview stays"
+            echo "wanted=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "wanted=false" >> "$GITHUB_OUTPUT"
+
+      - name: Install zadctl
+        if: steps.asked.outputs.wanted == 'false'
+        run: |
+          set -euo pipefail
+          archive="${RUNNER_TEMP}/zadctl.tar.gz"
+          curl --fail --silent --show-error --location --output "${archive}" \
+            "https://github.com/RijksICTGilde/zad-cli/releases/download/v${ZADCTL_VERSION}/zadctl_linux_amd64.tar.gz"
+          echo "${ZADCTL_SHA256}  ${archive}" | sha256sum --check --strict
+          mkdir -p "${RUNNER_TEMP}/zadctl"
+          tar -xzf "${archive}" -C "${RUNNER_TEMP}/zadctl" zadctl
+          echo "${RUNNER_TEMP}/zadctl" >> "$GITHUB_PATH"
+
+      - name: Delete the preview
+        if: steps.asked.outputs.wanted == 'false'
+        env:
+          ZAD_API_KEY: ${{ secrets.ZAD_PREVIEW_API_KEY }}
+          ZAD_PREVIEW_PROJECT_ID: ${{ vars.ZAD_PREVIEW_PROJECT_ID }}
+        run: zadctl -p "${ZAD_PREVIEW_PROJECT_ID}" deployment delete "pr-${NUMBER}" --yes --ignore-not-found
+
+      - name: Mark the preview comment as gone
+        if: steps.asked.outputs.wanted == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          existing="$(gh api --paginate "repos/${REPOSITORY}/issues/${NUMBER}/comments" \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | split("\n")[0] | rtrimstr("\r")) == env.HEADING) | .id' \
+            | head -n1)"
+          if [ -z "${existing}" ]; then
+            exit 0
+          fi
+          body="${RUNNER_TEMP}/preview-comment.md"
+          {
+            echo "${HEADING}"
+            echo
+            echo "The preview is removed: deployment pr-${NUMBER} was deleted with its database and volume."
+          } > "${body}"
+          gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${existing}" -F "body=@${body}" > /dev/null

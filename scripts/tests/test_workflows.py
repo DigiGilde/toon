@@ -8,6 +8,7 @@ checked here, on every commit.
 
 from __future__ import annotations
 
+import base64
 import importlib.util
 import json
 import os
@@ -430,6 +431,7 @@ class TestTheScans:
             "deploy.yml",
             "plugin.yml",
             "prepare-release.yml",
+            "preview.yml",
             "release.yml",
             "rulesets.yml",
             "scan.yml",
@@ -953,6 +955,668 @@ class TestTheReleaseImage:
                 assert build["target"] == "runtime", name
                 builds += 1
         assert builds == 3
+
+
+PREVIEW_FAKES = {
+    "gh": """#!/bin/sh
+echo "$*" >> "$FAKE/gh.log"
+case "$*" in
+  "attestation verify"*) [ ! -e "$FAKE/attest.refused" ] ;;
+  *"/pulls/"*) cat "$FAKE/pr.json" ;;
+  *"/runs?"*) cat "$FAKE/runs.json" ;;
+  *"--method"*)
+    for arg in "$@"; do
+      case "$arg" in body=@*) cp "${arg#body=@}" "$FAKE/posted.md" ;; esac
+    done ;;
+  *"/comments"*)
+    # The filter gh would apply to the listed comments, run by jq instead.
+    while [ "$1" != "--jq" ]; do shift; done
+    jq -r "$2" "$FAKE/comments.json" ;;
+esac
+""",
+    "skopeo": """#!/bin/sh
+case "$1" in
+  login) cat > /dev/null ;;
+  inspect) echo "$*" >> "$FAKE/skopeo.log"; cat "$FAKE/skopeo.out" ;;
+esac
+""",
+    "zadctl": """#!/bin/sh
+echo "$*" >> "$FAKE/zadctl.log"
+call=$(wc -l < "$FAKE/zadctl.log" | tr -d ' ')
+case "$*" in
+  *"deployment create"*|*"env add"*) cat > "$FAKE/stdin.$call" ;;
+  *"deployment url"*"-c beheer"*) cat "$FAKE/url.beheer" ;;
+  *"deployment url"*"-c site"*) cat "$FAKE/url.site" ;;
+  *"env list -c beheer"*) cat "$FAKE/env.beheer" ;;
+  *"env list -c site"*) cat "$FAKE/env.site" ;;
+  *"deployment describe"*) cat "$FAKE/describe" ;;
+esac
+""",
+    "curl": """#!/bin/sh
+echo "$*" >> "$FAKE/curl.log"
+cat "$FAKE/healthz"
+""",
+    "sleep": """#!/bin/sh
+""",
+}
+
+HEAD_SHA = "a" * 40
+DIGEST = "sha256:" + "b" * 64
+
+
+@pytest.fixture
+def preview() -> dict:
+    return _load("preview.yml")
+
+
+class TestPreviewWorkflow:
+    """A labelled pull request rolls out to deployment pr-<n> in the preview
+    project. These jobs hold that project's ZAD key, so the shape that keeps
+    pull request code away from the key is pinned here, and the steps that
+    decide what rolls out run against a fake gh, skopeo and zadctl."""
+
+    @pytest.fixture
+    def fake(self, tmp_path) -> Path:
+        fake = tmp_path / "fake"
+        (fake / "bin").mkdir(parents=True)
+        scripts = {
+            **PREVIEW_FAKES,
+            # The real jq, with every argument list written down.
+            "jq": f'#!/bin/sh\nprintf "%s\\n" "$*" >> "$FAKE/jq.log"\nexec "{shutil.which("jq")}" "$@"\n',
+        }
+        for name, script in scripts.items():
+            path = fake / "bin" / name
+            path.write_text(script, encoding="utf-8")
+            path.chmod(0o755)
+        (fake / "output").touch()
+        (fake / "describe").write_text('{"status": "Healthy", "pending_rollout": {"count": 0}}')
+        return fake
+
+    def _run(self, step: dict, fake: Path, workflow: dict, **env: str) -> subprocess.CompletedProcess:
+        values = {
+            "PATH": f"{fake / 'bin'}{os.pathsep}{os.environ['PATH']}",
+            "FAKE": str(fake),
+            "GITHUB_OUTPUT": str(fake / "output"),
+            "RUNNER_TEMP": str(fake),
+            "REPOSITORY": "DigiGilde/toon",
+            "NUMBER": "7",
+            "ZAD_PREVIEW_PROJECT_ID": "toond-zrj",
+            **{k: str(v) for k, v in workflow["env"].items()},
+            **env,
+        }
+        return _run(step, fake, **values)
+
+    def _outputs(self, fake: Path) -> dict[str, str]:
+        return dict(line.split("=", 1) for line in (fake / "output").read_text().splitlines())
+
+    def _pull_request(self, fake: Path, *, state="open", labels=("preview",), repo="DigiGilde/toon", head=HEAD_SHA):
+        (fake / "pr.json").write_text(
+            json.dumps(
+                {
+                    "state": state,
+                    "head": {"sha": head, "repo": {"full_name": repo}},
+                    "labels": [{"name": name} for name in labels],
+                }
+            )
+        )
+
+    # -- Shape --------------------------------------------------------------
+
+    def test_it_follows_the_label_and_green_runs_of_test_and_deploy(self, preview, deploy) -> None:
+        assert preview[True] == {
+            "pull_request_target": {"types": ["labeled", "unlabeled", "closed"]},
+            "workflow_run": {"workflows": ["Test and deploy"], "types": ["completed"]},
+        }
+        assert deploy["name"] == "Test and deploy"
+        condition = " ".join(preview["jobs"]["pull-request"]["if"].split())
+        assert "github.event.workflow_run.event == 'pull_request'" in condition
+        assert "github.event.workflow_run.conclusion == 'success'" in condition
+        assert "github.event.label.name == 'preview'" in condition
+
+    def test_no_permission_unless_a_job_asks_for_it(self, preview) -> None:
+        assert preview["permissions"] == {}
+        assert preview["jobs"]["pull-request"]["permissions"] == {"pull-requests": "read"}
+        assert preview["jobs"]["deploy"]["permissions"] == {
+            "actions": "read",
+            "attestations": "read",
+            "packages": "read",
+            "pull-requests": "write",
+        }
+
+    def test_the_proxy_image_is_pinned_by_digest(self, preview) -> None:
+        assert re.fullmatch(
+            r"ghcr\.io/rijksictgilde/haproxy-redirect@sha256:[0-9a-f]{64}", preview["env"]["PROXY_IMAGE"]
+        )
+
+    def test_a_pull_request_from_a_fork_never_gets_a_job(self, preview) -> None:
+        for name, job in preview["jobs"].items():
+            assert "== github.repository" in job["if"], name
+
+    def test_the_zad_key_lives_only_in_the_preview_environment(self, preview) -> None:
+        """Every job that names the key runs in `preview`, whose secret is the
+        preview project's key; and inside it only the step that talks to ZAD
+        gets it."""
+        key = "${{ secrets.ZAD_PREVIEW_API_KEY }}"
+        assert "secrets.ZAD_API_KEY" not in json.dumps(preview)
+        holders = {name for name, job in preview["jobs"].items() if key in str(job)}
+        assert holders == {"deploy", "teardown"}
+        for name in holders:
+            job = preview["jobs"][name]
+            assert job["environment"]["name"] == "preview"
+            assert "API_KEY" not in str(job.get("env", {}))
+            steps = [s for s in job["steps"] if "API_KEY" in str(s.get("env", {}))]
+            assert [s["name"] for s in steps] == {
+                "deploy": ["Roll out the preview", "Delete the preview unless it is still asked for"],
+                "teardown": ["Delete the preview"],
+            }[name]
+            for step in steps:
+                # zadctl reads its key from this variable; never an argument.
+                assert step["env"]["ZAD_API_KEY"] == key
+                assert "--api-key" not in step["run"]
+        assert "productie" not in json.dumps(preview)
+
+    def test_no_job_checks_out_any_code(self, preview) -> None:
+        """The key and pull request code never share a runner: nothing here
+        checks out, so nothing from the pull request can run."""
+        for job in preview["jobs"].values():
+            for step in job["steps"]:
+                assert "uses" not in step, step.get("name")
+
+    def test_zadctl_is_pinned_by_the_hash_of_its_archive(self, preview) -> None:
+        assert re.fullmatch(r"[0-9a-f]{64}", preview["env"]["ZADCTL_SHA256"])
+        installs = [_step(job, "Install zadctl") for job in (preview["jobs"]["deploy"], preview["jobs"]["teardown"])]
+        assert installs[0]["run"] == installs[1]["run"]
+        script = installs[0]["run"]
+        assert 'sha256sum --check --strict' in script
+        assert script.index("sha256sum") < script.index("tar -xzf")
+        assert "${ZADCTL_SHA256}" in script
+
+    def test_one_pull_request_is_rolled_out_at_a_time(self, preview) -> None:
+        assert preview["jobs"]["deploy"]["concurrency"] == {
+            "group": "preview-${{ needs.pull-request.outputs.number }}",
+            "cancel-in-progress": False,
+        }
+
+    def test_no_deploy_can_cancel_a_teardown(self, preview) -> None:
+        """A group keeps one pending run and a newer one cancels it: in the
+        deploy group, a deploy queued behind a pending teardown would leave
+        the preview standing after the label came off."""
+        group = preview["jobs"]["teardown"]["concurrency"]["group"]
+        assert group == "preview-teardown-${{ github.event.pull_request.number }}"
+        assert group != preview["jobs"]["deploy"]["concurrency"]["group"]
+
+    def test_a_deploy_that_finds_the_preview_unwanted_deletes_it(self, preview) -> None:
+        """Before it rolls out and once more after: whichever runs last, the
+        teardown or this check, sees the label gone and deletes."""
+        steps = [step["name"] for step in preview["jobs"]["deploy"]["steps"]]
+        check = steps.index("Delete the preview unless it is still asked for")
+        assert steps.index("Roll out the preview") < check < steps.index("Update the preview comment")
+        step = _step(preview["jobs"]["deploy"], "Delete the preview unless it is still asked for")
+        assert " ".join(step["if"].split()) == (
+            "always() && ( steps.target.outputs.remove == 'true' "
+            "|| (steps.rollout.outcome != '' && steps.rollout.outcome != 'skipped') )"
+        )
+        assert _step(preview["jobs"]["deploy"], "Install zadctl")["if"] == (
+            "steps.image.outputs.ready == 'true' || steps.target.outputs.remove == 'true'"
+        )
+        assert _step(preview["jobs"]["deploy"], "Update the preview comment")["if"] == (
+            "steps.wanted.outputs.wanted == 'true'"
+        )
+
+    def test_the_label_coming_off_or_any_close_tears_down(self, preview) -> None:
+        """Every close, labelled or not: a deploy that overtook the label
+        coming off may have left a preview behind."""
+        condition = " ".join(preview["jobs"]["teardown"]["if"].split())
+        assert (
+            "( (github.event.action == 'unlabeled' && github.event.label.name == 'preview') "
+            "|| github.event.action == 'closed' )"
+        ) in condition
+        assert "labels" not in condition
+
+    def test_teardown_deletes_only_once_nobody_asks(self, preview) -> None:
+        steps = preview["jobs"]["teardown"]["steps"]
+        names = [step["name"] for step in steps]
+        assert names.index("Check that nobody asks for the preview") < names.index("Delete the preview")
+        for name in ("Install zadctl", "Delete the preview", "Mark the preview comment as gone"):
+            assert _step(preview["jobs"]["teardown"], name)["if"] == "steps.asked.outputs.wanted == 'false'"
+
+    def test_the_image_names_the_head_it_was_built_from(self, deploy) -> None:
+        push = _step(deploy["jobs"]["build"], "Build and push the image")
+        assert push["with"]["labels"] == (
+            "org.opencontainers.image.revision=${{ github.event.pull_request.head.sha || github.sha }}"
+        )
+
+    def test_the_proxy_hands_everything_to_the_admin_component(self) -> None:
+        config = (ROOT / "containers" / "preview-proxy" / "haproxy.cfg").read_text(encoding="utf-8")
+        assert "bind *:8080" in config
+        assert 'server app "${TOON_APP}"' in config
+        assert "forwardfor" not in config
+
+    # -- Nothing of production --------------------------------------------
+
+    def test_the_workflow_names_nothing_of_production(self) -> None:
+        """The boundary is the key: the environment `preview` holds the
+        preview project's key, which ZAD refuses for any other project. The
+        workflow itself does not even name production's configuration."""
+        text = (WORKFLOWS / "preview.yml").read_text(encoding="utf-8")
+        # ZAD_PREVIEW_PROJECT_ID does not contain it; zadctl gets -p instead
+        # of its ZAD_PROJECT_ID variable.
+        assert "ZAD_PROJECT_ID" not in text
+        assert 'zadctl -p "${ZAD_PREVIEW_PROJECT_ID}"' in text
+        assert "plak-jr3" not in text
+        assert "productie" not in text
+
+    # -- Finding the pull request ------------------------------------------
+
+    def _find(self, preview, fake, *, number="", pull_requests="null") -> subprocess.CompletedProcess:
+        step = _step(preview["jobs"]["pull-request"], "Find the pull request")
+        return self._run(
+            step,
+            fake,
+            preview,
+            NUMBER="",
+            EVENT_NUMBER=number,
+            PULL_REQUESTS=pull_requests,
+            RUN_SHA=HEAD_SHA if number == "" else "",
+            REPO_ID="" if number else "1234",
+        )
+
+    @staticmethod
+    def _run_pull_request(number: int, *, repo_id=1234, sha=HEAD_SHA) -> dict:
+        return {"number": number, "head": {"sha": sha, "repo": {"id": 99}}, "base": {"repo": {"id": repo_id}}}
+
+    @pytest.mark.parametrize(("labels", "labelled"), [(("preview",), "true"), (("bug",), "false")])
+    def test_the_label_is_read_from_the_pull_request(self, preview, fake, labels, labelled) -> None:
+        self._pull_request(fake, labels=labels)
+        result = self._find(preview, fake, number="7")
+        assert result.returncode == 0, result.stderr
+        assert self._outputs(fake) == {"number": "7", "labelled": labelled}
+        assert "repos/DigiGilde/toon/pulls/7" in (fake / "gh.log").read_text()
+
+    def test_a_run_names_the_pull_request_into_this_repository_at_its_head(self, preview, fake) -> None:
+        """A run lists every pull request its head belongs to, those into
+        other repositories included, in no promised order."""
+        self._pull_request(fake)
+        listed = [
+            self._run_pull_request(3, repo_id=5678),
+            self._run_pull_request(4, sha="c" * 40),
+            self._run_pull_request(7),
+        ]
+        result = self._find(preview, fake, pull_requests=json.dumps(listed))
+        assert result.returncode == 0, result.stderr
+        assert self._outputs(fake) == {"number": "7", "labelled": "true"}
+
+    @pytest.mark.parametrize(
+        "pull_requests",
+        [
+            "null",
+            "[]",
+            json.dumps([{"number": 3, "head": {"sha": HEAD_SHA}, "base": {"repo": {"id": 5678}}}]),
+            json.dumps([{"number": "7; rm", "head": {"sha": HEAD_SHA}, "base": {"repo": {"id": 1234}}}]),
+            json.dumps([{"number": 0, "head": {"sha": HEAD_SHA}, "base": {"repo": {"id": 1234}}}]),
+        ],
+    )
+    def test_a_run_without_a_pull_request_stops_here(self, preview, fake, pull_requests) -> None:
+        result = self._find(preview, fake, pull_requests=pull_requests)
+        assert result.returncode == 0, result.stderr
+        assert self._outputs(fake) == {"labelled": "false"}
+        assert not (fake / "gh.log").exists()
+
+    # -- Deciding what rolls out ------------------------------------------
+
+    def _decide(self, preview, fake, *, runs=1, run_sha="") -> subprocess.CompletedProcess:
+        (fake / "runs.json").write_text(json.dumps({"total_count": runs}))
+        step = _step(preview["jobs"]["deploy"], "Decide what to roll out")
+        return self._run(step, fake, preview, RUN_SHA=run_sha)
+
+    @pytest.mark.parametrize("run_sha", ["", HEAD_SHA])
+    def test_the_head_with_a_green_run_rolls_out(self, preview, fake, run_sha) -> None:
+        self._pull_request(fake)
+        result = self._decide(preview, fake, run_sha=run_sha)
+        assert result.returncode == 0, result.stderr
+        assert self._outputs(fake) == {"go": "true", "head": HEAD_SHA}
+        assert f"head_sha={HEAD_SHA}&event=pull_request&status=success" in (fake / "gh.log").read_text()
+
+    @pytest.mark.parametrize(
+        ("pull_request", "reason"),
+        [
+            ({"state": "closed"}, "is not open"),
+            ({"labels": ()}, "does not carry the label preview"),
+        ],
+    )
+    def test_a_pull_request_that_no_longer_asks_for_one_is_removed(self, preview, fake, pull_request, reason) -> None:
+        self._pull_request(fake, **pull_request)
+        result = self._decide(preview, fake)
+        assert result.returncode == 0, result.stderr
+        assert self._outputs(fake) == {"remove": "true", "go": "false"}
+        assert reason in result.stdout
+
+    def test_a_pull_request_from_a_fork_is_left_alone(self, preview, fake) -> None:
+        self._pull_request(fake, repo="someone/toon", state="closed")
+        result = self._decide(preview, fake)
+        assert result.returncode == 0, result.stderr
+        assert self._outputs(fake) == {"go": "false"}
+        assert "comes from another repository" in result.stdout
+
+    def test_a_run_of_an_older_commit_does_not_roll_out(self, preview, fake) -> None:
+        """A push came in while this run was testing: the image on pr-<n>
+        may already be the newer one, untested. Its own run rolls it out."""
+        self._pull_request(fake)
+        result = self._decide(preview, fake, run_sha="c" * 40)
+        assert self._outputs(fake) == {"go": "false"}
+        assert "its own run rolls that out" in result.stdout
+
+    def test_a_head_without_a_green_run_waits_for_one(self, preview, fake) -> None:
+        """The image is pushed before the scan gates it: the label on a
+        pull request whose run failed rolls out nothing."""
+        self._pull_request(fake)
+        result = self._decide(preview, fake, runs=0)
+        assert self._outputs(fake) == {"go": "false"}
+        assert "No green run" in result.stdout
+
+    # -- Resolving the image ----------------------------------------------
+
+    def _resolve(self, preview, fake, inspected: str) -> subprocess.CompletedProcess:
+        (fake / "skopeo.out").write_text(inspected + "\n")
+        step = _step(preview["jobs"]["deploy"], "Resolve the image")
+        return self._run(step, fake, preview, GH_TOKEN="token", ACTOR="someone", HEAD=HEAD_SHA)
+
+    def test_the_image_of_the_head_is_named_by_its_digest(self, preview, fake) -> None:
+        result = self._resolve(preview, fake, f"{DIGEST} {HEAD_SHA}")
+        assert result.returncode == 0, result.stderr
+        assert self._outputs(fake) == {"ready": "true", "image": f"ghcr.io/digigilde/toon@{DIGEST}"}
+        assert "docker://ghcr.io/digigilde/toon:pr-7" in (fake / "skopeo.log").read_text()
+
+    def test_the_digest_must_carry_provenance_from_a_run_for_this_pull_request(self, preview, fake) -> None:
+        """deploy.yml's `provenance` job attests the index it pushed, from a
+        run on refs/pull/<n>/merge. Measured on #295: the attested digest is
+        the index digest, and another pull request's ref fails."""
+        result = self._resolve(preview, fake, f"{DIGEST} {HEAD_SHA}")
+        assert result.returncode == 0, result.stderr
+        verify = [line for line in (fake / "gh.log").read_text().splitlines() if line.startswith("attestation")]
+        assert verify == [
+            f"attestation verify oci://ghcr.io/digigilde/toon@{DIGEST} --repo DigiGilde/toon "
+            "--signer-workflow DigiGilde/toon/.github/workflows/deploy.yml "
+            "--source-ref refs/pull/7/merge --deny-self-hosted-runners"
+        ]
+
+    def test_an_image_without_that_provenance_is_refused(self, preview, fake) -> None:
+        (fake / "attest.refused").touch()
+        result = self._resolve(preview, fake, f"{DIGEST} {HEAD_SHA}")
+        assert _refused(result), result.stdout
+        assert "has no provenance from deploy.yml for pull request 7" in result.stdout
+        assert self._outputs(fake) == {}
+
+    def test_an_image_of_another_commit_is_not_even_verified(self, preview, fake) -> None:
+        result = self._resolve(preview, fake, f"{DIGEST} {'c' * 40}")
+        assert result.returncode == 0, result.stderr
+        assert not (fake / "gh.log").exists()
+
+    @pytest.mark.parametrize("revision", ["c" * 40, ""])
+    def test_an_image_of_another_commit_is_not_rolled_out(self, preview, fake, revision) -> None:
+        result = self._resolve(preview, fake, f"{DIGEST} {revision}")
+        assert result.returncode == 0, result.stderr
+        assert self._outputs(fake) == {"ready": "false"}
+
+    @pytest.mark.parametrize("inspected", ["", "latest " + HEAD_SHA, "sha256:abc " + HEAD_SHA])
+    def test_an_image_without_a_digest_is_refused(self, preview, fake, inspected) -> None:
+        result = self._resolve(preview, fake, inspected)
+        assert _refused(result), result.stdout
+        assert self._outputs(fake) == {}
+
+    # -- Rolling out ------------------------------------------------------
+
+    def _rollout(
+        self,
+        preview,
+        fake,
+        *,
+        beheer="{}",
+        site="{}",
+        admin="beheer-pr-7-toond-zrj.example.nl",
+        healthz='{"status": "ok"}',
+    ):
+        (fake / "env.beheer").write_text(beheer)
+        (fake / "env.site").write_text(site)
+        (fake / "url.beheer").write_text(admin + "\n")
+        (fake / "url.site").write_text("https://site-pr-7-toond-zrj.example.nl\n")
+        (fake / "healthz").write_text(healthz)
+        step = _step(preview["jobs"]["deploy"], "Roll out the preview")
+        return self._run(step, fake, preview, IMAGE=f"ghcr.io/digigilde/toon@{DIGEST}")
+
+    def _calls(self, fake: Path) -> list[str]:
+        """Every zadctl call, which has to name the preview project itself."""
+        calls = (fake / "zadctl.log").read_text().splitlines()
+        assert all(call.startswith("-p toond-zrj ") for call in calls), calls
+        return [call.removeprefix("-p toond-zrj ") for call in calls]
+
+    def _stdin(self, fake: Path, call: int) -> dict:
+        return json.loads((fake / f"stdin.{call}").read_text())
+
+    @pytest.mark.parametrize(
+        "admin", ["beheer-pr-7-toond-zrj.example.nl", "https://beheer-pr-7-toond-zrj.example.nl/"]
+    )
+    def test_a_first_rollout_saves_everything_before_it_rolls_out(self, preview, fake, admin) -> None:
+        result = self._rollout(preview, fake, admin=admin)
+        assert result.returncode == 0, result.stderr
+        assert self._calls(fake) == [
+            "--no-rollout deployment create pr-7 -f -",
+            "deployment url pr-7 -c beheer",
+            "deployment url pr-7 -c site",
+            "--json env list -c beheer --deployment pr-7",
+            "--json env list -c site --deployment pr-7",
+            "--no-rollout env add -c beheer --deployment pr-7 -f -",
+            "--no-rollout env add -c site --deployment pr-7 -f -",
+            "deployment refresh pr-7",
+            "--json deployment describe pr-7",
+        ]
+        assert self._stdin(fake, 1) == {
+            "components": [
+                {"name": "beheer", "image": f"ghcr.io/digigilde/toon@{DIGEST}"},
+                {"name": "site", "image": preview["env"]["PROXY_IMAGE"]},
+            ],
+            "domain_format": "component-deployment-project",
+        }
+        beheer = self._stdin(fake, 6)
+        assert beheer["TOON_BASE_URL"] == "https://beheer-pr-7-toond-zrj.example.nl"
+        assert beheer["TOON_CONTENT_BASE_URL"] == "https://site-pr-7-toond-zrj.example.nl"
+        assert self._stdin(fake, 7) == {"TOON_APP": "pr-7-beheer:8080"}
+        assert (fake / "curl.log").read_text().rstrip().endswith("https://beheer-pr-7-toond-zrj.example.nl/-/healthz")
+        assert self._outputs(fake) == {
+            "admin": "https://beheer-pr-7-toond-zrj.example.nl",
+            "content": "https://site-pr-7-toond-zrj.example.nl",
+        }
+
+    def test_each_preview_gets_secrets_of_its_own_off_the_command_line(self, preview, fake) -> None:
+        result = self._rollout(preview, fake)
+        assert result.returncode == 0, result.stderr
+        beheer = self._stdin(fake, 6)
+        secrets = [beheer[name] for name in ("TOON_SESSION_SECRET", "TOON_AUDIT_PEPPER", "TOON_AUDIT_IP_KEY")]
+        assert len(bytes.fromhex(secrets[0])) == len(bytes.fromhex(secrets[1])) == 32
+        assert len(base64.b64decode(secrets[2], validate=True)) == 32
+        assert len(set(secrets)) == 3
+        arguments = (fake / "zadctl.log").read_text()
+        for secret in secrets:
+            assert secret not in arguments
+            assert f"::add-mask::{secret}" in result.stdout
+
+    def test_a_later_rollout_keeps_what_the_preview_has(self, preview, fake) -> None:
+        """A push rolls out the new image and leaves the secrets alone: new
+        ones would sign everyone out and break the audit chain."""
+        beheer = json.dumps(
+            dict.fromkeys(
+                (
+                    "TOON_BASE_URL",
+                    "TOON_CONTENT_BASE_URL",
+                    "TOON_SESSION_SECRET",
+                    "TOON_AUDIT_PEPPER",
+                    "TOON_AUDIT_IP_KEY",
+                ),
+                "(set, not shown)",
+            )
+        )
+        result = self._rollout(preview, fake, beheer=beheer, site=json.dumps({"TOON_APP": "pr-7-beheer:8080"}))
+        assert result.returncode == 0, result.stderr
+        assert not [call for call in self._calls(fake) if "env add" in call]
+        assert "deployment refresh pr-7" in self._calls(fake)
+        assert "::add-mask::" not in result.stdout
+
+    def test_a_project_wide_pending_count_does_not_hold_up_the_rollout(self, preview, fake) -> None:
+        """Measured on pr-295: pending_rollout counts the whole project and
+        stayed at 9 after this deployment's refresh."""
+        (fake / "describe").write_text('{"status": "Healthy", "pending_rollout": {"count": 9}}')
+        result = self._rollout(preview, fake)
+        assert result.returncode == 0, result.stderr
+        assert self._calls(fake).count("--json deployment describe pr-7") == 1
+
+    def test_the_values_zad_hands_back_go_no_further_than_their_names(self, preview, fake) -> None:
+        beheer = json.dumps({"TOON_BASE_URL": "VALUE-ONE", "TOON_SESSION_SECRET": "VALUE-TWO"})
+        result = self._rollout(preview, fake, beheer=beheer, site=json.dumps({"TOON_APP": "VALUE-THREE"}))
+        assert result.returncode == 0, result.stderr
+        arguments = (fake / "jq.log").read_text() + (fake / "zadctl.log").read_text()
+        for value in ("VALUE-ONE", "VALUE-TWO", "VALUE-THREE"):
+            assert value not in arguments
+        assert set(self._stdin(fake, 6)) == {"TOON_CONTENT_BASE_URL", "TOON_AUDIT_PEPPER", "TOON_AUDIT_IP_KEY"}
+
+    def test_a_half_set_layer_only_gets_what_it_lacks(self, preview, fake) -> None:
+        beheer = json.dumps({"TOON_BASE_URL": "x", "TOON_CONTENT_BASE_URL": "x", "TOON_SESSION_SECRET": "x"})
+        result = self._rollout(preview, fake, beheer=beheer)
+        assert result.returncode == 0, result.stderr
+        assert set(self._stdin(fake, 6)) == {"TOON_AUDIT_PEPPER", "TOON_AUDIT_IP_KEY"}
+
+    @pytest.mark.parametrize("admin", ["http://beheer-pr-7.example.nl", "https://beheer-pr-7.example.nl/path"])
+    def test_an_address_that_is_no_https_origin_is_refused(self, preview, fake, admin) -> None:
+        result = self._rollout(preview, fake, admin=admin)
+        assert result.returncode != 0
+        assert "::error::" in result.stderr
+        assert not [call for call in self._calls(fake) if "env add" in call or "refresh" in call]
+
+    @pytest.mark.parametrize("healthz", ["<html>Waking up</html>", '{"status": "degraded"}', ""])
+    def test_a_rollout_that_toon_does_not_answer_ok_fails(self, preview, fake, healthz) -> None:
+        """A sleeping deployment answers 200 with the platform's wake-up
+        page: only Toon's own `ok` counts."""
+        result = self._rollout(preview, fake, healthz=healthz)
+        assert result.returncode == 1
+        assert "/-/healthz does not report ok" in result.stdout
+        assert len((fake / "curl.log").read_text().splitlines()) == 12
+        assert self._outputs(fake) == {}
+
+    def test_a_preview_still_asked_for_stays(self, preview, fake) -> None:
+        self._pull_request(fake)
+        step = _step(preview["jobs"]["deploy"], "Delete the preview unless it is still asked for")
+        result = self._run(step, fake, preview)
+        assert result.returncode == 0, result.stderr
+        assert self._outputs(fake) == {"wanted": "true"}
+        assert not (fake / "zadctl.log").exists()
+
+    @pytest.mark.parametrize("pull_request", [{"state": "closed"}, {"labels": ("bug",)}])
+    def test_a_preview_nobody_asks_for_any_more_is_deleted(self, preview, fake, pull_request) -> None:
+        self._pull_request(fake, **pull_request)
+        step = _step(preview["jobs"]["deploy"], "Delete the preview unless it is still asked for")
+        result = self._run(step, fake, preview)
+        assert result.returncode == 0, result.stderr
+        assert self._outputs(fake) == {"wanted": "false"}
+        assert self._calls(fake) == ["deployment delete pr-7 --yes --ignore-not-found"]
+
+    # -- The pull request comment ------------------------------------------
+
+    HEADING = "### Preview of this pull request on ZAD"
+
+    def _comments(self, fake: Path, *comments: tuple[int, str, str]) -> None:
+        (fake / "comments.json").write_text(
+            json.dumps([{"id": id_, "user": {"login": login}, "body": body} for id_, login, body in comments])
+        )
+
+    def _methods(self, fake: Path) -> list[str]:
+        return [line for line in (fake / "gh.log").read_text().splitlines() if "--method" in line]
+
+    def _comment(self, preview, fake) -> subprocess.CompletedProcess:
+        step = _step(preview["jobs"]["deploy"], "Update the preview comment")
+        return self._run(
+            step,
+            fake,
+            preview,
+            GH_TOKEN="token",
+            ADMIN="https://beheer-pr-7.example.nl",
+            CONTENT="https://site-pr-7.example.nl",
+            IMAGE=f"ghcr.io/digigilde/toon@{DIGEST}",
+            HEAD=HEAD_SHA,
+        )
+
+    def test_the_comment_opens_with_a_visible_heading(self, preview) -> None:
+        """A hidden HTML marker shows up raw wherever a comment is quoted or
+        forwarded (#230). The heading differs from the publish action's."""
+        assert preview["env"]["HEADING"] == self.HEADING
+        assert "<!--" not in json.dumps(preview)
+
+    def test_the_comment_of_this_workflow_is_updated(self, preview, fake) -> None:
+        self._comments(
+            fake,
+            (1, "github-actions[bot]", f"> {self.HEADING}\n> quoted by the bot"),
+            (2, "someone", f"{self.HEADING}\nwritten by a person"),
+            (4, "github-actions[bot]", f"{self.HEADING} of something else\n"),
+            (3, "github-actions[bot]", f"{self.HEADING}\r\n\nBuilt from an older commit."),
+        )
+        result = self._comment(preview, fake)
+        assert result.returncode == 0, result.stderr
+        assert self._methods(fake) == [
+            "api --method PATCH repos/DigiGilde/toon/issues/comments/3 -F body=@" + str(fake / "preview-comment.md")
+        ]
+        posted = (fake / "posted.md").read_text().splitlines()
+        assert posted[0] == self.HEADING
+        assert f"Built from {HEAD_SHA}." in posted
+        assert "- Admin: https://beheer-pr-7.example.nl/" in posted
+        assert "Sign in with SSO Rijk. You become an editor of the demo group." in posted
+
+    def test_a_quoted_heading_is_not_ours_so_a_new_comment_follows(self, preview, fake) -> None:
+        self._comments(
+            fake,
+            (1, "github-actions[bot]", f"> {self.HEADING}\n"),
+            (2, "someone", f"{self.HEADING}\n"),
+        )
+        result = self._comment(preview, fake)
+        assert result.returncode == 0, result.stderr
+        assert [line.split(" -F ")[0] for line in self._methods(fake)] == [
+            "api --method POST repos/DigiGilde/toon/issues/7/comments"
+        ]
+
+    def test_the_removed_preview_keeps_the_heading(self, preview, fake) -> None:
+        self._comments(fake, (3, "github-actions[bot]", f"{self.HEADING}\n\nBuilt from {HEAD_SHA}."))
+        step = _step(preview["jobs"]["teardown"], "Mark the preview comment as gone")
+        result = self._run(step, fake, preview, GH_TOKEN="token")
+        assert result.returncode == 0, result.stderr
+        assert [line.split(" -F ")[0] for line in self._methods(fake)] == [
+            "api --method PATCH repos/DigiGilde/toon/issues/comments/3"
+        ]
+        posted = (fake / "posted.md").read_text().splitlines()
+        assert posted[0] == self.HEADING
+        assert "The preview is removed: deployment pr-7 was deleted with its database and volume." in posted
+
+    def test_without_a_comment_of_ours_teardown_writes_none(self, preview, fake) -> None:
+        self._comments(fake, (1, "github-actions[bot]", f"> {self.HEADING}\n"))
+        step = _step(preview["jobs"]["teardown"], "Mark the preview comment as gone")
+        result = self._run(step, fake, preview, GH_TOKEN="token")
+        assert result.returncode == 0, result.stderr
+        assert self._methods(fake) == []
+
+    # -- Tearing down -----------------------------------------------------
+
+    @pytest.mark.parametrize(
+        ("pull_request", "wanted"),
+        [({}, "true"), ({"state": "closed"}, "false"), ({"labels": ()}, "false")],
+    )
+    def test_teardown_leaves_a_preview_that_is_asked_for_again(self, preview, fake, pull_request, wanted) -> None:
+        self._pull_request(fake, **pull_request)
+        step = _step(preview["jobs"]["teardown"], "Check that nobody asks for the preview")
+        result = self._run(step, fake, preview)
+        assert result.returncode == 0, result.stderr
+        assert self._outputs(fake) == {"wanted": wanted}
+
+    def test_teardown_deletes_the_deployment_of_this_pull_request(self, preview, fake) -> None:
+        step = _step(preview["jobs"]["teardown"], "Delete the preview")
+        result = self._run(step, fake, preview)
+        assert result.returncode == 0, result.stderr
+        assert self._calls(fake) == ["deployment delete pr-7 --yes --ignore-not-found"]
 
 
 class TestCodeQL:
