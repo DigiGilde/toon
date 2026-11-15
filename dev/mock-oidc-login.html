@@ -1,0 +1,214 @@
+<!doctype html>
+<!--
+  Login page of the dev mock OIDC server (TOON_MOCK_INTERACTIVE_LOGIN=1, see
+  docs/local-development.md). The mock serves this file as is, so every form
+  posts back to the /authorize URL it was loaded from. The personas mirror the
+  members dev/seed.py creates: backend/tests/test_dev_seed.py keeps the subs,
+  emails and names in step.
+-->
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Inloggen als persona</title>
+<style>
+:root {
+  --ink: #1b1b1b;
+  --paper: #f5f6f8;
+  --card: #ffffff;
+  --line: #b4b9c2;
+  --accent: #154273;
+  --on-accent: #ffffff;
+  --focus: #b45309;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #f2f2f0;
+    --paper: #16181c;
+    --card: #20242a;
+    --line: #4a4f58;
+    --accent: #8fb8e8;
+    --on-accent: #0d1b2a;
+    --focus: #fbbf24;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 2rem 1rem 4rem;
+  font: 1rem/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--ink);
+  background: var(--paper);
+}
+main { max-width: 40rem; margin: 0 auto; }
+h1 { margin: 0 0 0.25rem; font-size: 1.75rem; line-height: 1.2; }
+h2 { margin: 2rem 0 0.5rem; font-size: 1.125rem; }
+p { margin: 0 0 1.5rem; }
+ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.75rem; }
+form { margin: 0; }
+button.persona {
+  display: block;
+  width: 100%;
+  padding: 0.875rem 1rem;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--accent);
+  border-radius: 0.375rem;
+  cursor: pointer;
+}
+button.persona:hover { border-color: var(--accent); }
+.name { font-weight: 700; }
+.sub { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.875rem; margin-left: 0.5rem; }
+.what { display: block; margin-top: 0.25rem; }
+.last {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--on-accent);
+  background: var(--accent);
+  border-radius: 999px;
+}
+.other { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.other label { flex-basis: 100%; font-weight: 700; }
+.other input {
+  flex: 1 1 14rem;
+  min-width: 0;
+  padding: 0.5rem 0.75rem;
+  font: inherit;
+  color: inherit;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 0.375rem;
+}
+.other button {
+  padding: 0.5rem 1rem;
+  font: inherit;
+  font-weight: 700;
+  color: var(--on-accent);
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 0.375rem;
+  cursor: pointer;
+}
+.hint { flex-basis: 100%; margin: 0; font-size: 0.875rem; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<main>
+<h1>Inloggen als persona</h1>
+<p>Lokale nep-inlogdienst van Toon. Kies wie je bent.</p>
+
+<ul>
+<li>
+<form method="post">
+<input type="hidden" name="username" value="dev-beheerder">
+<input type="hidden" name="claims" value='{"email": "beheerder@toon.local", "name": "Dev Beheerder"}'>
+<button type="submit" class="persona" data-sub="dev-beheerder"><span class="name">Dev Beheerder</span><span class="sub">dev-beheerder</span><span class="what">Platformbeheerder: ziet en beheert alles, en is beheerder van de groep Rijksoverheid.</span></button>
+</form>
+</li>
+<li>
+<form method="post">
+<input type="hidden" name="username" value="dev-redacteur">
+<input type="hidden" name="claims" value='{"email": "s.jansen@toon.local", "name": "Sanne Jansen"}'>
+<button type="submit" class="persona" data-sub="dev-redacteur"><span class="name">Sanne Jansen</span><span class="sub">dev-redacteur</span><span class="what">Redacteur in de groep Rijksoverheid: wijzigt en publiceert de inhoud van de sites daar.</span></button>
+</form>
+</li>
+<li>
+<form method="post">
+<input type="hidden" name="username" value="dev-lezer">
+<input type="hidden" name="claims" value='{"email": "t.devries@toon.local", "name": "Tim de Vries"}'>
+<button type="submit" class="persona" data-sub="dev-lezer"><span class="name">Tim de Vries</span><span class="sub">dev-lezer</span><span class="what">Lezer in de groep Rijksoverheid: kijkt mee, wijzigt niets.</span></button>
+</form>
+</li>
+<li>
+<form method="post">
+<input type="hidden" name="username" value="dev-sitelid">
+<input type="hidden" name="claims" value='{"email": "n.bakker@toon.local", "name": "Noor Bakker"}'>
+<button type="submit" class="persona" data-sub="dev-sitelid"><span class="name">Noor Bakker</span><span class="sub">dev-sitelid</span><span class="what">Geen groepslid, alleen redacteur van de site Evaluatie subsidieregeling.</span></button>
+</form>
+</li>
+<li>
+<form method="post">
+<input type="hidden" name="username" value="dev-inspecteur">
+<input type="hidden" name="claims" value='{"email": "w.dekker@toon.local", "name": "Wim Dekker"}'>
+<button type="submit" class="persona" data-sub="dev-inspecteur"><span class="name">Wim Dekker</span><span class="sub">dev-inspecteur</span><span class="what">Beheerder van de groep Inspectie Leefomgeving, niet van Rijksoverheid.</span></button>
+</form>
+</li>
+<li>
+<form method="post">
+<input type="hidden" name="username" value="dev-ontslagen">
+<input type="hidden" name="claims" value='{"email": "k.visser@toon.local", "name": "Kim Visser"}'>
+<button type="submit" class="persona" data-sub="dev-ontslagen"><span class="name">Kim Visser</span><span class="sub">dev-ontslagen</span><span class="what">Gedeactiveerd: Toon weigert haar, zo zie je die melding.</span></button>
+</form>
+</li>
+<li>
+<form method="post">
+<input type="hidden" name="username" value="dev-nieuw">
+<input type="hidden" name="claims" value='{"email": "dev-nieuw@toon.local", "name": "Nieuwe Bezoeker"}'>
+<button type="submit" class="persona" data-sub="dev-nieuw"><span class="name">Nieuwe Bezoeker</span><span class="sub">dev-nieuw</span><span class="what">Staat niet in de seed: de eerste keer komt er een lid bij, nog zonder rol.</span></button>
+</form>
+</li>
+</ul>
+
+<h2 id="other-heading">Iemand anders</h2>
+<form method="post" class="other" id="other" aria-labelledby="other-heading">
+<label for="other-sub">Andere naam</label>
+<input type="text" id="other-sub" name="username" required autocomplete="off" autocapitalize="none" spellcheck="false" aria-describedby="other-hint">
+<input type="hidden" name="claims" id="other-claims" value="{}">
+<button type="submit">Inloggen</button>
+<p class="hint" id="other-hint">Wordt de sub, met e-mailadres &lt;naam&gt;@toon.local.</p>
+</form>
+</main>
+<script>
+(function () {
+  var KEY = "toon-mock-persona";
+  var last = null;
+  try { last = window.localStorage.getItem(KEY); } catch (e) { last = null; }
+
+  function remember(sub) {
+    try { window.localStorage.setItem(KEY, sub); } catch (e) { /* no storage: nothing to remember */ }
+  }
+
+  var buttons = document.querySelectorAll("button.persona");
+  var marked = false;
+  for (var i = 0; i < buttons.length; i++) {
+    var button = buttons[i];
+    button.form.addEventListener("submit", remember.bind(null, button.getAttribute("data-sub")));
+    if (last !== null && button.getAttribute("data-sub") === last) {
+      var mark = document.createElement("span");
+      mark.className = "last";
+      mark.textContent = "laatst gekozen";
+      button.querySelector(".sub").after(mark);
+      button.focus();
+      marked = true;
+    }
+  }
+
+  var other = document.getElementById("other");
+  var field = document.getElementById("other-sub");
+  if (!marked && last) {
+    field.value = last;
+    field.focus();
+  }
+  other.addEventListener("submit", function (event) {
+    var sub = field.value.trim();
+    field.value = sub;
+    if (!sub) {
+      event.preventDefault();
+      field.focus();
+      return;
+    }
+    document.getElementById("other-claims").value = JSON.stringify({ email: sub + "@toon.local" });
+    remember(sub);
+  });
+})();
+</script>
+</body>
+</html>

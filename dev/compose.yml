@@ -46,6 +46,8 @@ services:
       # working; dev/up.sh points TOON_MOCK_CONFIG at the interactive config
       # when TOON_MOCK_INTERACTIVE_LOGIN is set.
       - ${TOON_MOCK_CONFIG:-./mock-oidc-config.json}:/app/mock-oidc-config.json:ro
+      # The persona login page; only the interactive config points at it.
+      - ./mock-oidc-login.html:/app/mock-oidc-login.html:ro
     ports:
       - "127.0.0.1:8081:8080"
 

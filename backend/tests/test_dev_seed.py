@@ -10,12 +10,15 @@ throwaway content root.
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from collections.abc import AsyncIterator
+from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
 import pytest_asyncio
+import yaml
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -28,7 +31,12 @@ from toon.models.identity import Group, GroupMember, Member, MemberStatus, Platf
 from toon.models.publication import AccessKey, Invitee, Preview, Site, Version
 from toon.serving.resolution import locate
 
-SEED_PATH = Path(__file__).resolve().parents[2] / "dev" / "seed.py"
+DEV_DIR = Path(__file__).resolve().parents[2] / "dev"
+SEED_PATH = DEV_DIR / "seed.py"
+LOGIN_PAGE = DEV_DIR / "mock-oidc-login.html"
+INTERACTIVE_CONFIG = DEV_DIR / "mock-oidc-config.interactive.json"
+# The one persona on the login page that the seed must not create.
+NEW_VISITOR_SUB = "dev-nieuw"
 
 
 @pytest.fixture(scope="session")
@@ -375,3 +383,65 @@ class TestReport:
         assert "key=" not in preview
         assert result.secret_link_key not in preview
         assert "toon login" in preview
+
+
+class _Forms(HTMLParser):
+    """The hidden inputs of every form on the mock login page, per form."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.forms: list[dict[str, str]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attributes = dict(attrs)
+        if tag == "form":
+            self.forms.append({})
+        elif tag == "input" and attributes.get("type") == "hidden":
+            self.forms[-1][attributes["name"]] = attributes["value"]
+
+
+def _personas() -> list[tuple[str, dict]]:
+    """(sub, claims) of every persona button: a form with a fixed username."""
+    parser = _Forms()
+    parser.feed(LOGIN_PAGE.read_text(encoding="utf-8"))
+    return [(form["username"], json.loads(form["claims"])) for form in parser.forms if "username" in form]
+
+
+class TestPersonaPage:
+    """dev/mock-oidc-login.html posts the seed's email and name as claims, so a
+    persona only logs in as its seeded member while the two agree."""
+
+    async def test_every_seed_member_is_a_persona_with_the_seeded_email_and_name(
+        self, seed_module, settings: Settings, session_factory
+    ) -> None:
+        await seed_module.seed(settings)
+        async with session_factory() as db:
+            seeded = {
+                member.sso_subject: {"email": member.email, "name": member.name}
+                for member in await db.scalars(select(Member))
+            }
+        personas = dict(_personas())
+        assert {sub: personas.get(sub) for sub in seeded} == seeded
+        assert set(personas) - set(seeded) == {NEW_VISITOR_SUB}
+
+    def test_no_persona_appears_twice(self) -> None:
+        subs = [sub for sub, _ in _personas()]
+        assert len(subs) == len(set(subs))
+
+    def test_the_interactive_config_serves_the_page_compose_mounts(self) -> None:
+        config = json.loads(INTERACTIVE_CONFIG.read_text(encoding="utf-8"))
+        compose = yaml.safe_load((DEV_DIR / "compose.yml").read_text(encoding="utf-8"))
+        mounts = dict(
+            volume.removesuffix(":ro").split(":", 1)
+            for volume in compose["services"]["mock-oidc"]["volumes"]
+            if not volume.startswith("$")
+        )
+        assert mounts[f"./{LOGIN_PAGE.name}"] == config["loginPagePath"]
+
+    def test_the_interactive_config_leaves_email_and_name_to_the_page(self) -> None:
+        """The mock lets a requestMapping claim win over a posted one, so an
+        email there would replace the seeded address on every login."""
+        config = json.loads(INTERACTIVE_CONFIG.read_text(encoding="utf-8"))
+        for callback in config["tokenCallbacks"]:
+            for mapping in callback["requestMappings"]:
+                assert not {"email", "name"} & set(mapping["claims"])
