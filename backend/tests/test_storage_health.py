@@ -234,10 +234,10 @@ class TestHealthz:
             assert (await _healthz(app)).json() == {"status": "ok"}
 
 
-def _productie(tmp_path: Path):
+def _productie(tmp_path: Path, environment: str = "productie"):
     return _app(
         tmp_path,
-        environment="productie",
+        environment=environment,
         behind_proxy=False,
         oidc_iss_required=True,
         base_url="https://beheer.toon.example",
@@ -246,11 +246,12 @@ def _productie(tmp_path: Path):
 
 
 class TestContentRootAtStartup:
+    @pytest.mark.parametrize("environment", ["productie", "preview"])
     async def test_production_without_a_mount_is_reported_once_and_logged(
-        self, tmp_path: Path, monkeypatch, caplog
+        self, tmp_path: Path, monkeypatch, caplog, environment
     ) -> None:
         _fake_free(monkeypatch, 900)
-        app = _productie(tmp_path)
+        app = _productie(tmp_path, environment)
         root = (tmp_path / "content").resolve()
         with caplog.at_level(logging.ERROR, logger="toon.main"):
             async with app.router.lifespan_context(app):

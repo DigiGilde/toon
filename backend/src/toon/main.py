@@ -165,7 +165,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # every call (ci/providers.py), whatever the IdP client does.
         ci_http = httpx.AsyncClient(follow_redirects=False)
         content_store = ContentStore(settings.content_root)
-        if settings.environment == "productie":
+        if settings.hardened:
             root_complaint = content_root_complaint(content_store.root)
             storage_watch(app).content_root_message = root_complaint
             if root_complaint:
