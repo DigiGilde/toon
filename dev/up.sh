@@ -28,14 +28,14 @@ ensure_dev_secrets
 # dev-beheerder (dev/mock-oidc-config.json, the default of TOON_MOCK_CONFIG
 # in dev/compose.yml; the e2e suite relies on it).
 # TOON_MOCK_INTERACTIVE_LOGIN=1 picks dev/mock-oidc-config.interactive.json:
-# the mock then shows a login screen where you type a subject yourself. See
-# docs/local-development.md.
+# the mock then shows a persona page (dev/mock-oidc-login.html) where you pick
+# a seeded member or type a subject yourself. See docs/local-development.md.
 mock_config="./mock-oidc-config.json"
 mode="stil (elke aanmelding wordt dev-beheerder)"
 case "${TOON_MOCK_INTERACTIVE_LOGIN:-}" in
     1 | true | TRUE | yes | ja)
         mock_config="./mock-oidc-config.interactive.json"
-        mode="inlogscherm (je typt zelf een subject)"
+        mode="personapagina (je kiest zelf wie je bent)"
         export TOON_MOCK_CONFIG="${mock_config}"
         ;;
 esac

@@ -1,5 +1,6 @@
 {
   "interactiveLogin": true,
+  "loginPagePath": "/app/mock-oidc-login.html",
   "httpServer": "NettyWrapper",
   "tokenCallbacks": [
     {
@@ -12,7 +13,6 @@
           "claims": {
             "sub": "${subject}",
             "acr": "http://eidas.europa.eu/LoA/substantial",
-            "email": "${subject}@toon.local",
             "email_verified": true
           }
         }

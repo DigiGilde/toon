@@ -289,13 +289,17 @@ instead of leaving compose on its default `dev/mock-oidc-config.json`, and says
 which of the two it took. The variable is read once, at startup; without it the
 next `./dev/up.sh` is silent again.
 
-What changes: `/-/login` now lands on a login page of the mock with a subject
-field. Whatever you type there becomes the `sub` of the session, so you can
-walk into the admin as any account: `dev-beheerder` for the bootstrap
-administrator, anything else for a member you created or deactivated
-yourself through `/-/platform`. The config fills the rest of the claims
-around it (`acr` at the required level, `email` as `<subject>@toon.local`),
-so the app sees a complete id token whichever subject you pick.
+What changes: `/-/login` now lands on "Inloggen als persona"
+(`dev/mock-oidc-login.html`, mounted into the mock and named by
+`loginPagePath`). It has one button per member `dev/seed.py` creates, from
+`dev-beheerder` to the deactivated `dev-ontslagen`, plus `dev-nieuw`, a
+visitor the seed does not know, and an "Andere naam" field for any other
+subject. A button posts the sub as `username` and the seed's email and name
+as `claims`, so the session matches the seeded member. The free field
+sends `<subject>@toon.local` as its email. The config adds `acr` at the
+required level and `email_verified`. `test_dev_seed.py` keeps the page and
+the seed in step. The page remembers your last pick in the browser only to
+focus that button, it never logs in by itself.
 
 This is a manual testing aid, nothing more. It is not a login screen of Toon
 itself, it authenticates nobody, and it exists only in the dev stack.
@@ -305,9 +309,9 @@ Two things to know while using it:
   its own stack and its own config (`e2e/mock-oidc-config.e2e.json`), so
   `just e2e` is unaffected either way.
 - The periodic revalidation against the IdP (`TOON_IDP_RECHECK_SECONDS`,
-  default 900) refreshes with a `refresh_token` grant, which carries no
-  subject field for the mock to match on. A session may therefore be dropped
-  after a quarter of an hour in this mode; log in again.
+  default 900) refreshes with a `refresh_token` grant. The mock keeps the
+  login behind its refresh token, so the refresh returns the same `sub`,
+  email and name and the session survives.
 
 ## OIDC configuration
 
