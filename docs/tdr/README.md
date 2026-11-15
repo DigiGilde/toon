@@ -90,4 +90,4 @@ next free number before it merges.
 | [0008](0008-api-has-its-own-semver.md) | The API versions separately from Toon, with SemVer | Accepted |
 | [0009](0009-cli-installs-from-git.md) | The CLI installs from git, not from a registry | Accepted |
 | [0010](0010-audit-key-rotation-protects-new-rows-only.md) | Audit key rotation protects new rows only | Accepted |
-| [0011](0011-one-admin-holds-the-audit-purge-in-the-database.md) | One platform administrator holds the audit purge, in the database | Proposed |
+| [0011](0011-one-admin-holds-the-audit-purge-in-the-database.md) | One platform administrator holds the audit purge, in the database | Accepted |
