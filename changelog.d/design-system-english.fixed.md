@@ -1,2 +1,1 @@
-- The English admin speaks the design system's own English everywhere its components
-  add text of their own, also inside other components such as a button that is busy.
+- The English admin now shows the design system's own English wherever its components add text themselves, such as on a busy button.

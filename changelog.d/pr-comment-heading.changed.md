@@ -1,5 +1,1 @@
-- The pull request comment of the publish action opens with a visible heading
-  that names the preview and the site, instead of a hidden HTML marker, so it
-  reads cleanly where it is quoted or forwarded. The link stands on its own
-  line, and teardown writes "Removed.". A comment from before the rename to
-  Toon is no longer found, so a pull request open since then gets a new one.
+- The pull request comment of the publish action opens with a visible heading that names the preview and the site, instead of a hidden HTML marker, so it reads cleanly where it is quoted or forwarded. The link stands on its own line, and teardown writes "Removed.". A comment from before the rename to Toon is no longer found, so a pull request open since then gets a new one.
