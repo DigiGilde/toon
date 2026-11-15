@@ -10,6 +10,8 @@ against a half-migrated schema.
 
 from __future__ import annotations
 
+import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -25,6 +27,11 @@ def entrypoint() -> str:
 @pytest.fixture(scope="module")
 def containerfile() -> str:
     return (CONTAINER / "Containerfile").read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
+def dockerignore() -> str:
+    return (CONTAINER.parents[1] / ".dockerignore").read_text(encoding="utf-8")
 
 
 def test_the_image_starts_the_entrypoint(containerfile: str) -> None:
@@ -74,3 +81,87 @@ def test_uvicorn_does_not_derive_the_client_itself(entrypoint: str) -> None:
     # then walk the header starting from an address that already came out of
     # it, and `vouched` would stop meaning anything.
     assert "--no-proxy-headers" in entrypoint
+
+
+def _stages(containerfile: str) -> dict[str, str]:
+    """Every build stage by name, with its instructions."""
+    stages: dict[str, str] = {}
+    for chunk in containerfile.split("\nFROM ")[1:]:
+        header, _, body = chunk.partition("\n")
+        stages[header.split(" AS ")[-1].strip()] = body
+    return stages
+
+
+def test_only_the_preview_target_carries_the_demo_seed(containerfile: str) -> None:
+    """The demo seed is no part of the production image: a preview is its
+    own target, the runtime stage plus the seed and nothing else."""
+    stages = _stages(containerfile)
+    assert list(stages) == ["spa", "build", "runtime", "preview"]
+    assert "\nFROM runtime AS preview\n" in containerfile
+    assert "demo_seed" not in stages["runtime"]
+    instructions = [line for line in stages["preview"].splitlines() if line and not line.startswith("#")]
+    assert instructions == ["COPY --chown=toon:toon --chmod=444 dev/seed.py ./demo_seed.py"]
+
+
+def test_the_demo_seed_survives_the_build_context(dockerignore: str) -> None:
+    # dev/ as a whole stays out of the build context: only the seed comes back.
+    lines = dockerignore.splitlines()
+    assert lines.index("!dev/seed.py") > lines.index("dev")
+
+
+def test_the_demo_seed_runs_after_the_migration_and_before_the_server(entrypoint: str) -> None:
+    seed = entrypoint.index("python /app/demo_seed.py")
+    assert entrypoint.index("alembic upgrade head") < seed < entrypoint.index("exec uvicorn")
+
+
+class TestThePreviewSeedAtStartup:
+    """The entrypoint as written, with alembic, python and uvicorn faked on
+    PATH and the seed's path pointed at a temporary file."""
+
+    @pytest.fixture
+    def run(self, entrypoint: str, tmp_path: Path):
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        calls = tmp_path / "calls"
+        for name in ("alembic", "python", "uvicorn"):
+            fake = bin_dir / name
+            fake.write_text(f'#!/bin/sh\necho "{name} $*" >> "{calls}"\n', encoding="utf-8")
+            fake.chmod(0o755)
+        seed = tmp_path / "demo_seed.py"
+        script = tmp_path / "entrypoint.sh"
+        script.write_text(entrypoint.replace("/app/demo_seed.py", str(seed)), encoding="utf-8")
+
+        def run(environment: str | None, *, with_seed: bool) -> tuple[subprocess.CompletedProcess, list[str]]:
+            if with_seed:
+                seed.write_text("", encoding="utf-8")
+            env = {"PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"}
+            if environment is not None:
+                env["TOON_ENVIRONMENT"] = environment
+            result = subprocess.run(  # noqa: S603
+                ["sh", str(script)],  # noqa: S607
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            made = calls.read_text(encoding="utf-8").splitlines()
+            return result, [call.split(" ")[0] + (" seed" if str(seed) in call else "") for call in made]
+
+        return run
+
+    def test_a_preview_image_seeds_and_then_serves(self, run) -> None:
+        result, calls = run("preview", with_seed=True)
+        assert result.returncode == 0, result.stderr
+        assert calls == ["alembic", "alembic", "python seed", "uvicorn"]
+
+    def test_a_production_image_run_as_a_preview_stops_before_serving(self, run) -> None:
+        result, calls = run("preview", with_seed=False)
+        assert result.returncode == 1
+        assert result.stderr == "entrypoint: this image has no demo seed: build it with --target preview\n"
+        assert calls == ["alembic", "alembic"]
+
+    @pytest.mark.parametrize("environment", ["productie", "dev", None])
+    def test_outside_a_preview_the_seed_is_not_looked_for(self, run, environment) -> None:
+        result, calls = run(environment, with_seed=False)
+        assert result.returncode == 0, result.stderr
+        assert calls == ["alembic", "alembic", "uvicorn"]

@@ -55,6 +55,7 @@ services:
     build:
       context: ..
       dockerfile: containers/toon/Containerfile
+      target: runtime
     env_file:
       - path: .secrets/app.env
         required: false
@@ -74,6 +75,7 @@ services:
     build:
       context: ..
       dockerfile: containers/toon/Containerfile
+      target: runtime
     env_file:
       - path: .secrets/app.env
         required: false

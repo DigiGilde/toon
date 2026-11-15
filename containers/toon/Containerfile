@@ -77,3 +77,10 @@ EXPOSE 8080
 # keeps secret links (?key=...) out of the log stack lives there now
 # (docs/security.md).
 CMD ["./entrypoint.sh"]
+
+# A pull request preview: the runtime image plus the demo seed that the
+# entrypoint runs under TOON_ENVIRONMENT=preview on an empty database. Only
+# pull request builds take this target, so production never carries it.
+FROM runtime AS preview
+
+COPY --chown=toon:toon --chmod=444 dev/seed.py ./demo_seed.py

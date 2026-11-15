@@ -1,6 +1,6 @@
 # Build context for containers/toon/Containerfile is the repo root; only
 # backend/ and frontend/ (without dependencies and build artifacts) go to
-# the build.
+# the build, plus dev/seed.py as the demo seed of a preview.
 # Named .dockerignore because the compose provider (docker-compose) only
 # reads that name; podman build reads it too.
 .git
@@ -10,6 +10,7 @@ artifacts
 cli
 db
 dev
+!dev/seed.py
 docs
 e2e
 skills
