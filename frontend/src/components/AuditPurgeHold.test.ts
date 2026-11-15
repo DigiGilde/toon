@@ -7,6 +7,11 @@ import { expectNoAxeViolations } from '../../tests/a11y';
 import { ApiError } from '@/api/client';
 import * as toonApi from '@/api/toon';
 import type { AuditPurgeHold as PurgeStatus } from '@/api/types';
+import {
+  _resetAuditPurgeHold,
+  auditPurgeHoldStatus,
+  loadAuditPurgeHold,
+} from '@/composables/auditPurgeHold';
 import { formatTimestamp } from '@/format';
 import { _setLocaleForTest } from '@/i18n';
 
@@ -88,6 +93,7 @@ describe('AuditPurgeHold', () => {
     vi.mocked(toonApi.auditPurgeHold).mockReset();
     vi.mocked(toonApi.startAuditPurgeHold).mockReset();
     vi.mocked(toonApi.endAuditPurgeHold).mockReset();
+    _resetAuditPurgeHold();
   });
 
   it('shows an indicator while the status is being fetched', () => {
@@ -633,6 +639,45 @@ describe('AuditPurgeHold', () => {
         property(wrapper.find('[data-testid="audit-purge-error"]').element, 'supportingText'),
       ).toBe('Het verzoek klopt niet.');
       expect(wrapper.find('nldd-validation-item').text()).toBe('Geef een reden.');
+    });
+  });
+
+  describe('sharing the status', () => {
+    it('passes a pause and a resume on, so the warning elsewhere follows without a reload', async () => {
+      vi.mocked(toonApi.startAuditPurgeHold).mockResolvedValue(HELD);
+      vi.mocked(toonApi.endAuditPurgeHold).mockResolvedValue(RUNNING);
+      const wrapper = await mountWith(RUNNING);
+      expect(auditPurgeHoldStatus().value).toEqual(RUNNING);
+
+      type(wrapper, REASON);
+      await submit(wrapper);
+      await confirm(wrapper);
+      expect(auditPurgeHoldStatus().value).toEqual(HELD);
+
+      type(wrapper, 'incident afgehandeld, ticket 4521');
+      await submit(wrapper);
+      await confirm(wrapper);
+      expect(auditPurgeHoldStatus().value).toEqual(RUNNING);
+      expect(toonApi.auditPurgeHold).toHaveBeenCalledTimes(1);
+    });
+
+    it('joins a read already under way instead of firing a second', async () => {
+      let answer: (status: PurgeStatus) => void = () => undefined;
+      vi.mocked(toonApi.auditPurgeHold).mockReturnValue(
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+      );
+      void loadAuditPurgeHold();
+      const wrapper = mount(AuditPurgeHold);
+
+      answer(HELD);
+      await flushPromises();
+
+      expect(toonApi.auditPurgeHold).toHaveBeenCalledTimes(1);
+      expect(property(wrapper.find('[data-testid="audit-purge-action"]').element, 'text')).toBe(
+        'Opruimen hervatten',
+      );
     });
   });
 

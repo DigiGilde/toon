@@ -7,6 +7,7 @@ import { createMemoryHistory, createRouter, type Router } from 'vue-router';
 import { expectNoAxeViolations } from '../../tests/a11y';
 import { makeMockBackend, type MockBackend } from '../../tests/mock-api';
 import { _resetBreadcrumbs, breadcrumbsFor } from '../composables/breadcrumbs';
+import { _resetAuditPurgeHold } from '../composables/auditPurgeHold';
 import { _resetCurrentMemberCache } from '../composables/currentMember';
 import { formatTimestamp } from '../format';
 import Members from './Members.vue';
@@ -20,6 +21,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', backend.fetch);
   _resetBreadcrumbs();
   _resetCurrentMemberCache();
+  _resetAuditPurgeHold();
   router = createRouter({
     history: createMemoryHistory(),
     routes: [{ path: '/-/platform', component: Members }],

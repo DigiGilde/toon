@@ -1231,6 +1231,11 @@ export function makeMockBackend(seed: MockData = defaultData()): MockBackend {
         onHold: data.auditPurgeHold !== null,
         hold: data.auditPurgeHold,
       });
+      // Like the backend, before anything else: only a platform admin gets in.
+      const asking = data.members.find((l) => l.id === data.loggedInMemberId);
+      if (asking?.platformRole !== 'admin') {
+        return problem(403, 'Verboden', 'Only a platform administrator may do this.', 'NOT_ADMIN');
+      }
       if (method === 'GET' && rest.length === 3) return json(200, state());
       const ending = rest.length === 4 && rest[3] === 'end';
       if (method === 'POST' && (rest.length === 3 || ending)) {

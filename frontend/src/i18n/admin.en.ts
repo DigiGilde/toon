@@ -149,4 +149,6 @@ export const adminEn: Record<keyof typeof adminNl, string> = {
   'admin.purge.resume.text':
     'Audit log entries past their retention will be deleted the next night.',
   'admin.purge.resume.keep': 'Keep paused',
+  'admin.purge.warning': 'The audit purge has been paused since {date}.',
+  'admin.purge.warning.link': 'Go to {page}',
 };

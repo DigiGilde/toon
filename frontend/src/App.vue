@@ -12,6 +12,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
+import AuditPurgeWarning from './components/AuditPurgeWarning.vue';
 import { fetchCurrentMember, currentMemberState, isPlatformAdmin } from './composables/currentMember';
 import { breadcrumbsFor } from './composables/breadcrumbs';
 import { useRouteAnnouncer } from './composables/routeAnnouncer';
@@ -266,6 +267,10 @@ function logout(): void {
           </nldd-toolbar>
         </div>
       </div>
+
+      <!-- Before the skip link's target, like the status bar: it is about the
+           service, not about the page someone jumps to. -->
+      <AuditPurgeWarning />
 
       <!-- nldd-page draws the main landmark itself in its shadow root; an own
            <main> around this would produce a second, nested main. This block is
