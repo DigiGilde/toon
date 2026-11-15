@@ -265,6 +265,9 @@ _ERROR_GROUP_ROLE = {403: "The member's role in this group is insufficient for t
 _ERROR_SITE_ROLE = {403: "The member's role on this site is insufficient for this action (`INSUFFICIENT_ROLE`)."}
 _ERROR_GROUP = {404: "Unknown group (`UNKNOWN_GROUP`)."}
 _ERROR_SITE = {404: "Unknown group (`UNKNOWN_GROUP`) or unknown site (`UNKNOWN_SITE`)."}
+_ERROR_SANDBOX_REQUIRED = {
+    409: "In a preview, only a platform administrator can turn off shielding from other sites (`SANDBOX_REQUIRED`)."
+}
 _ERROR_SEARCH = {422: "The search term is shorter than two characters (`SEARCH_TOO_SHORT`)."}
 _ERROR_AUDIT_FILTER = {
     422: (
@@ -3855,7 +3858,7 @@ def make_admin_router() -> APIRouter:
             "previews and version views.\n\n"
             "**Who can call this:** effective site role `admin`, with a valid CSRF header."
         ),
-        responses=_errors(_ERROR_CSRF, _ERROR_SITE_ROLE, _ERROR_SITE),
+        responses=_errors(_ERROR_CSRF, _ERROR_SITE_ROLE, _ERROR_SITE, _ERROR_SANDBOX_REQUIRED),
     )
     async def set_sandbox(
         request: Request,
@@ -3867,6 +3870,16 @@ def make_admin_router() -> APIRouter:
         db: Db,
     ) -> SiteOut:
         group, site = await _site_with_role(db, member, group_slug, site_slug, Role.ADMIN)
+        # A preview's content host shares its parent domain with every other
+        # ZAD tenant, so an unshielded page there could set cookies for them.
+        # Everyone with SSO Rijk edits there; only a platform admin may take
+        # that risk for a site, to test what needs shielding off.
+        if (
+            not body.sandbox
+            and request.app.state.settings.is_preview
+            and member.platform_role != PlatformRole.ADMIN
+        ):
+            raise ApiError(409, "SANDBOX_REQUIRED")
         site.sandbox = body.sandbox
         await db.commit()
         await _audit(

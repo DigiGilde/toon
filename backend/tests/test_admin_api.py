@@ -1180,6 +1180,89 @@ class TestGroupsAndSites:
         refused = await client.put(f"{BASE}/sites/team/site/sandbox", json={"sandbox": False})
         assert refused.status_code == 403
 
+    async def test_preview_refuses_a_site_admin_turning_shielding_off(self, client, app, data, factory):
+        """A preview's content host sits on a domain shared with every ZAD
+        tenant: an unshielded page there could set cookies for all of them.
+        Anyone with SSO Rijk edits a preview, so a site admin may not."""
+        app.state.settings = app.state.settings.model_copy(update={"environment": "preview"})
+        headers = login(client, app, sub="lid-a", email="a@example.nl")
+
+        dutch = await client.put(
+            f"{BASE}/sites/team/site/sandbox",
+            json={"sandbox": False},
+            headers={**headers, "Accept-Language": "nl"},
+        )
+        english = await client.put(
+            f"{BASE}/sites/team/site/sandbox",
+            json={"sandbox": False},
+            headers={**headers, "Accept-Language": "en"},
+        )
+
+        assert dutch.status_code == english.status_code == 409
+        assert dutch.headers["content-type"] == "application/problem+json"
+        assert dutch.json()["code"] == english.json()["code"] == "SANDBOX_REQUIRED"
+        assert dutch.json()["detail"] == (
+            "In een preview kan alleen een platformbeheerder de afscherming van andere sites uitzetten."
+        )
+        assert english.json()["detail"] == (
+            "In a preview, only a platform administrator can turn off shielding from other sites."
+        )
+        async with factory() as db:
+            site = await db.get(Site, data.site.id)
+            audited = await db.scalar(
+                select(func.count()).select_from(AuditLogEntry).where(AuditLogEntry.action == "site_sandbox")
+            )
+        assert site.sandbox is True
+        assert audited == 0
+
+    async def test_preview_lets_a_platform_admin_turn_shielding_off(self, client, app, data, factory):
+        """To test what needs shielding off; the platform admin still needs
+        the site admin role, like everywhere else."""
+        app.state.settings = app.state.settings.model_copy(update={"environment": "preview"})
+        await _join_group(factory, data.group, data.admin_member, Role.ADMIN)
+        headers = login(client, app, sub="admin-sub", email="admin@example.nl")
+
+        response = await client.put(
+            f"{BASE}/sites/team/site/sandbox", json={"sandbox": False}, headers=headers
+        )
+
+        assert response.status_code == 200
+        assert response.json()["sandbox"] is False
+        async with factory() as db:
+            site = await db.get(Site, data.site.id)
+            row = await db.scalar(select(AuditLogEntry).where(AuditLogEntry.action == "site_sandbox"))
+        assert site.sandbox is False
+        assert row.result == "allowed"
+        assert row.refs["sandbox"] is False
+
+    async def test_preview_refuses_a_platform_admin_without_the_site_role(self, client, app, data):
+        app.state.settings = app.state.settings.model_copy(update={"environment": "preview"})
+        headers = login(client, app, sub="admin-sub", email="admin@example.nl")
+        refused = await client.put(
+            f"{BASE}/sites/team/site/sandbox", json={"sandbox": False}, headers=headers
+        )
+        assert refused.status_code == 403
+        assert refused.json()["code"] == "INSUFFICIENT_ROLE"
+
+    async def test_preview_refuses_a_non_admin_on_the_role_first(self, client, app, data, factory):
+        app.state.settings = app.state.settings.model_copy(update={"environment": "preview"})
+        await _join_group(factory, data.group, data.member_b, Role.EDITOR)
+        headers = login(client, app, sub="lid-b", email="b@example.nl")
+        refused = await client.put(
+            f"{BASE}/sites/team/site/sandbox", json={"sandbox": False}, headers=headers
+        )
+        assert refused.status_code == 403
+        assert refused.json()["code"] == "INSUFFICIENT_ROLE"
+
+    async def test_preview_accepts_turning_shielding_on(self, client, app, data):
+        app.state.settings = app.state.settings.model_copy(update={"environment": "preview"})
+        headers = login(client, app, sub="lid-a", email="a@example.nl")
+        response = await client.put(
+            f"{BASE}/sites/team/site/sandbox", json={"sandbox": True}, headers=headers
+        )
+        assert response.status_code == 200
+        assert response.json()["sandbox"] is True
+
     async def test_site_slug_duplicate_409(self, client, app, data):
         headers = login(client, app, sub="lid-a", email="a@example.nl")
         response = await client.post(
