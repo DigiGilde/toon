@@ -135,6 +135,7 @@ NL: Final[dict[str, str]] = {
     "LAST_PLATFORM_ADMIN": "Dit is de laatste actieve platformbeheerder. Wijs eerst iemand anders aan.",
     "LAST_GROUP_ADMIN": "Dit is de laatste beheerder van de groep. Wijs eerst iemand anders aan.",
     "LAST_GROUP_MEMBER": "Dit is het laatste lid van de groep. Voeg eerst iemand anders toe.",
+    "SANDBOX_REQUIRED": "In een preview kan alleen een platformbeheerder de afscherming van andere sites uitzetten.",
     # -- Audit lookups --------------------------------------------------------
     "AUDIT_UNAVAILABLE": "Het auditlog is niet beschikbaar.",
     "AUDIT_IP_UNKNOWN": "Geen auditregel met dit id en een versleuteld IP-adres.",
@@ -453,6 +454,7 @@ EN: Final[dict[str, str]] = {
     "LAST_PLATFORM_ADMIN": "This is the last active platform administrator. Appoint someone else first.",
     "LAST_GROUP_ADMIN": "This is the last administrator of the group. Appoint someone else first.",
     "LAST_GROUP_MEMBER": "This is the last member of the group. Add someone else first.",
+    "SANDBOX_REQUIRED": "In a preview, only a platform administrator can turn off shielding from other sites.",
     # -- Audit lookups --------------------------------------------------------
     "AUDIT_UNAVAILABLE": "The audit log is unavailable.",
     "AUDIT_IP_UNKNOWN": "No audit record with this id and an encrypted IP address.",

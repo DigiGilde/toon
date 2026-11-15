@@ -1196,6 +1196,13 @@ NL: Final[dict[str, str]] = {
         "\n"
         "**Mag:** effectieve siterol `admin`, met een geldige CSRF-header."
     ),
+    (
+        "Conflict. In a preview, only a platform administrator can turn off shielding from other sites "
+        "(`SANDBOX_REQUIRED`)."
+    ): (
+        "Conflict. In een preview kan alleen een platformbeheerder de afscherming van andere sites uitzetten "
+        "(`SANDBOX_REQUIRED`)."
+    ),
     "Set the number of previous versions kept": "Aantal bewaarde vorige versies zetten",
     (
         "Determines how many previous live versions the nightly cleanup of this site leaves in place, in addition to "
