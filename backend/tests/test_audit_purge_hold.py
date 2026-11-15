@@ -181,32 +181,28 @@ class TestStarting:
 
         assert len(await _holds(factory)) == 1
 
-    async def test_a_failed_audit_write_starts_no_hold(self, client, app, factory, data, monkeypatch):
+    async def test_a_failed_audit_write_still_starts_the_hold(self, client, app, factory, data, monkeypatch):
+        """A hold only protects: during an incident a broken audit log must not
+        leave the next night free to purge. The hold row says who and why."""
         headers = _as_admin(client, app)
         _fail_audit_of(app, monkeypatch, vocabulary.AUDIT_PURGE_HOLD_STARTED)
 
         response = await client.post(HOLD, json={"reason": REASON}, headers=headers)
 
-        assert response.status_code == 503
-        assert response.headers["content-type"] == PROBLEM
-        assert response.json()["code"] == "AUDIT_UNAVAILABLE"
-        assert await _holds(factory) == []
-        assert (await client.get(HOLD, headers=headers)).json() == NOT_HELD
+        assert response.status_code == 201
+        assert response.json()["onHold"] is True
+        [hold] = await _holds(factory)
+        assert hold.reason == REASON
         assert await _audit_rows(factory, vocabulary.AUDIT_PURGE_HOLD_STARTED) == []
-        assert await _audit_rows(factory, vocabulary.ADMIN_ACCESS) == []
 
-        monkeypatch.undo()
-        assert (await client.post(HOLD, json={"reason": REASON}, headers=headers)).status_code == 201
-
-    async def test_without_an_audit_log_no_hold_starts(self, client, app, factory, data):
+    async def test_without_an_audit_log_the_hold_still_starts(self, client, app, factory, data):
         headers = _as_admin(client, app)
         app.state.audit_log = None
 
         response = await client.post(HOLD, json={"reason": REASON}, headers=headers)
 
-        assert response.status_code == 503
-        assert response.json()["code"] == "AUDIT_UNAVAILABLE"
-        assert await _holds(factory) == []
+        assert response.status_code == 201
+        assert len(await _holds(factory)) == 1
 
     async def test_a_new_hold_may_follow_an_ended_one(self, client, app, factory, data):
         headers = _as_admin(client, app)
