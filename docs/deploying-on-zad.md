@@ -545,12 +545,14 @@ does not match `vYYYY.M.D[.N]` (no leading zeros), when the tagged commit is not
 on `beta` or has no section in `CHANGELOG.md`, or when it is not the newest
 release tag, so pushing an old tag again never rolls production back.
 
-There are no preview deployments. A pull request builds, scans and attests
-its image and stops there; what runs on ZAD is production, from a release tag.
-Reviewing happens on the dev stack (`docs/local-development.md`), which serves
-both origins on `localhost:8080`.
+A pull request builds, scans and attests its image and stops there, unless a
+maintainer gives it the label `preview`: then it gets a preview of its own, in
+a ZAD project that holds no production ("Pull request previews" below,
+TDR-0012). Reviewing without one happens on the dev stack
+(`docs/local-development.md`), which serves both origins on `localhost:8080`.
 
-Previews were tried and taken out again on 3 October 2026. Not because another
+The first previews, in the production project, were tried and taken out again
+on 3 October 2026. Not because another
 deployment cannot have two origins -- it can, exactly as `productie` does --
 but because each one needs a subdomain of its own, and every new subdomain
 costs an approval:
@@ -584,10 +586,11 @@ One thing to know when judging this yourself: a sleeping preview reports
 `Healthy` and answers 200. That is `zad-waker`, the sleep-mode page the
 platform puts in front of a deployment scaled to zero, not the application.
 
-So what is blocked is the environment *per pull request*, not the environment.
-A deployment that lives on, with one subdomain approved once, works exactly as
-`productie` does -- whether that is called staging or a shared preview slot is
-a question for whoever needs one. The approval is a single click, once.
+So what was blocked is the environment *per pull request* on a claimed
+subdomain, not the environment. A deployment that lives on, with one subdomain
+approved once, works exactly as `productie` does. The previews below avoid the
+claim altogether: they live on the cluster wildcard, with a second component
+for the content host.
 
 ### A second deployment
 
@@ -619,6 +622,71 @@ used is in the history of `deploy.yml`, before `aecdb30`.
   is an alias over those per-deployment variables (§4). Still a question for
   the platform team: whether the shared database server keeps one
   deployment's account out of another's database at the PostgreSQL level.
+
+### Pull request previews
+
+The label `preview` on a pull request from this repository rolls it out to
+deployment `pr-<n>` in the project `toond-zrj` ("toon-development"), which
+holds no production. Every later green run of "Test and deploy" on the pull
+request updates it. Taking the label off, or closing the pull request, deletes
+the deployment with its database and volume. `.github/workflows/preview.yml`
+does all of it; TDR-0012 has the why.
+
+A preview has two components, because a component on the cluster wildcard
+gets one host:
+
+- `beheer`, the Toon image of the pull request, by digest, on
+  `https://beheer-pr-<n>-toond-zrj.rig.prd1.gn2.quattro.rijksapps.nl`;
+- `site`, an HAProxy with `containers/preview-proxy/haproxy.cfg` that hands
+  every request to the Service `pr-<n>-beheer:8080`, on
+  `https://site-pr-<n>-toond-zrj.rig.prd1.gn2.quattro.rijksapps.nl`. Measured
+  (proof P3 of #228): `Host` arrives unchanged, the proxy adds no
+  `X-Forwarded-For` line of its own, `X-Forwarded-Proto: https` stays, and
+  no query string is logged.
+
+Toon runs there with `TOON_ENVIRONMENT=preview`: every production requirement
+holds, and on top the entrypoint seeds the demo data into an empty database
+(only the image of a pull request, built with `--target preview`, carries
+the seed; a production image run as a preview refuses to start), a
+first sign-in makes an editor of the demo group `rijksoverheid`, and only a
+platform administrator can turn shielding off (`docs/security.md`, "Pull
+request previews").
+
+The workflow writes, per preview and with rollout off until everything is
+there: `TOON_BASE_URL`, `TOON_CONTENT_BASE_URL` and three secrets of its own
+(`TOON_SESSION_SECRET`, `TOON_AUDIT_PEPPER`, `TOON_AUDIT_IP_KEY`) on `beheer`,
+and `TOON_APP` on `site`, all at the deployment layer. The secrets are made
+once and never rotated, and nothing secret is shared between previews.
+
+Set up once, outside the workflow:
+
+- Component `beheer`: port 8080; services `publish-on-web`, `keycloak`,
+  `postgresql-database` and `persistent-storage` (1Gi, mounted on
+  `/content`); the alias `TOON_DB_URL` as in §4; component-wide
+  `TOON_ENVIRONMENT=preview`, `TOON_BEHIND_PROXY=true`,
+  `TOON_OIDC_ISS_REQUIRED=true`, `TOON_OIDC_CLIENT_AUTH=client_secret_post`,
+  `TOON_OIDC_REQUIRED_ACR=` (empty), `TOON_OIDC_RP_LOGOUT=false`,
+  `TOON_CONTENT_ROOT=/content` and `TOON_BOOTSTRAP_ADMIN_SUB`, the sub of the
+  platform administrator for every preview in the realm of the project's
+  Keycloak client.
+- Component `site`: port 8080, services `publish-on-web` and `keycloak` (only
+  a component with `keycloak` counts as a redirect URI), and the attachment
+  `preview-proxy` from `containers/preview-proxy/haproxy.cfg` on
+  `/usr/local/etc/haproxy/haproxy.cfg`.
+- Sleep mode on the project for `pr-*`: asleep after 24 hours without a
+  visit, awake on the next. A sleeping preview answers 200 with the
+  platform's wake-up page, which is why the workflow checks for Toon's own
+  `{"status": "ok"}` on `/-/healthz`.
+- On GitHub: the environment `preview` (deployment branch `beta`) with the
+  secret `ZAD_PREVIEW_API_KEY`, the key of `toond-zrj` and never
+  production's (the steps hand it to zadctl as its `ZAD_API_KEY` variable,
+  never as an argument); the repository variable `ZAD_PREVIEW_PROJECT_ID=toond-zrj` (a repository
+  variable, because the job that decides whether a pull request wants a
+  preview runs without the environment); and the label `preview`.
+
+Open with the platform team (#227, question 4): whether the shared PostgreSQL
+server keeps the role of one project out of another project's database.
+Nothing in a preview is pointed at production to find out.
 
 ## 9. Storage sizing
 

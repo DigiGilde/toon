@@ -596,6 +596,56 @@ registrable domain for content that no other application shares (ideally one
 that is itself on the Public Suffix List), and getting `rijks.app` onto the
 Public Suffix List. No decision made yet.
 
+### Pull request previews
+
+A pull request with the label `preview` runs as deployment `pr-<n>` in a ZAD
+project of its own (TDR-0012, `docs/deploying-on-zad.md` §8). That is pull
+request code on a public host, so `TOON_ENVIRONMENT=preview` holds it to
+every production requirement (`TOON_BEHIND_PROXY`,
+`TOON_OIDC_ISS_REQUIRED`, an https issuer on a real host, a base URL) and adds three
+behaviours that only exist there:
+
+- **Demo data.** The entrypoint runs the dev seed when the database is empty
+  (`/app/demo_seed.py`). It never runs on a database that holds a group or a
+  member, so a restart or a new push wipes nothing. The seed refuses any
+  environment but `dev` and `preview`. Only the `preview` build target of
+  `containers/toon/Containerfile` carries it, which only pull request builds
+  take: the production image has no seed, and run as a preview it stops
+  before it serves.
+- **An editor role on first sign-in.** A member created by signing in to a
+  preview becomes an editor of the demo group `rijksoverheid`
+  (`auth/members.py`). An existing member gets nothing new.
+- **Only a platform administrator turns shielding off.** Anyone else, a site
+  admin included, is refused with 409 `SANDBOX_REQUIRED`; a platform
+  administrator still needs the site admin role first. The content host sits
+  on `*.rig.prd1.gn2.quattro.rijksapps.nl`, shared with every ZAD tenant and
+  the ZAD portal, and `rijksapps.nl` is not on the Public Suffix List
+  (above): an unshielded page there is same-site with all of them and could
+  set cookies for the shared parent. The platform administrator may still
+  turn it off, to test an issue that needs it.
+
+  Residual risk: once a platform administrator has turned shielding off on a
+  site, that site's editors can publish scripts that run unshielded on a
+  host under the shared parent domain, and in a preview anyone with SSO Rijk
+  can become an editor. So turn it off only on a site that only trusted
+  people edit, not on the demo group's sites.
+
+Accepted risk: everyone who can sign in with SSO Rijk can use a preview,
+with pull request code, and edit its demo sites. There is no allowlist and
+the access gate does not change for it. Their name and e-mail address land in
+that preview's database until the preview is torn down with it. A preview
+holds demo data only, and its secrets, database, volume, Keycloak client and
+API key are its own: nothing in it reaches production, and
+`rijksapps.nl` is not production's registrable domain (`rijks.app`), so a
+preview cannot set cookies production accepts.
+
+The jobs that hold the preview project's key never check out or run pull
+request code; they run in the context of `beta` and name an image that
+"Test and deploy" built and scanned, by digest, only once that run passed on
+the pull request's head, and only when the digest carries the provenance
+that `deploy.yml` attested in a run for that same pull request
+(`refs/pull/<n>/merge`). A pull request from a fork never gets a preview.
+
 ### Proving trusted publishing end to end, deliberately postponed
 
 Everything about CI trusted publishing is verified by reading the code and by

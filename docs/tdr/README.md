@@ -84,10 +84,11 @@ next free number before it merges.
 | [0002](0002-sandbox-per-site-not-origin-per-site.md) | Shield sites with a per-site sandbox, not an origin per site | Accepted |
 | [0003](0003-any-branch-may-go-live.md) | Any branch may go live unless a live branch is set | Accepted |
 | [0004](0004-content-on-the-volume-keep-five-live-versions.md) | Keep content on the volume and prune to five live versions | Accepted |
-| [0005](0005-no-pull-request-previews-on-zad.md) | No per-pull-request preview deployments on ZAD | Accepted |
+| [0005](0005-no-pull-request-previews-on-zad.md) | No per-pull-request preview deployments on ZAD | Superseded by TDR-0012 |
 | [0006](0006-rebase-through-the-merge-queue.md) | Merge to beta through a merge queue that rebases | Accepted |
 | [0007](0007-release-from-changelog-fragments.md) | Release from changelog fragments through a pull request | Accepted |
 | [0008](0008-api-has-its-own-semver.md) | The API versions separately from Toon, with SemVer | Accepted |
 | [0009](0009-cli-installs-from-git.md) | The CLI installs from git, not from a registry | Accepted |
 | [0010](0010-audit-key-rotation-protects-new-rows-only.md) | Audit key rotation protects new rows only | Accepted |
 | [0011](0011-one-admin-holds-the-audit-purge-in-the-database.md) | One platform administrator holds the audit purge, in the database | Accepted |
+| [0012](0012-pull-request-previews-in-a-project-of-their-own.md) | Pull request previews in a ZAD project of their own | Accepted |

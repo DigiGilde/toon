@@ -1,6 +1,6 @@
 # TDR-0005: No per-pull-request preview deployments on ZAD
 
-- Status: Accepted
+- Status: Superseded by TDR-0012
 - Date: 2026-10-03
 
 ## Context
