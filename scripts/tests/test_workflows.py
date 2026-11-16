@@ -989,7 +989,11 @@ case "$*" in
   *"deployment url"*"-c site"*) cat "$FAKE/url.site" ;;
   *"env list -c beheer"*) cat "$FAKE/env.beheer" ;;
   *"env list -c site"*) cat "$FAKE/env.site" ;;
-  *"deployment describe"*) cat "$FAKE/describe" ;;
+  *"deployment refresh"*) echo "${ZAD_TASK_TIMEOUT:-}" > "$FAKE/refresh.timeout" ;;
+  *"deployment describe"*)
+    # describe.<n> answers the n-th describe, describe every other one.
+    n=$(grep -c "deployment describe" "$FAKE/zadctl.log")
+    if [ -e "$FAKE/describe.$n" ]; then cat "$FAKE/describe.$n"; else cat "$FAKE/describe"; fi ;;
 esac
 """,
     "curl": """#!/bin/sh
@@ -1468,6 +1472,34 @@ class TestPreviewWorkflow:
         result = self._rollout(preview, fake)
         assert result.returncode == 0, result.stderr
         assert self._calls(fake).count("--json deployment describe pr-7") == 1
+
+    def test_the_refresh_waits_long_enough_for_a_first_rollout(self, preview, fake) -> None:
+        """Measured on pr-252: provisioning the database, the Keycloak client
+        and the certificates outlasted zadctl's default wait of 300 s."""
+        result = self._rollout(preview, fake)
+        assert result.returncode == 0, result.stderr
+        assert int((fake / "refresh.timeout").read_text()) >= 1200
+        assert preview["jobs"]["deploy"]["timeout-minutes"] >= 20 + 10 + 3 + 5
+
+    def test_a_deployment_that_takes_a_while_to_become_healthy_still_rolls_out(self, preview, fake) -> None:
+        for n in range(1, 30):
+            (fake / f"describe.{n}").write_text('{"status": "Progressing"}')
+        result = self._rollout(preview, fake)
+        assert result.returncode == 0, result.stderr
+        assert self._calls(fake).count("--json deployment describe pr-7") == 30
+        assert self._outputs(fake) == {
+            "admin": "https://beheer-pr-7-toond-zrj.example.nl",
+            "content": "https://site-pr-7-toond-zrj.example.nl",
+        }
+
+    def test_a_deployment_that_never_becomes_healthy_fails(self, preview, fake) -> None:
+        (fake / "describe").write_text('{"status": "Degraded"}')
+        result = self._rollout(preview, fake)
+        assert result.returncode == 1
+        assert "::error::pr-7 is not Healthy after 10 minutes, last status: Degraded" in result.stdout
+        assert self._calls(fake).count("--json deployment describe pr-7") == 60
+        assert not (fake / "curl.log").exists()
+        assert self._outputs(fake) == {}
 
     def test_the_values_zad_hands_back_go_no_further_than_their_names(self, preview, fake) -> None:
         beheer = json.dumps({"TOON_BASE_URL": "VALUE-ONE", "TOON_SESSION_SECRET": "VALUE-TWO"})
