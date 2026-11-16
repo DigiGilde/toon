@@ -2,7 +2,7 @@
 # from this repository rolls it out to its own deployment pr-<n> in the
 # preview project, every later green run of "Test and deploy" updates it,
 # and taking the label off or closing the pull request deletes it
-# (docs/deploying-on-zad.md §8, TDR-0013).
+# (docs/deploying-on-zad.md §8, TDR-0012).
 #
 # Needed in advance, outside this file:
 #   - the environment `preview` (branch policy `beta`) with the secret
