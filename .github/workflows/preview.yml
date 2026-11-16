@@ -110,7 +110,7 @@ jobs:
         || github.event.workflow_run.head_repository.full_name == github.repository
       )
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     permissions:
       actions: read
       attestations: read
@@ -296,17 +296,25 @@ jobs:
             TOON_SESSION_SECRET TOON_AUDIT_PEPPER TOON_AUDIT_IP_KEY
           add site "${site_set}" TOON_APP
 
-          zadctl -p "${ZAD_PREVIEW_PROJECT_ID}" deployment refresh "${deployment}"
+          # A first rollout provisions the database, the Keycloak client and
+          # the certificates, and outlasts zadctl's default wait of 300 s.
+          ZAD_TASK_TIMEOUT=1200 zadctl -p "${ZAD_PREVIEW_PROJECT_ID}" deployment refresh "${deployment}"
 
           # Not pending_rollout: that count is project-wide, and other
           # deployments' saved changes keep it above zero.
+          status=unknown
           for _ in $(seq 1 60); do
             state="$(zadctl -p "${ZAD_PREVIEW_PROJECT_ID}" --json deployment describe "${deployment}")"
-            if [ "$(jq -r '.status' <<< "${state}")" = Healthy ]; then
+            status="$(jq -r '.status' <<< "${state}")"
+            if [ "${status}" = Healthy ]; then
               break
             fi
             sleep 10
           done
+          if [ "${status}" != Healthy ]; then
+            echo "::error::${deployment} is not Healthy after 10 minutes, last status: ${status}"
+            exit 1
+          fi
           # Toon's own answer, not just a 200: a sleeping deployment answers
           # 200 too, with the platform's wake-up page.
           healthy=false
