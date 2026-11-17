@@ -28,3 +28,12 @@ vulnerabilities:
       exists yet; containers/nginx-dev/Containerfile upgrades musl to
       1.2.6-r3. Once the FROM pin moves past it, both this entry and the
       upgrade go.
+  - id: GHSA-fc5q-39xc-vjpf
+    expired_at: 2026-12-01
+    statement: >-
+      picomatch 4.0.7 (ReDoS through single-branch repeated extglobs), with
+      no patched release yet. It reaches frontend/package-lock.json through
+      vue-router's build plugin and through vite, vitest and vue-tsc, all
+      build time: the built SPA contains no picomatch, and the patterns it
+      matches come from the repository, never from a request. Once a fixed
+      picomatch is out, the lock file moves and this entry goes.
