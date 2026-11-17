@@ -19,7 +19,8 @@ Toon publishes static sites for government organisations: public, behind SSO
 Rijk, for invitees on an email address, or through a secret link. Every pull
 request can get a preview of its own. A site is a tree of files that Toon does
 not interpret; what Toon owns is who may see it, which version is live and who
-may change that.
+may change that. Beside that, Toon keeps site feedback (§16): what visitors
+send about a site's pages, stored with the site.
 
 One application answers on two hosts (§4a), serves content and the admin
 interface itself, and keeps one PostgreSQL database. There is no nginx logic in
@@ -193,6 +194,7 @@ and `docs/security.md`.
 | `/{group}/{site}/_version/{version-id}/...` | an older version, for the site team only |
 | `/-/login`, `/-/oauth2/callback`, `/-/logout` | OIDC login, callback and logout, spelled the same on both hosts |
 | `/-/code` | hands in the code of a secret link (content host only) |
+| `/-/feedback/...` | site feedback: the widget API under `/-/feedback/v1/` and the consent page (content host only, §16) |
 | `/-/api/v1/...` | JSON and deploy API (admin host only) |
 | `/-/api/docs` | API documentation, self-hosted UI, publicly readable |
 | `/-/oidc/backchannel-logout` | back-channel logout from the OP (admin host only) |
@@ -230,28 +232,36 @@ and content stand on separate origins:
   cookie (`__Host-toon-session`, SameSite=Strict) and the CSRF cookie.
 - **content host** (`<domain>`, `TOON_CONTENT_BASE_URL`): published sites,
   previews and version views, a redirect to the admin host on `/`, and of the platform
-  namespace exactly four paths: content login, its callback, content logout and
-  `/-/code`. Restricted content gets a content session (SameSite=Lax) without
+  namespace four paths and one prefix: content login, its callback, content
+  logout, `/-/code`, and everything under `/-/feedback/`, which site feedback
+  uses (§16). Restricted content gets a content session (SameSite=Lax) without
   any admin authority, in a cookie scoped to the site it is for (§5.10).
 
 The separation is enforced by the application itself, as middleware that reads
 the `Host` header: on the content host only the paths above exist, on the admin
 host everything. Every refusal is byte-identical to any other
 neutral 404, headers included, because the security headers sit outside that
-middleware and follow the host rather than the path (§5.6, §9).
+middleware and follow the host rather than the path (§5.6, §9). The prefix
+admits `/-/feedback/` with its slash and nothing that only starts like it
+(`/-/feedback`, `/-/feedbackx`). On the admin host every `/-/` path reaches the
+application, the feedback routes included, so each of those checks the host
+itself and answers anywhere but the content host with the neutral 404.
 
 The defence on the admin API is layered, and the Origin check is the load
 bearing one: a present `Origin` must be exactly the admin origin, and in its
 absence `Sec-Fetch-Site` may be at most `same-origin` or `none`. `same-site` is
 refused on purpose, because the content host is a sibling of the admin host and
 a browser would count it as same-site; for the same reason SameSite=Strict is a
-second layer and not the defence. CORS is never opened. A non-browser client
+second layer and not the defence. CORS is never opened on the admin host: the
+only answers with CORS headers are those of the feedback widget API on the
+content host (§16.8), which reads no cookie. A non-browser client
 without either header (CI, curl) passes, and session-borne mutations still need
 the CSRF double submit.
 
-Code: `host_separation.py`, `api/origin_guard.py`, `config.py`, `main.py`.
+Code: `host_separation.py`, `api/origin_guard.py`, `config.py`, `main.py`,
+`serving/feedback_routes.py`.
 Guarded by: `test_host_separation.py`, `test_origin_guard.py`,
-`test_api_integration.py`, `test_app_integration.py`.
+`test_api_integration.py`, `test_app_integration.py`, `test_feedback_api.py`.
 
 ## 5. Serving
 
@@ -443,9 +453,10 @@ content session cookie and the secret-link cookie are `SameSite=None` (§7.6);
 under `SameSite=Lax` a non-public site serves its pages and none of its
 assets. What cannot work is what the browser fetches in CORS mode from such a
 document: web fonts, module scripts and `fetch`/XHR go out with `Origin: null`
-and no cookie, and Toon sets no CORS headers anywhere. A site that needs a web
-font of its own, ES modules or calls back to itself has to have this switch
-off.
+and no cookie, and content answers carry no CORS headers. A site that needs a
+web font of its own, ES modules or calls back to itself has to have this switch
+off. The feedback widget API is the one exception, and it reads no cookie
+(§16.8).
 
 The boundary this draws is per site and one-directional: it keeps the content
 of *this* site away from what a visitor may see on the others. A site with the
@@ -458,7 +469,9 @@ the four combinations cannot drift apart.
 The platform's own answers on the content host, the root redirect, the code page
 for a secret link and the neutral 404 (§5.6), carry a policy of their own
 (`platform_csp`): they run no script and share the origin with every
-published site, so they get nothing the content policy grants.
+published site, so they get nothing the content policy grants. So do the
+answers of the feedback widget API, and the consent page for feedback with an
+account carries it with its form and `sandbox allow-forms` on top (§16.6).
 
 ```
 default-src 'none'; style-src 'sha256-…'; base-uri 'none';
@@ -466,14 +479,16 @@ form-action 'none'; frame-ancestors 'none'
 ```
 
 `style-src` holds the hash of the page's one inline `<style>` and is absent
-where there is none (the 404); `form-action` is `'self'` on the code page only.
+where there is none (the 404). `form-action` is `'self'` on the code page and
+the consent page only.
 A hash covers a `<style>` element, not a `style=""` attribute, so these pages
 carry none.
 
 Code: `serving/response.py` (`_CONTENT_DIRECTIVES`, `EXTERNAL_SOURCES`,
 `SANDBOX`, `content_csp`, `platform_csp`), `api/admin.py` (`PUT .../external-sources`,
-`PUT .../sandbox`). Guarded by: `test_serving.py`, `test_security_headers.py`,
-`test_admin_api.py`.
+`PUT .../sandbox`), `serving/feedback_consent.py` (`CONSENT_PAGE_HEADERS`).
+Guarded by: `test_serving.py`, `test_security_headers.py`,
+`test_admin_api.py`, `test_feedback_consent.py`, `test_feedback_api.py`.
 
 ### 5.8 The base path contract
 
@@ -870,9 +885,11 @@ hostname (§5.10):
   giving that up is what makes this cookie shadowable from a sibling host on the
   same registrable domain; the value is signed and the session has to exist in
   the store, so the worst a shadow achieves is pushing a visitor into a session
-  of the shadower's own, on an origin that has no session-borne mutations. The
-  admin cookie keeps its `__Host-` prefix and with it the guarantee that
-  nothing on the content host can write it.
+  of the shadower's own. The script of a page without the shielding (§5.7) can
+  plant such a cookie for another site's path as well. The content origin has
+  session-borne actions for site feedback alone, and §16.6 says what holds
+  them and what it accepts. The admin cookie keeps its `__Host-` prefix and
+  with it the guarantee that nothing on the content host can write it.
 - `__Secure-toon-content-anchor`, `Path=/-/`: the same session id where the
   login, the callback and the logout can read it, and nowhere else.
 
@@ -883,7 +900,13 @@ redirect; `/-/login` then hands out the cookie for that site off the anchor
 session and sends the visitor on, without a round trip to the IdP. It does that
 only for a top-level navigation (`Sec-Fetch-Dest: document`, a header page
 script cannot set), because otherwise a page could walk another site's request
-through the login and collect a session for it on the way back. A preview or a
+through the login and collect a session for it on the way back. Nor while the
+request carries the anchor more than once (`content_anchor_is_duplicated`). A
+second anchor, set at another path by the script of a page without the
+shielding (§5.7) or from a sibling host, is the one `request.cookies` keeps
+when it comes last, and the site cookie minted from it would replace the
+visitor's own at that path, which no script can do. Such a visitor goes to
+the IdP instead, whose callback sets their own cookies. A preview or a
 `_version` view never gets a login redirect from the gate, and a site without a
 live version has no live route that could hand one out, so the serving layer
 turns every anonymous refusal on those two routes into the login redirect,
@@ -907,7 +930,8 @@ without a cookie, and the login shortcut above sets one there; a visitor may
 therefore have to pass the login once more, without the IdP as long as the
 anchor session holds.
 
-Code: `auth/sessions.py`, `platform/pages.py`. Guarded by: `test_sessions.py`.
+Code: `auth/sessions.py`, `platform/pages.py`, `serving/feedback_consent.py`.
+Guarded by: `test_sessions.py`, `test_feedback_consent.py`.
 
 ### 7.7 OIDC
 
@@ -948,7 +972,9 @@ the CSRF double submit against `__Host-toon-csrf`. A `Bearer` Authorization
 header is accepted on the two deploy endpoints and the two CLI session endpoints
 and nowhere else; a middleware answers 401 to any other request carrying one.
 Deploy tokens no longer exist: a Bearer is either a CI ID token or a CLI access
-token (§8).
+token (§8). The feedback widget API on the content host authenticates with a
+scheme of its own, `Authorization: Toon-Feedback <token>`, which that
+middleware leaves alone (§16.8).
 
 Code: `api/origin_guard.py`, `api/admin.py` (`require_csrf`), `api/deploys.py`
 (`BearerOutsideDeploysMiddleware`). Guarded by: `test_origin_guard.py`,
@@ -966,7 +992,9 @@ itself-audited act.
 Logged: every refusal and login redirect, every `_version` access, every view of
 non-public content (one row per page, not per asset), every admin action, every
 deploy and preview teardown, the CLI pairing actions, and every access to the
-audit log itself. Viewing public content is deliberately not logged.
+audit log itself. Viewing public content is deliberately not logged, and
+neither is what a visitor does under `/-/feedback/`, its refusals included
+(`docs/audit-log.md`).
 
 Logging is fail-open: a failed audit write never blocks the action it describes,
 and the caller writes it as a separate step after the decision. The exception is
@@ -1089,7 +1117,8 @@ and its files, and the job also sweeps orphaned preview versions, stale `_tmp`
 directories and expired CLI device authorizations and sessions, and frees the
 old slugs whose redirect has ended (§4). Between the end of a redirect at
 midnight and that run, an old address no longer redirects and cannot be claimed
-yet.
+yet. The same run purges site feedback past its retention (§16.12). Feedback
+given on a preview stays when the preview goes.
 
 **Directories without a row.** A publish renames its directory into place
 before it inserts the row, and a cleanup commits the delete before it removes
@@ -1114,7 +1143,8 @@ same lock before it looks its version up, so a version that becomes live while
 the job runs is never removed.
 
 **Deleting.** Deleting a site cascades over versions, previews, invitees, keys,
-site members and the repository link, and removes the site's directory. Deleting a
+site members, the repository link and its feedback (items, replies and
+screenshots, §16.12), and removes the site's directory. Deleting a
 group does the same for every site in it, then removes the group and its
 memberships; only a group admin may.
 
@@ -1197,10 +1227,19 @@ Guarded by: `test_spa.py`, `test_security_headers.py`,
 Fixed window with `Retry-After` and HTTP 429, no escalating penalties, plus a
 global backstop limit per class as a DoS net. Classes and defaults
 (`config.py`): login 10 per 60 s (backstop 1000), API 60 per 60 s (backstop
-5000), content 600 per 60 s (backstop 20000), and `code` 10 per 900 s (backstop
-500) for the secret-link code page. The key is the member or token when
+5000), content 600 per 60 s (backstop 20000), `code` 10 per 900 s (backstop
+500) for the secret-link code page, and `feedback` 300 per 60 s (backstop
+10000) for every path under `/-/feedback/`, so feedback neither spends nor
+shares the budget of page views. The key is the member or token when
 authenticated and the IP for anonymous traffic. `/-/healthz` counts against the content class
 and SPA assets sit outside the middleware entirely.
+
+The feedback widget sends no cookie, so its calls count per client IP, a
+preflight like any other request. A 429 under `/-/feedback/v1/` carries the
+widget's header set (§16.8), without which a shielded page could not read it.
+An OPTIONS there counts but is never refused, also not when the counter is
+broken: Fetch turns a refused preflight into a network error, so the readable
+429 goes to the request after it.
 
 The login class covers the login paths of both flows, from the same constants
 the routes are registered with, so moving a route cannot silently change its
@@ -1242,10 +1281,13 @@ PostgreSQL with Alembic migrations: the schema is migration `0001_base`, and
 `0002_retention_and_repo_ids` adds `sites.live_versions_kept` and
 `site_repositories.ids_confirmed`; `0006_versions_and_keys_indexes` indexes
 `versions (site_id, created_at DESC)` and `access_keys (site_id)`.
+`0011_feedback` adds the feedback settings `sites.feedback_enabled`,
+`feedback_identity` and `feedback_live`, and the tables of site feedback (§16).
 Tables: `members`, `groups`, `group_members`, `sites`, `site_members`,
 `site_repositories`, `versions`, `previews`, `invitees`, `access_keys`,
 `audit_log_entries`, `content_viewers`, `cli_device_authorizations`,
-`cli_sessions`, `cli_refresh_tokens`, `group_slugs`, `site_slugs`.
+`cli_sessions`, `cli_refresh_tokens`, `group_slugs`, `site_slugs`,
+`feedback_items`, `feedback_replies`, `feedback_screenshots`.
 
 Rules that live in the database rather than only in the application:
 
@@ -1281,6 +1323,15 @@ Rules that live in the database rather than only in the application:
   preview may override. A deploy never changes access policy.
 - Deleting a site or a group cascades in the database and removes the file trees
   on the volume (§8).
+- Site feedback (`0011_feedback`, §16). Its four enum types are frozen like
+  the others. CHECK constraints (`ck_feedback_*`) carry what must hold
+  whatever the application does, among them: an item sent without a name
+  holds nothing about its author (`ck_feedback_items_author`), `resolved_at`
+  is set exactly on a resolved item (§16.12), and `size_bytes` is the length
+  of the stored bytes, which the quotas add up (§16.10). An item goes with its
+  site, its replies and its screenshot go with the item, and a removed
+  version or member only empties the reference (`ON DELETE SET NULL`). The
+  screenshot sits in a table of its own, in the database (TDR-0013).
 
 Append-only on the audit log rests on triggers: `audit_log_no_update` refuses
 every UPDATE always, `audit_log_delete_after_retention` refuses the DELETE of a
@@ -1315,7 +1366,10 @@ Code: `alembic/versions/`, `models/`. Guarded by:
   fail-closed ingest, serving (redirects, MIME, 304, header set), rate limiting,
   the deploy API (CI trust, idempotent teardown, concurrent preview upsert,
   problem+json), storage lifecycle, host separation, origin guarding, OIDC, the
-  audit log and the migrations.
+  audit log and the migrations. For site feedback (§16): the tokens and the
+  consent pages with every refusal, the widget API with every code, the
+  quotas under concurrency, the purge, and a matrix over HTTP that holds every
+  policy and visitor to the gate (`test_feedback_matrix.py`).
 - **Frontend**: vitest (`npm test` in `frontend/`), including a check on the
   built `index.html` for inline scripts against the CSP of §9.
 - **E2E**: Playwright against the compose stack with mock OIDC on
@@ -1341,6 +1395,15 @@ site to another group; releasing an old slug early; email notification
 session revocation (deactivating works immediately because member status is
 checked per request).
 
+For site feedback (§16): notifications of new feedback (by mail, in
+Mattermost or otherwise), one inbox across sites, acting on several items at
+once in the admin interface, assigning items,
+labels, search, editing an item after it was sent, feedback on `_version`
+views and on a site's own 404 page, pins of other people's feedback for
+visitors, screenshots made on the server, real images in screenshots of a
+shielded site, feedback settings of a preview's own, and a fresh page token
+without reloading the page.
+
 ## 15. References that no longer have a subject
 
 Nothing cited by the code has lost its subject. Three rules from the earlier
@@ -1357,3 +1420,540 @@ guessing:
 - **Separate database accounts** for migrations, runtime and purging under the
   old §12 are gone: there is one account, and the triggers carry the guarantee
   (§12).
+
+## 16. Site feedback
+
+A site can let visitors give feedback on its pages: a remark about a point or
+an area on a page, a selected text or the page as a whole, with a screenshot if
+the visitor wants one. Toon takes that in through the widget API on the
+content host (§16.8) and keeps what comes in with the site. No page carries a
+widget yet (§16.2). The sections on the widget itself follow with it, so the
+numbers below have gaps.
+
+### 16.1 Settings and roles
+
+Three columns on `sites` hold the setting, which nothing in the admin sets
+yet:
+
+- `feedback_enabled`, false by default: whether the site takes feedback at
+  all.
+- `feedback_identity`, `account` by default: who may give feedback. The levels
+  are ordered and each takes the author kinds of the ones before it:
+  `account` takes feedback from an SSO account only, `name` also with a name
+  the visitor types, `anonymous` also without a name.
+- `feedback_live`, false by default: whether the live site collects feedback
+  as well as the previews.
+
+A preview always follows the site's own setting: an override (§7.2) changes
+who may look at a preview, never whether it collects feedback. Switching
+feedback off refuses every widget call for the site from that moment (§16.5).
+What was given stays.
+
+Every allow of the gate carries the site's id and its feedback setting, read
+from the site row the gate loads anyway, so a public page view stays one
+query.
+
+Code: `models/publication.py`, `constants.py`, `access/decision.py`,
+`access/gate.py`. Guarded by: `test_constants.py`, `test_access_gate.py`,
+`test_migrations.py`.
+
+### 16.2 Which pages get the widget
+
+No page gets a widget yet. The widget API (§16.8) and the consent page
+(§16.6) stand ready for one.
+
+### 16.5 The page token
+
+The page token is the widget API's only credential, and nothing else takes
+it: it opens no page, no asset and no other route. It names the site (by id)
+and the target the page belongs to (`live`, or `preview` with its ref), the
+version served, the content session, the secret link the gate let the
+visitor in with, and an expiry twelve hours on. The session is in it in one
+of two roles, never both: as `ses` when its visitor consented to feedback
+with their account on this site (§16.6), otherwise as `acc` when the session
+is what let the visitor in (the page's effective access, an override
+included, is not public and no secret link did it). `acc` is there for the
+gate, so a signed-in visitor who never consented can still send with a name
+or without one where only their session lets them see the page. A public
+page never carries `acc`. Minting stores nothing, and the token never goes
+into an address (§16.6).
+
+The token is sealed, not signed, because it sits where a site's own scripts
+read it and has to hide the session it names: AES-256-GCM under a key derived
+with HKDF-SHA256 from `TOON_SESSION_SECRET` (no salt, info
+`toon-feedback-v1`), written as base64url of a random 96-bit nonce, the
+ciphertext and its tag, with its purpose (`toon-feedback-page-v1`) as the
+associated data. A link ticket or a consent nonce (§16.6) therefore never
+opens as a page token, nor the other way round, and a new session secret ends
+every token. Parsing is as strict as minting, and minting runs the same
+check: exactly the fields minting writes, each in its one spelling, never
+`ses` and `acc` together, an expiry at most twelve hours and a minute ahead,
+and at most 4096 characters.
+
+Every widget call checks the token again against what holds now. A session
+it names, in either role, must still exist as a content session and pass IdP
+revalidation (§7.7), which the session middleware cannot run for a request
+without cookies, and in `ses` it must still hold the consent. The gate must
+allow the site, found by its id, at its current address for a visitor built
+from that server-side state alone, on a target that still collects feedback,
+and must decide on the token's own site. Anything else is the one
+`FEEDBACK_UNAVAILABLE` (§16.8). So a logout, an expired session or token, a
+session the IdP ended, a withdrawn consent, a revoked secret link, a removed
+invitee, a deactivated member, an expired preview, narrowed access and
+feedback switched off each end what an outstanding token can do at once. A
+redeployed preview or a pruned live version only leaves a new item without
+its version (§16.10). A new address for the site or its group leaves the
+token valid, and a create from a page served at the old address is 422
+`FEEDBACK_PAGE_MOVED` (§16.9).
+
+Only a session in `ses` stands behind what needs an account: the author
+fields, the visitor's own items, replies and deletes. Nothing of a session in
+`acc` goes with an item: its `sub` only keys the author counter (§16.10).
+
+Code: `serving/feedback_seal.py`, `serving/feedback_token.py`,
+`serving/feedback_access.py`, `auth/revalidation.py`. Guarded by:
+`test_feedback_seal.py`, `test_feedback_token.py`, `test_feedback_api.py`,
+`test_feedback_matrix.py`, `test_sessions.py`, `test_session_revalidation.py`.
+
+### 16.6 Consent for feedback with an account
+
+A page token carries the visitor's content session for feedback with an
+account (`ses`, §16.5) only after the visitor said yes, on a page Toon renders
+outside every site's realm, to giving feedback on this site with their
+account. A site's own scripts read the token as well as the widget does.
+Without that step they could send items in the visitor's name, and so put the
+visitor's name and email address in front of the site team without the
+visitor knowing.
+
+- `GET /-/feedback/account?returnTo=<page>` answers a top-level navigation
+  only (`Sec-Fetch-Dest: document`). `returnTo` passes the login's rule
+  (§7.6), has to be a site's path and loses every `key`. A request that
+  carries the anchor cookie more than once is the neutral 404: the session
+  read could be one planted from elsewhere, and a login cannot clear a cookie
+  at another path. Without a content session the visitor goes to `/-/login`
+  first. With one, the gate decides on the page for that session's visitor,
+  with the secret link of a link ticket when the address carries one (below),
+  and anything but an allow on a feedback route is the neutral 404.
+- The key cookie of a secret link belongs to the site's path, or the
+  preview's, and never reaches `/-/`. So where the page token carries a secret
+  link and no consented session, the way to the consent page carries `link`:
+  a link ticket sealed like the page token under a purpose of its own
+  (`toon-feedback-link-v1`), with the key id, the site id and the page token's
+  own expiry, and nothing about the visitor. Unlike the page token it goes
+  into an address, and so into the browser's history. On its own it opens
+  the consent page and nothing else: the site's pages still take the key
+  cookie. It rides through the sign-in inside the login's `returnTo`. A
+  `link` that comes twice, does not open or has expired is the neutral 404
+  before any sign-in, and so is a ticket whose site is not the one the gate
+  decides on at `returnTo` after it. The gate decides with the ticket's link
+  beside the session, so a link revoked, expired or switched off since lets
+  in only whom the session alone lets in. A consented session gets no ticket.
+- The page carries the platform policy (§5.7) with its form, plus
+  `sandbox allow-forms`. Its origin is therefore opaque: no script on the
+  content host can read it, fill it in or press its button, and
+  `frame-ancestors 'none'` keeps it out of frames. A site can still send the
+  visitor's tab there between the two presses of a double-click, or open it
+  behind a popup that closes on the first press. So the form keeps
+  `visibility: hidden` for its first second through a CSS animation with
+  `step-end` timing (with any easing it is visible as soon as the animation
+  runs), and consents only with its required box ticked, "Het siteteam mag
+  bij mijn feedback zien wat hierboven staat." (the site team may see what is
+  listed above with my feedback): no single press gives consent. The page
+  runs no script and is `no-store`, `Referrer-Policy: no-referrer` and
+  `noindex`. It speaks the language `Accept-Language` asks for, as the code
+  page of a secret link does, Dutch by default, with `Vary: Accept-Language`.
+- It says who the visitor is signed in as (their name, or their account id
+  without one), names the site and what the site team will see with every
+  item: their name and an email address the IdP marked verified, each when
+  there is one, or else only that it comes from someone with an account. The
+  address is for the site's editors and admins only, and the team never sees
+  the account id. It says how long the consent lasts and that items keep
+  those details as long as they exist, what signing in keeps
+  (`docs/privacy.md`), and, for a visitor who came through a secret link, that
+  their page views on the site after the consent carry their account in the
+  access log (`docs/audit-log.md`). With `TOON_BASE_URL` set it links the
+  privacy statement. A visitor pushed into somebody else's session sees a
+  foreign name or account id there.
+- Its form posts to `/-/feedback/account` with a sealed nonce (purpose
+  `toon-feedback-consent-v1`) that binds the session, the site, the secret
+  link of the ticket when the page had one, and the way back for ten
+  minutes. A POST from an opaque origin carries no Lax cookie, so the nonce
+  is the credential. The POST takes a top-level navigation and an urlencoded
+  body of at most 16 KiB that arrives whole and carries `agree` exactly once,
+  as `agree=1`. It revalidates the session at the IdP, asks the gate again
+  for the way back's page, with that link, and needs the site it decides on
+  to be the nonce's. Then the session records the site (at most 32 sites per
+  session) and a 303 goes to `/-/login?returnTo=<the way back>`. It sets no
+  cookie: that GET is a top-level navigation again, so the browser sends its
+  Lax anchor, and the login shortcut (§7.6) sets the site cookie from that
+  anchor when it is the only one the request carries. A nonce posted from any
+  other browser stores a consent for the session it names, which its holder
+  could have given anyway, and plants nothing. Every refusal is the neutral
+  404.
+- `GET /-/feedback/account/stop?returnTo=` ends the consent for the site at
+  `returnTo`, also at an old address that still redirects, in every content
+  session that a correctly signed site cookie or anchor on the request names.
+  A site cookie reaches `/-/` only when it was set from elsewhere, and a
+  second anchor can shadow the visitor's own, so none of them is taken for
+  the visitor's: withdrawing only takes away. It takes a top-level navigation
+  and answers the same 303 whether there was anything to end or not.
+
+Consent ends with its session: the rotation at a login, a logout, the expiry
+after twelve hours and a back-channel logout all end it.
+
+Accepted:
+
+- Once a visitor consented, the site's own scripts, and whatever they load,
+  can act for them on this site's feedback until the session or the consent
+  ends: send in the visitor's name, read the visitor's own items with the
+  team's replies, reply and delete. The consent page names what the site team
+  sees with every item.
+- A content cookie planted from elsewhere (§7.6) that is the only one a
+  request carries, for a session that consented to this site already, cannot
+  be told from the visitor's own.
+
+Code: `serving/feedback_consent.py`, `serving/feedback_token.py`,
+`auth/sessions.py`, `auth/revalidation.py`, `platform/pages.py`, `i18n.py`.
+Guarded by: `test_feedback_consent.py`, `test_feedback_token.py`,
+`test_access_gate.py`, `test_sessions.py`, `test_session_revalidation.py`,
+`test_i18n.py`.
+
+### 16.8 The widget API
+
+Every route sits under `/-/feedback/` on the content host and checks the host
+itself (§4a). The router's last route, an ASGI app that matches every method,
+answers every other method and path under the prefix with the neutral 404, so
+no path there ever gets FastAPI's 405 or 422. A HEAD there is the neutral 404
+as well.
+
+| Method and path | Credential | Answer |
+|---|---|---|
+| `GET` and `POST /-/feedback/account`, `GET /-/feedback/account/stop` | a content session (GET), the nonce (POST) | §16.6 |
+| `OPTIONS /-/feedback/v1/items`, `.../items/{id}`, `.../items/{id}/replies` | none | 204, the preflight |
+| `POST /-/feedback/v1/items` | a page token | 201 `{id, status, createdAt}` |
+| `GET /-/feedback/v1/items` | a page token with a consented session | 200 `{items, more}`, the visitor's own items |
+| `POST /-/feedback/v1/items/{id}/replies` | a page token with a consented session, the visitor's own item | 201, the reply |
+| `DELETE /-/feedback/v1/items/{id}` | a page token with a consented session, the visitor's own item | 204 |
+
+A call authenticates with `Authorization: Toon-Feedback <token>`, a scheme of
+its own, so the bearer guard of §7.8 leaves it alone. Nothing under
+`/-/feedback/v1/` reads a cookie, and a caller needs to send none. The
+visitor's own items are the items this session's `sub` sent with an account
+on the token's site: newest first, at most 20, each with its 10 newest
+replies, oldest first, and `replyCount`. `more` is true when older items were
+left out. An item given on a preview that is gone or past its `expires_at`
+carries `page.url` null, since the gate answers that preview with the
+neutral 404. A reply of the team names the member by the name the member has
+now, and none once the member is deleted, never an email address. A token
+without a consented session gets 403 `FEEDBACK_ACCOUNT_REQUIRED` for those
+three routes, also one that carries a session for the gate alone (§16.5).
+Deleting an item takes its replies and its screenshot along. No route serves
+a screenshot back.
+
+**CORS.** The widget calls the API from the site's own page, whose origin is
+opaque when the site is shielded (§5.7), so its requests arrive with
+`Origin: null`. Every answer of the widget API's routes therefore carries
+`Access-Control-Allow-Origin: *`, never a reflected origin and never
+`Access-Control-Allow-Credentials`. That is safe because the API takes
+nothing ambient: it reads no cookie and the browser sends none, so whatever a
+page anywhere can do with the API, a client outside a browser can do with the
+same token. The preflight (204) names `Authorization, Content-Type,
+Accept-Language` in `Access-Control-Allow-Headers` one by one, because a
+wildcard there does not cover `Authorization`, with
+`Access-Control-Allow-Methods: GET, POST, DELETE` and
+`Access-Control-Max-Age: 600`. It authenticates nothing.
+
+**The header set.** Every answer of the widget API's routes carries the same
+set: the origin header above,
+`Access-Control-Expose-Headers: Retry-After, Content-Language`,
+`Cache-Control: no-store`, `nosniff`, `Referrer-Policy: no-referrer` and the
+platform CSP. A problem adds `Content-Type: application/problem+json`,
+`Content-Language` and `Vary: Accept-Language`. The set rides on success and
+refusal alike, on the rate limiter's 429 under `/-/feedback/v1/` (§10) and on
+a 500 nobody foresaw: without it a shielded page reads a network error
+instead of an answer. The last route's neutral 404 and the bearer guard's 401
+(§7.8) go without it. The widget asks for neither.
+
+**Refusals** are problem+json in the language the widget sends in
+`Accept-Language`, English when it sends none, built from literal catalogue
+keys and never through `ApiError`, whose handler would leave the header set
+off.
+
+| Status | Code | When |
+|---|---|---|
+| 404 | `FEEDBACK_UNAVAILABLE` | the token is missing, malformed, sealed with another secret or for another purpose, or expired, a session it names is gone, expired or ended at the IdP, or holds no consent where the token says it does, the gate refuses or decides on another site, the site is gone, feedback is off for this target, the item is not there or not the visitor's own, the item id does not read. One answer for all of these, the same bytes per language |
+| 403 | `FEEDBACK_ACCOUNT_REQUIRED` | the action needs feedback with an account and the token has no consented session. A site that takes feedback with an account only answers it to every create without one, before reading its body |
+| 422 | `FEEDBACK_INVALID` | the input does not hold up. The detail names the field from a fixed list, never from the input. A reply's body above its limit is one of these |
+| 422 | `FEEDBACK_PAGE_MOVED` | the `page.path` of a create lies outside the root of the token's site at its current address: the page was served before the site or its group got a new address (§16.9). Only a new page view gives a token for the new address |
+| 422 | `FEEDBACK_AUTHOR_NOT_ALLOWED` | the author kind is one the site's setting does not take |
+| 413 | `FEEDBACK_SCREENSHOT_TOO_LARGE` | the screenshot is above its limit, or the body of a create above its own |
+| 422 | `FEEDBACK_SCREENSHOT_INVALID` | not PNG, JPEG or WebP by its bytes, too many pixels, or animated |
+| 409 | `FEEDBACK_SCREENSHOT_QUOTA` | the screenshot space of the site or of the platform is full |
+| 409 | `FEEDBACK_SITE_FULL` | the site has too many open items |
+| 409 | `FEEDBACK_THREAD_FULL` | the item has as many replies as it takes (§16.10) |
+| 429 | `TOO_MANY_REQUESTS` | a write counter is spent (§16.10), with a detail of its own (`TOO_MANY_REQUESTS.feedback`), or the rate limiter's class `feedback` is (§10). With `Retry-After` |
+| 503 | `FEEDBACK_BUSY` | this client already has as many bodies in flight as it may have, or a chunk of the body does not fit in the budget of the bodies in flight (§16.10). With `Retry-After` |
+| 408 | `FEEDBACK_TIMEOUT` | the body did not arrive in full within its deadline (§16.10) |
+| 500 | none | a failure nobody foresaw, as `{type, title, status}` |
+
+**Versioning.** The widget API is not in the OpenAPI document
+(`include_in_schema=False`), which describes the admin API alone, so it
+stands outside the API version and its breaking-change check
+(`docs/releasing.md`). This section is its description instead. The
+`API-Version` header is the admin API's and says nothing about
+`/-/feedback/v1`, so the widget API does not expose it and has no version
+header of its own. `/-/feedback/v1` only grows: a route or a field can be
+added, and nothing a widget sends or reads changes or goes away. A page that
+stays open keeps the widget it loaded, with a token that outlasts a restart,
+while the server moves on.
+
+Code: `serving/feedback_routes.py`, `serving/feedback_api.py`,
+`serving/feedback_access.py`, `ratelimit.py`, `messages.py`, `constants.py`,
+`main.py`. Guarded by: `test_feedback_api.py`, `test_feedback_matrix.py`,
+`test_host_separation.py`, `test_ratelimit.py`, `test_app_integration.py`,
+`test_messages.py`.
+
+### 16.9 What a create holds to
+
+A create is `multipart/form-data` with a part `item`, the JSON of the item
+(at most 32 KiB), and at most one part `screenshot`. Toon parses the body
+from the stream itself and holds every part to its own limit while it comes
+in, and the whole body to `TOON_FEEDBACK_SCREENSHOT_MAX_BYTES` plus 64 KiB:
+by its `Content-Length` before reading, and by counting for a body without
+one. The multipart parser steps through every delimiter in Python, so before
+it sees a chunk Toon counts the delimiters in it, those split over two
+chunks included, and refuses a body with more than the three a create holds
+as 422 `FEEDBACK_INVALID` (`item`). RFC 2046 keeps the delimiter out of every
+part, so no create a browser sends is refused. Each chunk takes its room in
+the body budget before it is parsed, and the whole body has to arrive within
+the deadline (§16.10). The item:
+
+```json
+{
+  "kind": "text",
+  "comment": "Is this amount right?",
+  "page": {"path": "/team/site/_preview/pr-42/docs/", "title": "Documentation"},
+  "anchor": {
+    "selectors": [
+      {"type": "TextQuoteSelector", "exact": "2.4 million", "prefix": "a budget of ", "suffix": " euros for"},
+      {"type": "TextPositionSelector", "start": 1200, "end": 1211},
+      {"type": "CssSelector", "value": "main > p:nth-of-type(3)"}
+    ],
+    "point": null,
+    "area": null
+  },
+  "viewport": {"width": 1280, "height": 800, "dpr": 2},
+  "author": {"kind": "name", "name": "Jan"}
+}
+```
+
+A rule that does not hold refuses with 422 `FEEDBACK_INVALID` where no other
+code is named, and never with a 500:
+
+- One rule for every string a submitter writes (comment, reply, name, quote,
+  selector values, path): none of the Unicode categories Cc (newline and tab
+  allowed in a comment and a reply), Cf (format characters, the bidi controls
+  among them, and the tag characters a language model reads and a screen does
+  not show), Cs (a lone surrogate) and Co (private use). The zero-width
+  non-joiner (U+200C) and joiner (U+200D) pass, because a word in Persian and
+  an emoji sequence need them. An unassigned code point (Cn) passes, because
+  the submitter's device can know newer emoji than the server. A page title
+  is the page's, not the submitter's: it is cleaned of what the rule refuses
+  and cut to 300 characters rather than refused.
+- The JSON is strict: no NaN or Infinity, no key twice, no key outside the
+  closed schema, and a number such as `1e400` fails its range.
+- `kind` is `page`, `point`, `area` or `text`, and a comment is 1 to 5000
+  characters after trimming.
+- `page.path` is the path as `location.pathname` gives it (printable ASCII,
+  percent-encoded) inside the root of the token's target at the site's current
+  address (`/{group}/{site}/`, or `/{group}/{site}/_preview/{ref}/`), at most
+  2048 characters, with no dot segment (`%2e` counts), no empty segment but a
+  trailing one, and no `_preview`, `_version` or `_encoded` first. It is
+  stored relative to that root. A path outside the site's root at its
+  current address is 422 `FEEDBACK_PAGE_MOVED` instead (§16.8).
+- The anchor uses the selector objects of the W3C Web Annotation Data Model.
+  A `point` item has exactly one `CssSelector` (up to 1000 characters) and a
+  `point` with `x` and `y` as fractions of that element's box and `pageX` and
+  `pageY` as page coordinates. An `area` item has exactly one `CssSelector`
+  and an `area` with `x`, `y`, `width` and `height` as fractions of the box
+  (0 to 1) and `pageX`, `pageY`, `pageWidth` and `pageHeight` in CSS px. Its
+  element is the nearest one from the area's centre up whose box holds the
+  whole area. A `text` item has one `TextQuoteSelector` (`exact` up to 1000
+  characters, `prefix` and `suffix` up to 32), at most one
+  `TextPositionSelector` (a hint only, in UTF-16 code units over
+  `document.body.textContent`) and at most one `CssSelector`. A `page` item
+  has no anchor. A `point` or `area` the kind does not take is refused when
+  it is not null. Toon rebuilds the anchor from the fields that passed and
+  stores that.
+- `viewport` is exactly `width`, `height` and `dpr`. Coordinates, positions
+  and viewport numbers are finite, not negative and at most 1,000,000, and
+  `dpr` is above 0 and at most 10.
+- `author.kind` is `account`, `name` or `anonymous`, and one the site's setting
+  takes (422 `FEEDBACK_AUTHOR_NOT_ALLOWED`). A `name` item needs a name of 1 to
+  100 characters after trimming. Beside another kind a name is refused unless
+  it is missing or blank: what an item says about its author comes from the
+  session or from nowhere. An `account` item needs a token with a consented
+  session (403 `FEEDBACK_ACCOUNT_REQUIRED`) and takes the `sub`, the name (cut
+  to 200 characters) and the email address, in lower case and only when the
+  IdP marked it verified, from that session. On a site that takes feedback
+  with an account only, every create needs one, and is refused before its
+  body is read. An `anonymous` item stores nothing about the person, also when
+  the token names a session.
+- The screenshot part is at most `TOON_FEEDBACK_SCREENSHOT_MAX_BYTES` (413
+  above it). Its bytes decide what it is, whatever type was declared: PNG,
+  JPEG or WebP by their magic bytes, at most 4096 pixels on a side and
+  16,000,000 in all, and still (no APNG, no WebP animation). Nothing is
+  decoded: a small file can declare a canvas that decodes to gigabytes in a
+  reviewer's browser or in the image reader of a Claude session, so it is
+  refused on the dimensions its header declares (422
+  `FEEDBACK_SCREENSHOT_INVALID`). That check runs on the event loop, so the
+  walk to the header reads at most 64 markers or chunks within the first
+  64 KiB, and a header beyond those bounds is refused the same way.
+
+A reply from a submitter (`POST .../replies`) is `application/json` with
+exactly `{"body": "..."}`, at most 64 KiB, under the same text rule and 1 to
+5000 characters after trimming. How many replies an item takes is in §16.10.
+
+Code: `serving/feedback_input.py`, `serving/feedback_body.py`,
+`serving/feedback_api.py`, `serving/feedback_images.py`. Guarded by:
+`test_feedback_input.py`, `test_feedback_body.py`, `test_feedback_api.py`,
+`test_feedback_matrix.py`, `test_feedback_images.py`, `test_migrations.py`.
+
+### 16.10 Quotas and counters
+
+What one visitor or one site can put into the database is bounded where it is
+written, and what a request holds in memory before that is bounded as its
+body comes in. The limits below are constants in `constants.py`. Only the
+screenshot limit, the retention terms and the rate limiter's class are
+settings.
+
+- **Open items.** A site takes no new item while it has
+  `FEEDBACK_SITE_MAX_OPEN` (500) items `new` or `seen` (409
+  `FEEDBACK_SITE_FULL`).
+- **Screenshot space.** The screenshots of one site take at most
+  `FEEDBACK_SITE_SCREENSHOT_MAX_BYTES` (50 MiB) together, those of the
+  whole platform at most `FEEDBACK_TOTAL_SCREENSHOT_MAX_BYTES` (500 MiB),
+  or 409 `FEEDBACK_SCREENSHOT_QUOTA`. They live in PostgreSQL (TDR-0013). A
+  refusal by the platform-wide cap logs a WARNING at most once every 600
+  seconds per process, with byte counts and nothing about the person or the
+  site. A refusal by a site's own cap logs nothing. Accepted: the sites share
+  the platform-wide cap first come, first served. Ten full sites leave no
+  room on any other, and one author can fill a site within one window of the
+  write counters (25 creates with a 2 MiB screenshot). The room comes back
+  when items are deleted or their screenshots purged (§16.12).
+- **Under a lock.** Both are checked in the transaction of the create, under a
+  transaction-scoped advisory lock on the site and, for a create with a
+  screenshot, a second one for every screenshot on the platform, always taken
+  after the site's. So concurrent creates cannot overshoot either limit
+  together, and cannot deadlock. The site row and the version are held
+  `FOR KEY SHARE` until the commit: a site deleted in between is
+  `FEEDBACK_UNAVAILABLE` and not a 500.
+- **The version** an item was given on is written through
+  `(SELECT id FROM versions WHERE id = :ver AND site_id = :site)` inside the
+  insert, never as a bare value. A version that a redeploy or the cleanup
+  removed after the page view gives NULL instead of a foreign key error. It is
+  a hint, not something the item depends on.
+- **Write counters.** Two counters in process memory limit the writes
+  through the widget API (a create, a reply, a delete) per window of
+  `FEEDBACK_WRITES_WINDOW_S` (600 s). Authors count attempts, a site counts
+  accepted writes. The author counter keys the author on the site:
+  `FEEDBACK_WRITES_PER_AUTHOR` (30) for the `sub` of a consented session
+  (`site:<id>:session:<sub>`) or of a session for the gate alone
+  (`site:<id>:gate:<sub>`, §16.5), and `FEEDBACK_WRITES_PER_ADDRESS` (150)
+  for a token without a session, keyed on the client address (IPv6 by its
+  /64) and the site, larger because many people can share an address. The
+  site is in the author's key because the site's own scripts hold its page
+  token and can spend all of the budget it counts: counted across sites, one
+  site could lock a visitor out of every other site and read from the count
+  how many writes they made there. The two session namespaces stay apart for
+  the same reason. The site counter holds `FEEDBACK_WRITES_PER_SITE` (300)
+  per site, in a counter of its own, so that a flood of author keys cannot
+  evict a site's key and reset its count. A write route first refuses what
+  fails authentication (no account where one is needed, an item id that is
+  no id), then counts the attempt on the author's key, then reserves one
+  write on the site's key, all before it reads a body. Each count and its
+  check have nothing awaited between them, so neither a burst from one
+  author nor writes from several authors in flight together can pass a
+  budget. A write that ends without being stored gives the site its
+  reservation back, whether the site's own budget, validation, a cap, the
+  room for bodies, a body that does not arrive or a failure ended it. So
+  attempts that are refused never spend the site's budget, and one
+  page-token holder cannot lock the site out with them. An attempt refused
+  by the author's own budget reserves nothing. Spent is 429
+  `TOO_MANY_REQUESTS` with the `Retry-After` of the budget that refused.
+  Reads do not count. A key goes at most one window after its window ended.
+  Accepted: a write in flight holds its reservation until it ends, a body at
+  most `FEEDBACK_BODY_DEADLINE_S` (60 s), so clients that stall their bodies
+  together can keep a site's last writes from others that long, each client
+  address with at most `FEEDBACK_BODIES_PER_CLIENT` (4) bodies in flight.
+  Accepted: where the token names a session for the gate alone, the site's
+  scripts can find out, at the cost of one write,
+  whether that person's budget on that site is spent (a malformed create is
+  429 when it is, 422 when it is not).
+- **Bodies in flight.** Every chunk of a create's or a reply's body takes its
+  room in a budget for the whole process before Toon parses it, and the body
+  holds all it took until its request is done. A declared `Content-Length`
+  only bounds the read: one that sends nothing holds no room, and one above
+  the route's limit is refused unread. `FEEDBACK_BODY_BUDGET_CREATES` (32)
+  whole creates at the screenshot limit (66 MiB at the default) bound the
+  bytes of all bodies together, and `FEEDBACK_BODIES_PER_CLIENT` (4) how many
+  bodies one client address has in flight. Past that share a request is 503
+  `FEEDBACK_BUSY` before anything of its body is read, and a chunk that does
+  not fit in the budget is 503 before it is parsed, both with `Retry-After`
+  set to the deadline. A body longer than its bound is 413 (422 for a reply)
+  before that chunk asks for room. The whole body has to arrive within
+  `FEEDBACK_BODY_DEADLINE_S` (60 s), or 408 `FEEDBACK_TIMEOUT`. A client that
+  goes away mid-upload is one line at INFO. Memory stays within the budget,
+  plus about an eighth that the parts reserve as they grow, plus the database
+  driver's two copies of the one screenshot being written (the platform-wide
+  screenshot lock lets one create at a time write one). Accepted: there is no
+  minimum receive rate, so a client with enough bandwidth and addresses can
+  hold the budget full and get every create a 503 while it keeps that up.
+- **Replies.** An item takes at most 50 replies from its submitter and 250 in
+  all (`FEEDBACK_MAX_GIVER_REPLIES` and `FEEDBACK_MAX_REPLIES`), counted under
+  an advisory lock on the item. Past them a reply is 409
+  `FEEDBACK_THREAD_FULL`. The visitor's own items are bounded by count
+  (§16.8): 20 items with 10 replies each.
+- **The rate limiter** has a class of its own for every path under
+  `/-/feedback/` (§10).
+
+Code: `serving/feedback_api.py`, `serving/feedback_body.py`, `constants.py`,
+`ratelimit.py`, `config.py`, `main.py`. Guarded by: `test_feedback_api.py`,
+`test_feedback_body.py`, `test_feedback_matrix.py`, `test_ratelimit.py`,
+`test_config.py`, `test_app_integration.py`.
+
+### 16.12 Retention
+
+Feedback outlives preview teardown, redeploys and the cleanup of old live
+versions: an item names its version as a hint only. It goes in four ways.
+
+- With its site or its group (§8). Its replies and its screenshot go with it.
+- When the visitor who sent it with their account deletes it through the
+  widget API (§16.8).
+- By the nightly cleanup (§8), in one transaction: resolved items
+  `TOON_FEEDBACK_RESOLVED_RETENTION_DAYS` (90) after `resolved_at`, items still
+  `new` or `seen` `TOON_FEEDBACK_OPEN_RETENTION_DAYS` (365) after `created_at`,
+  and the screenshots of resolved items
+  `TOON_FEEDBACK_SCREENSHOT_RETENTION_DAYS` (30) after `resolved_at`. A term of
+  0 keeps, and an item exactly on its term stays. A term counts from a
+  timestamp in the database, so a changed term reaches the items already
+  there.
+- With the downgrade of migration `0011_feedback` (§12).
+
+An item that someone opens again while the cleanup runs stays, with its
+screenshot: the screenshot rule locks the items it reads (`FOR SHARE`). The
+purge runs before every step that touches the content volume, so trouble
+there cannot hold it up. It writes no audit row (`docs/audit-log.md`) and
+logs one line per run at INFO with the three counts. A production process
+does not show that line: `containers/toon/entrypoint.sh` starts uvicorn with
+uvicorn's own logging configuration, so Toon's loggers stay at Python's
+default level, WARNING. So nothing in production shows that retention ran.
+
+Code: `previews/cleanup_job.py`, `config.py`, `main.py`,
+`alembic/versions/0011_feedback.py`. Guarded by: `test_cleanup_job.py`,
+`test_migrations.py`.
+
+### 16.13 What is not audited
+
+What site feedback writes to the audit log, and what it does not, is in
+`docs/audit-log.md`.

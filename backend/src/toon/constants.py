@@ -3,6 +3,7 @@ share, access levels and roles."""
 
 import enum
 import re
+import uuid
 from dataclasses import dataclass
 
 SLUG_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
@@ -85,7 +86,7 @@ PATH_LOGOUT = f"/{PLATFORM_SEGMENT}/logout"
 
 # Where the OP delivers a back-channel logout token (OIDC Back-Channel Logout
 # 1.0, platform/backchannel.py). Admin host only: belongs_to_content() refuses
-# everything under /-/ that is not one of the four content paths.
+# everything under /-/ that is not a content path or under the feedback prefix.
 PATH_BACKCHANNEL_LOGOUT = f"/{PLATFORM_SEGMENT}/oidc/backchannel-logout"
 
 PATH_CONTENT_LOGIN = f"/{PLATFORM_SEGMENT}/login"
@@ -93,9 +94,58 @@ PATH_CONTENT_OAUTH2_PREFIX = f"/{PLATFORM_SEGMENT}/oauth2/"
 PATH_CONTENT_LOGOUT = f"/{PLATFORM_SEGMENT}/logout"
 
 # Where the code of a secret link shared without it is handed in
-# (serving/code_page.py). The only POST the content host has, so host
-# separation and rate limiting both single this path out.
+# (serving/code_page.py). Host separation and rate limiting both single this
+# path out.
 PATH_CONTENT_CODE = f"/{PLATFORM_SEGMENT}/code"
+
+# Site feedback on the content host: the widget API and the consent page for
+# feedback with an account.
+# Host separation admits the prefix. Every route under it checks the host
+# itself, because on the admin host every /-/ path reaches the routes.
+PATH_CONTENT_FEEDBACK_PREFIX = f"/{PLATFORM_SEGMENT}/feedback/"
+PATH_FEEDBACK_API_PREFIX = f"{PATH_CONTENT_FEEDBACK_PREFIX}v1/"
+PATH_FEEDBACK_ACCOUNT = f"{PATH_CONTENT_FEEDBACK_PREFIX}account"
+PATH_FEEDBACK_ACCOUNT_STOP = f"{PATH_CONTENT_FEEDBACK_PREFIX}account/stop"
+
+# The replies one feedback item takes: from the visitor who sent it, and in
+# all, the site team's included. Counted under the lock of
+# `feedback_item_lock_key`.
+FEEDBACK_MAX_GIVER_REPLIES = 50
+FEEDBACK_MAX_REPLIES = 250
+# Items still new or seen on one site. Past this the site takes no more until
+# its team resolves some.
+FEEDBACK_SITE_MAX_OPEN = 500
+# What the screenshots of one site may take together, and those of every site.
+FEEDBACK_SITE_SCREENSHOT_MAX_BYTES = 50 * 1024 * 1024
+FEEDBACK_TOTAL_SCREENSHOT_MAX_BYTES = 500 * 1024 * 1024
+# Writes through the widget API per window: per person on a site, per client
+# address on a site for a visitor without a session, which many people behind
+# one network can share, and per site.
+FEEDBACK_WRITES_PER_AUTHOR = 30
+FEEDBACK_WRITES_PER_ADDRESS = 150
+FEEDBACK_WRITES_PER_SITE = 300
+FEEDBACK_WRITES_WINDOW_S = 600
+# What a create may carry besides its screenshot: the item and the multipart
+# framing around both.
+FEEDBACK_BODY_ALLOWANCE = 64 * 1024
+# The widget API bodies this process holds at once, in whole creates at the
+# screenshot limit. The pod also holds about an eighth more that the parts
+# reserve as they grow, and two copies of the one screenshot being written.
+FEEDBACK_BODY_BUDGET_CREATES = 32
+# Widget API bodies one client has in flight at once, so one client cannot
+# hold the whole budget.
+FEEDBACK_BODIES_PER_CLIENT = 4
+# How long reading one body may take in all: a client that trickles its body
+# holds its share of the budget no longer than this.
+FEEDBACK_BODY_DEADLINE_S = 60
+
+
+def feedback_item_lock_key(item_id: uuid.UUID) -> str:
+    """What a reply route hashes for the transaction-scoped advisory lock on
+    an item, taken before it counts its replies: concurrent replies count one
+    after the other, so neither cap is overshot."""
+    return f"toon-feedback-item:{item_id}"
+
 
 # Public liveness answer, admin host only (platform/health.py).
 PATH_HEALTHZ = f"/{PLATFORM_SEGMENT}/healthz"
@@ -168,3 +218,51 @@ class Role(enum.StrEnum):
 # 'editor' < 'admin' is false. So never compare two roles with < or >, always
 # through this rank (access/roles.py).
 ROLE_RANK: dict[Role, int] = {Role.READER: 1, Role.EDITOR: 2, Role.ADMIN: 3}
+
+
+# Site feedback. The PostgreSQL types hold these values in this order, which is
+# their sort order. test_migrations.py holds the two together.
+
+
+class FeedbackKind(enum.StrEnum):
+    """What a feedback item is about: the whole page, a point or an area on
+    it, or a text selection."""
+
+    AREA = "area"
+    PAGE = "page"
+    POINT = "point"
+    TEXT = "text"
+
+
+class FeedbackIdentity(enum.StrEnum):
+    """Who stands behind an item: a consented SSO account, a name the
+    submitter typed (not verified), or nobody. As a site's setting, the most
+    open of these it accepts."""
+
+    ACCOUNT = "account"
+    NAME = "name"
+    ANONYMOUS = "anonymous"
+
+
+class FeedbackStatus(enum.StrEnum):
+    NEW = "new"
+    SEEN = "seen"
+    RESOLVED = "resolved"
+
+
+class FeedbackReplyAuthor(enum.StrEnum):
+    MEMBER = "member"
+    GIVER = "giver"
+
+
+# A StrEnum compares as its text, so never compare two identities with < or >.
+_IDENTITY_RANK: dict[FeedbackIdentity, int] = {
+    FeedbackIdentity.ACCOUNT: 1,
+    FeedbackIdentity.NAME: 2,
+    FeedbackIdentity.ANONYMOUS: 3,
+}
+
+
+def identity_allows(setting: FeedbackIdentity, author: FeedbackIdentity) -> bool:
+    """Whether a site set to `setting` accepts an item from `author`."""
+    return _IDENTITY_RANK[setting] >= _IDENTITY_RANK[author]

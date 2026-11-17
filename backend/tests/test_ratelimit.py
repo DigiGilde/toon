@@ -15,6 +15,7 @@ from starlette.types import Receive, Scope, Send
 from toon.config import Settings
 from toon.ratelimit import (
     _CLEANUP_INTERVAL,
+    CounterResult,
     InMemoryCounter,
     RateLimitClass,
     RateLimitMiddleware,
@@ -22,6 +23,7 @@ from toon.ratelimit import (
     limit_for,
     make_rate_limit_middleware,
 )
+from toon.serving.response import PLATFORM_CSP
 
 # asyncio_mode = "auto" (pyproject.toml) picks up async def tests by itself; this
 # file deliberately mixes sync and async tests, so no module-wide asyncio marker.
@@ -93,6 +95,18 @@ def _make_client(
         ("/-/api/docs", RateLimitClass.API),
         # Handing in the code of a secret link: its own, strictest class.
         ("/-/code", RateLimitClass.CODE),
+        # Site feedback: the widget API and the pages around it.
+        ("/-/feedback/", RateLimitClass.FEEDBACK),
+        ("/-/feedback/v1/items", RateLimitClass.FEEDBACK),
+        ("/-/feedback/v1/items/0b9f4c3e-1d2a-4e5f-8a9b-0c1d2e3f4a5b/replies", RateLimitClass.FEEDBACK),
+        ("/-/feedback/account", RateLimitClass.FEEDBACK),
+        ("/-/feedback/account/stop", RateLimitClass.FEEDBACK),
+        ("/-/feedback/onbekend", RateLimitClass.FEEDBACK),
+        # Not under the prefix: no route answers these, so they stay with the
+        # widest class like any other miss.
+        ("/-/feedback", RateLimitClass.CONTENT),
+        ("/-/feedbackx/v1/items", RateLimitClass.CONTENT),
+        ("/team-aurora/website/-/feedback/v1/items", RateLimitClass.CONTENT),
         # Since the SPA moved to the root of the admin host its paths are
         # spelled like content paths, and it answers them outside this
         # middleware anyway (main.py). What is left for the limiter is the
@@ -116,11 +130,21 @@ def test_default_limits_conform_spec() -> None:
     api = limit_for(settings, RateLimitClass.API)
     content = limit_for(settings, RateLimitClass.CONTENT)
     code = limit_for(settings, RateLimitClass.CODE)
+    feedback = limit_for(settings, RateLimitClass.FEEDBACK)
 
     assert (login.max, login.window_s, login.global_max) == (10, 60, 1000)
     assert (api.max, api.window_s, api.global_max) == (60, 60, 5000)
     assert (content.max, content.window_s, content.global_max) == (600, 60, 20000)
     assert (code.max, code.window_s, code.global_max) == (10, 900, 500)
+    assert (feedback.max, feedback.window_s, feedback.global_max) == (300, 60, 10000)
+
+
+def test_every_class_has_its_settings() -> None:
+    """limit_for runs outside the fail-closed path of the middleware: a class
+    without its three settings would answer 500 instead of counting."""
+    settings = _make_settings()
+    for klass in RateLimitClass:
+        assert limit_for(settings, klass).max >= 1
 
 
 # --- InMemoryCounter: window logic, reset, bounding ---------------------------------------
@@ -131,6 +155,44 @@ async def test_counter_counts_on_inside_window() -> None:
     r1 = await counter.increment("key", 10, now_=0.0)
     r2 = await counter.increment("key", 10, now_=5.0)
     assert (r1.count, r2.count) == (1, 2)
+
+
+async def test_adding_without_an_await_counts_in_the_same_window() -> None:
+    """`add` is `increment` for a caller that checks and counts in one step."""
+    counter = InMemoryCounter()
+    assert counter.add("key", 10, now_=0.0).count == 1
+    assert (await counter.increment("key", 10, now_=5.0)).count == 2
+    assert counter.add("key", 10, now_=10.0).count == 1
+
+
+def test_a_refund_takes_back_one_count_of_its_window() -> None:
+    counter = InMemoryCounter()
+    counter.add("key", 10, now_=0.0)
+    counter.add("key", 10, now_=1.0)
+    counter.refund("key", since=1.0)
+    assert counter.add("key", 10, now_=4.0) == CounterResult(count=2, remaining_s=6.0)
+
+
+def test_a_refund_leaves_a_later_window_its_count() -> None:
+    """A write that straddles the end of its window gives nothing back to
+    the next one, which never counted it."""
+    counter = InMemoryCounter()
+    counter.add("key", 10, now_=0.0)
+    counter.add("key", 10, now_=12.0)
+    counter.refund("key", since=0.0)
+    assert counter.add("key", 10, now_=13.0).count == 2
+
+
+def test_a_refund_of_nothing_counted_takes_nothing() -> None:
+    """Never below zero: a refund too many would hand out a write the
+    window never had."""
+    counter = InMemoryCounter()
+    counter.refund("key", since=0.0)
+    assert len(counter) == 0
+    counter.add("key", 10, now_=0.0)
+    counter.refund("key", since=0.0)
+    counter.refund("key", since=0.0)
+    assert counter.add("key", 10, now_=1.0).count == 1
 
 
 async def test_counter_reset_after_elapsed_window() -> None:
@@ -552,6 +614,153 @@ async def test_a_broken_counter_fails_closed_with_429() -> None:
     assert resp.headers["retry-after"] == "10"
     assert resp.headers["content-type"] == "application/problem+json"
     assert resp.json()["code"] == "TOO_MANY_REQUESTS"
+
+
+# --- The feedback class ------------------------------------------------------------------
+
+# What a refusal under /-/feedback/v1/ carries besides its problem+json body
+# (spec §16.8).
+_WIDGET_REFUSAL_HEADERS = {
+    "access-control-allow-origin": "*",
+    "access-control-expose-headers": "Retry-After, Content-Language",
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+    "referrer-policy": "no-referrer",
+    "content-security-policy": PLATFORM_CSP,
+    "vary": "Accept-Language",
+}
+
+
+async def test_feedback_has_a_budget_of_its_own() -> None:
+    """Feedback neither spends the budget of page views nor shares it."""
+    settings = _make_settings(
+        ratelimit_feedback_max=1,
+        ratelimit_feedback_window_s=60,
+        ratelimit_content_max=1,
+        ratelimit_content_window_s=60,
+    )
+    async with _make_client(settings, clock=_FakeClock()) as client:
+        statuses = [
+            (await client.get("/-/feedback/account/stop")).status_code,
+            (await client.post("/-/feedback/v1/items")).status_code,
+            (await client.get("/team-aurora/website/")).status_code,
+            (await client.get("/team-aurora/website/")).status_code,
+        ]
+
+    assert statuses == [200, 429, 200, 429]
+
+
+class _BrokenCounter:
+    async def increment(self, key: str, window_s: int, now_: float):
+        raise RuntimeError("counter broken")
+
+
+_ITEMS = "/-/feedback/v1/items"
+_REPLIES = f"{_ITEMS}/0b9f4c3e-1d2a-4e5f-8a9b-0c1d2e3f4a5b/replies"
+
+
+@pytest.mark.parametrize("cause", ["budget", "backstop", "broken-counter"])
+async def test_a_widget_preflight_over_budget_reaches_the_app(cause: str) -> None:
+    """Fetch turns a preflight that is not 2xx into a network error. Counted
+    but passed on, it lets the request after it through to the 429 that the
+    widget can read, with its Retry-After. Within budget the first preflight
+    spends the one request there is. Every request of the backstop case comes
+    from another (trusted-XFF) key, so only the backstop is reached."""
+    overrides = {
+        "budget": {"ratelimit_feedback_max": 1},
+        "backstop": {"ratelimit_feedback_global_max": 1, "behind_proxy": True},
+        "broken-counter": {},
+    }[cause]
+    settings = _make_settings(ratelimit_feedback_window_s=60, **overrides)
+    counter = _BrokenCounter() if cause == "broken-counter" else None
+    sent = iter(range(1, 10))
+
+    def key() -> dict[str, str]:
+        return {"x-forwarded-for": f"198.51.100.{next(sent)}"} if cause == "backstop" else {}
+
+    async with _make_client(settings, clock=_FakeClock(), counter=counter, client_ip="127.0.0.1") as client:
+        preflights = [await client.options(path, headers=key()) for path in (_ITEMS, _ITEMS, _REPLIES)]
+        refused = await client.post(_ITEMS, headers=key())
+        elsewhere = await client.options("/-/feedback/account", headers=key())
+
+    assert [(preflight.status_code, preflight.text) for preflight in preflights] == [(200, "ok")] * 3
+    assert refused.status_code == 429
+    assert refused.headers["retry-after"] == "60"
+    for name, value in _WIDGET_REFUSAL_HEADERS.items():
+        assert refused.headers[name] == value, name
+    assert refused.json()["code"] == "TOO_MANY_REQUESTS"
+    assert elsewhere.status_code == 429
+
+
+@pytest.mark.parametrize(
+    "path", ["/-/feedback/account", "/-/feedback/account/stop", "/-/feedback/v1", "/team-aurora/website/"]
+)
+async def test_an_options_outside_the_widget_api_over_budget_is_refused(path: str) -> None:
+    settings = _make_settings(
+        ratelimit_feedback_max=1,
+        ratelimit_feedback_window_s=60,
+        ratelimit_content_max=1,
+        ratelimit_content_window_s=60,
+    )
+    async with _make_client(settings, clock=_FakeClock()) as client:
+        assert (await client.options(path)).status_code == 200
+        resp = await client.options(path)
+
+    assert resp.status_code == 429
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/-/feedback/v1/items", "/-/feedback/v1/items/0b9f4c3e-1d2a-4e5f-8a9b-0c1d2e3f4a5b/replies"],
+)
+async def test_a_refusal_on_the_widget_api_carries_the_widget_headers(path: str) -> None:
+    settings = _make_settings(ratelimit_feedback_max=1, ratelimit_feedback_window_s=60)
+    async with _make_client(settings, clock=_FakeClock()) as client:
+        assert (await client.post(path)).status_code == 200
+        resp = await client.post(path)
+
+    assert resp.status_code == 429
+    assert resp.headers["retry-after"] == "60"
+    assert resp.headers["content-type"] == "application/problem+json"
+    assert resp.headers["content-language"] == "en"
+    for name, value in _WIDGET_REFUSAL_HEADERS.items():
+        assert resp.headers[name] == value, name
+    assert "access-control-allow-credentials" not in resp.headers
+    body = resp.json()
+    assert (body["status"], body["code"]) == (429, "TOO_MANY_REQUESTS")
+    assert "Too many requests" in body["detail"]
+
+
+async def test_a_refusal_on_the_widget_api_speaks_the_language_the_widget_asks_for() -> None:
+    settings = _make_settings(ratelimit_feedback_max=1, ratelimit_feedback_window_s=60)
+    async with _make_client(settings, clock=_FakeClock()) as client:
+        await client.post("/-/feedback/v1/items")
+        resp = await client.post("/-/feedback/v1/items", headers={"Accept-Language": "nl"})
+
+    assert resp.headers["content-language"] == "nl"
+    assert resp.headers["vary"] == "Accept-Language"
+    body = resp.json()
+    assert body["title"] == "Te veel verzoeken"
+    assert "Te veel verzoeken" in body["detail"]
+
+
+@pytest.mark.parametrize("path", ["/-/feedback/account/stop", "/-/feedback/account", "/-/login"])
+async def test_a_refusal_outside_the_widget_api_keeps_the_plain_headers(path: str) -> None:
+    """The widget headers belong to the API the widget calls with fetch. The
+    pages around it are loaded by the browser itself, and the other classes
+    have nothing to do with the widget at all."""
+    settings = _make_settings(
+        ratelimit_feedback_max=1,
+        ratelimit_feedback_window_s=60,
+        ratelimit_login_max=1,
+        ratelimit_login_window_s=60,
+    )
+    async with _make_client(settings, clock=_FakeClock()) as client:
+        await client.get(path)
+        resp = await client.get(path)
+
+    assert resp.status_code == 429
+    assert set(resp.headers) == {"content-type", "content-length", "retry-after"}
 
 
 async def test_make_ratelimit_middleware_factory_yields_class__and_kwargs() -> None:

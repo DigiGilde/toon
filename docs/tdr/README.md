@@ -92,3 +92,4 @@ next free number before it merges.
 | [0010](0010-audit-key-rotation-protects-new-rows-only.md) | Audit key rotation protects new rows only | Accepted |
 | [0011](0011-one-admin-holds-the-audit-purge-in-the-database.md) | One platform administrator holds the audit purge, in the database | Accepted |
 | [0012](0012-pull-request-previews-in-a-project-of-their-own.md) | Pull request previews in a ZAD project of their own | Accepted |
+| [0013](0013-feedback-screenshots-in-the-database.md) | Feedback screenshots in the database | Accepted |

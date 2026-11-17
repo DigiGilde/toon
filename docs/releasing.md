@@ -281,6 +281,10 @@ A tag without `backend/openapi.json`, such as the hand-made `v2026.9.30`,
 counts as no contract yet: the release after it writes the file at the
 version the code has.
 
+The feedback widget's API under `/-/feedback/v1` on the content host is
+not in `openapi.json` and not under the oasdiff check. Its rule, that it
+only grows, is in `docs/design.md` §16.8.
+
 ### The API check
 
 `.github/workflows/api.yml` runs `release.py api-check` on every pull

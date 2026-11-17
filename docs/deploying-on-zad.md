@@ -201,6 +201,13 @@ anybody an administrator.
 | `TOON_OPERATOR_NAME` | env-vars | optional, empty by default: the organisation that runs this installation, as people should read it (`Digi Gilde`). The public privacy and accessibility pages and `GET /-/api/v1/operator` show it |
 | `TOON_OPERATOR_EMAIL` | env-vars | optional, empty by default: where people reach that organisation about privacy, accessibility and questions (`digigilde@rijksoverheid.nl`). It is also the mail `Contact` in `security.txt`, after the GitHub advisory form, so security reports about this installation reach the operator. A plain address without a display name, or the app does not start |
 | `TOON_SECURITY_TXT_NCSC` | env-vars | optional, default `false`. `true` lists the CVD routes of NCSC-NL in `security.txt`, the central reporting point for the Dutch central government. The Digi Gilde's installation sets `true`. Leave it off for an installation outside the central government |
+| `TOON_FEEDBACK_SCREENSHOT_MAX_BYTES` | env-vars | optional, bytes, default `2097152` (2 MiB), from 1 to `16777216` (16 MiB). The largest screenshot sent with feedback. It sets how much memory feedback uploads take (below) |
+| `TOON_FEEDBACK_RESOLVED_RETENTION_DAYS` | env-vars | optional, default `90`, from 0 to 3650, `0` keeps. The nightly cleanup deletes a resolved feedback item this many days after it was resolved |
+| `TOON_FEEDBACK_SCREENSHOT_RETENTION_DAYS` | env-vars | optional, default `30`, from 0 to 3650, `0` keeps. The same for the screenshot of a resolved item |
+| `TOON_FEEDBACK_OPEN_RETENTION_DAYS` | env-vars | optional, default `365`, from 0 to 3650, `0` keeps. The same for an item still new or seen, counted from when it came in |
+| `TOON_RATELIMIT_FEEDBACK_MAX` | env-vars | optional, default `300`, at least 1. Requests per window per client to anything under `/-/feedback/` on the content host |
+| `TOON_RATELIMIT_FEEDBACK_WINDOW_S` | env-vars | optional, seconds, default `60`, at least 1. The window of that limit |
+| `TOON_RATELIMIT_FEEDBACK_GLOBAL_MAX` | env-vars | optional, default `10000`, at least 1. Those requests of every client together, per window |
 | `TOON_INGEST_MAX_BODY` | env-vars | optional, bytes, default `104857600` (100 MiB); the largest upload |
 | `TOON_INGEST_MAX_FILE` | env-vars | optional, bytes, default `52428800` (50 MiB); the largest single unpacked file |
 | `TOON_INGEST_MAX_TOTAL` | env-vars | optional, bytes, default `209715200` (200 MiB); the largest unpacked site per deploy |
@@ -217,6 +224,18 @@ checking while it writes, refusing with `503` `STORAGE_UNAVAILABLE` rather than
 letting the volume drop below `TOON_STORAGE_MIN_FREE_BYTES`. Keep the floor plus
 one full-size deploy (400 MiB with the defaults) well below the volume size, or
 a large deploy can only ever be refused.
+
+Site feedback keeps its screenshots in PostgreSQL, not on the content volume
+(TDR-0013): at most 500 MiB for the whole platform and 50 MiB per site. Count
+those 500 MiB, with the text of the items and replies, towards the database.
+Once the platform-wide cap is reached, a WARNING that starts with
+`The platform-wide cap on feedback screenshots is reached` appears at most
+once every ten minutes per process, and every site refuses a screenshot that
+does not fit until items are deleted or screenshots pass their retention.
+In the pod's memory, feedback uploads in flight take at most 32 times
+`TOON_FEEDBACK_SCREENSHOT_MAX_BYTES` plus 64 KiB, plus about an eighth, plus
+two copies of one screenshot (design.md §16.10): about 78 MiB at the default.
+Keep that well under the memory of the pod.
 
 Besides the host separation, `TOON_BASE_URL` is also the exact CI audience: a
 GitHub or Forgejo workflow requests its ID token with this value as

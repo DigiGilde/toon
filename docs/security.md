@@ -109,7 +109,7 @@ X-Accel path and no nginx logic.
 | Item | Status |
 |---|---|
 | CSRF token in a header (double submit against `__Host-toon-csrf`) on session-borne mutations | implemented: `auth/sessions.py` (`csrf_valid`), `api/admin.py` (`require_csrf`), `backend/tests/test_admin_api.py` |
-| Bearer tokens accepted exclusively on the two deploy/preview endpoints, the CLI session endpoints and three endpoints of the admin API that take the CLI token only: the two creation endpoints (`POST /groups`, `POST /groups/{group}/sites`) and linking a repository (`PUT /sites/{group}/{site}/repository`, so `toon site link`; unlinking and requiring the site id stay session only); the allowlist is method plus exact path shape, and every other admin route answers a bearer with 401 `BEARER_NOT_ACCEPTED` before it is routed, also when a valid session rides along | implemented: `api/deploys.py` (`BearerOutsideDeploysMiddleware`, `accepts_bearer`), `api/cli.py`, `backend/tests/test_deploy_api.py`, `backend/tests/test_cli_api.py`, `backend/tests/test_cli_creation.py` (every admin route with a valid CLI token), `backend/tests/test_api_documentation.py` (OpenAPI and middleware agree per operation) |
+| Bearer tokens accepted exclusively on the two deploy/preview endpoints, the CLI session endpoints and three endpoints of the admin API that take the CLI token only: the two creation endpoints (`POST /groups`, `POST /groups/{group}/sites`) and linking a repository (`PUT /sites/{group}/{site}/repository`, so `toon site link`, while unlinking and requiring the site id stay session only). The allowlist is method plus exact path shape, and every other admin route answers a bearer with 401 `BEARER_NOT_ACCEPTED` before it is routed, also when a valid session rides along. The feedback widget API on the content host uses a scheme of its own (`Authorization: Toon-Feedback`), which the middleware leaves alone | implemented: `api/deploys.py` (`BearerOutsideDeploysMiddleware`, `accepts_bearer`), `api/cli.py`, `backend/tests/test_deploy_api.py`, `backend/tests/test_cli_api.py`, `backend/tests/test_cli_creation.py` (every admin route with a valid CLI token), `backend/tests/test_api_documentation.py` (OpenAPI and middleware agree per operation), `backend/tests/test_feedback_api.py` |
 | Creating a group or a site from the CLI (`toon group create`, `toon site create`): only a member's CLI token from `toon login`, never a CI ID token (401 `TOKEN_INVALID`), with the same role checks as the session (any active member for a group, group role `editor` for a site). The request may carry an initial access; that is no way around the access policy, because the creator becomes group admin or site admin and may set that access on the next request anyway. The CLI may not delete anything or manage members: those routes stay session only. A bearer request carries no ambient credentials, so it skips the CSRF double submit; the origin guard stays on it, as on the deploy router, so script on the content host holding a token is still refused. Group and site creation are audited with `refs.via` `cli` and the CLI session id, and with the access the new group or site starts with | implemented: `api/admin.py` (`require_creator`), `api/errors.py` (refusals audited as the CLI member), `backend/tests/test_cli_creation.py`, `backend/tests/test_api_integration.py` |
 | Secret links: always an expiry date, 90 days by default, 365 at most (BIO2 5.18.02); `expires_at` is NOT NULL | implemented, expiry date mandatory: `expiry.py`, `backend/tests/test_expiry.py`, `test_keys.py` |
 | CI id token (OIDC "trusted publishing"): issuer allowlist (GitHub fixed, Forgejo per host in `TOON_CI_FORGEJO_HOSTS`), keys via discovery/JWKS of the issuer origin itself (https, 5s timeout, size limit, no redirects; cached for an hour, one fetch at a time per issuer, no retry for 30 seconds after a failed fetch), RS256 only, `exp`/`iat` mandatory with 60s leeway, `aud` must be exactly one value and exactly `TOON_BASE_URL` or `TOON_BASE_URL/-/sites/{site id}` with the id in its canonical lowercase form, without normalisation (upper case, a trailing slash or anything after the id is a mismatch); a token with a `jti` (GitHub) is accepted once within its lifetime and a second use is refused as replayed (audit reason `CI_TOKEN_REPLAYED`, response code `CI_TOKEN_INVALID`), while Forgejo tokens carry no `jti` and are not replay-checked; the memory of used tokens is in process, so a restart forgets it | implemented: `ci/providers.py`, `ci/tokens.py`, `config.py`, `backend/tests/test_ci_providers.py`, `test_ci_tokens.py` |
@@ -128,7 +128,7 @@ X-Accel path and no nginx logic.
 | Item | Status |
 |---|---|
 | Content CSP (§5.7 regime) on all content routes | implemented: `serving/response.py` (`CONTENT_CSP`), `backend/tests/test_serving.py` |
-| Platform CSP on the platform's own answers on the content host (root redirect, code page, neutral 404): no script, the one inline `<style>` by hash, no `'unsafe-inline'` | implemented: `serving/response.py` (`platform_csp`, `PLATFORM_CSP`), `platform/pages.py`, `serving/code_page.py`, `backend/tests/test_security_headers.py` (`TestPlatformCsp`), `test_front_door.py`, `test_code_page.py`. See "The platform's own pages" below |
+| Platform CSP on the platform's own answers on the content host (root redirect, code page, neutral 404, the consent page for feedback with an account, the answers of the feedback widget API): no script, the one inline `<style>` by hash, no `'unsafe-inline'` | implemented: `serving/response.py` (`platform_csp`, `PLATFORM_CSP`), `platform/pages.py`, `serving/code_page.py`, `serving/feedback_consent.py` (`CONSENT_PAGE_HEADERS`), `ratelimit.py` (`FEEDBACK_API_HEADERS`), `backend/tests/test_security_headers.py` (`TestPlatformCsp`), `test_front_door.py`, `test_code_page.py`, `test_feedback_consent.py`, `test_feedback_api.py`. See "The platform's own pages" below |
 | External sources per site (on by default) | implemented: `sites.external_sources`, `serving/response.py` (`CONTENT_CSP_EXTERNAL`), `api/admin.py` (`PUT /sites/{group}/{site}/external-sources`, site role admin, CSRF, audit action `site_external_sources`), `frontend/src/components/site/TabAccess.vue`, `backend/tests/test_security_headers.py`, `test_serving.py`, `test_admin_api.py`. See "External sources" below |
 | Shielding from other sites per site (on by default) | implemented: `sites.sandbox`, `serving/response.py` (`SANDBOX`, `CONTENT_CSP_SANDBOX`), `api/admin.py` (`PUT /sites/{group}/{site}/sandbox`, site role admin, CSRF, audit action `site_sandbox`), `frontend/src/components/site/TabAccess.vue`, `backend/tests/test_security_headers.py`, `test_serving.py`, `test_admin_api.py`. See "Shielding from other sites" below |
 | WebAssembly on every site (`'wasm-unsafe-eval'` in `script-src`, never `'unsafe-eval'`) | implemented: `serving/response.py` (`_CONTENT_DIRECTIVES`), `backend/tests/test_security_headers.py` (`test_webassembly_compiles_but_javascript_eval_stays_shut`), `test_serving.py`. See "WebAssembly" below |
@@ -249,8 +249,9 @@ The price is real and falls on the publisher: no `localStorage`, no
 `sessionStorage`, no `document.cookie`, and nothing the browser fetches in
 CORS mode. That last one is measured, not derived: from an opaque origin a web
 font, a module script and a `fetch` of the site's own files go out with
-`Origin: null` and no cookie, and Toon sets no CORS headers, so the browser
-refuses them. A site that stores anything in the browser, or serves its own
+`Origin: null` and no cookie, and content answers carry no CORS headers, so the
+browser refuses them. Only the feedback widget API answers with CORS, and it
+reads no cookie (see "Site feedback"). A site that stores anything in the browser, or serves its own
 web font, or loads ES modules, stops working until its owner turns the
 shielding off, which is why the switch and its explanation sit next to the
 external-sources switch on the site's access screen, in the words a publisher
@@ -290,6 +291,11 @@ elsewhere. If one of these templates ever let markup through, no script would
 run and no style attribute would apply. The tests render each page and hold
 every `<style>` against the hash in its own header, and refuse a `<script>` or
 a `style=""` attribute in it, because a hash does not cover an attribute.
+
+Site feedback adds two more: the consent page for feedback with an account
+carries this policy with `form-action 'self'` for its form, plus
+`sandbox allow-forms` (design.md §16.6), and the answers of the feedback
+widget API carry it in their header set (design.md §16.8).
 
 This meets NCSC's ICT-beveiligingsrichtlijnen voor webapplicaties, U/PW.03,
 which asks for `default-src` `'none'` or `'self'` and no `unsafe-inline`,
@@ -383,9 +389,12 @@ What that opens, shape by shape, for a site this browser has a cookie for:
 - **Top-level navigation** from another site: unchanged. Lax already sent the
   cookie on a top-level GET navigation, and the visitor sees where they land.
 - **`fetch`/XHR**: the request goes out with the cookie, the answer is
-  unreadable. Reading a cross-origin response needs CORS, and Toon sets no
-  CORS headers anywhere; `no-cors` yields an opaque response. So the pages
-  themselves, which is where the content is, stay out of reach.
+  unreadable. Reading a cross-origin response needs CORS, content answers
+  carry no CORS headers, and `no-cors` yields an opaque response. So the pages
+  themselves, which is where the content is, stay out of reach. The one
+  answer with CORS headers is the feedback widget API's, which allows no
+  credentials and reads no cookie, so a cookie riding along there opens
+  nothing (see "Site feedback").
 - **`<iframe>`**: `frame-ancestors 'none'` on every content response, the
   neutral 404 included, so the browser refuses to render either and the two
   fail identically.
@@ -401,11 +410,15 @@ What that opens, shape by shape, for a site this browser has a cookie for:
   neutral 404 from executing, but whatever a non-public site puts in a `.js`
   file is then readable through its own globals. Data does not belong in an
   asset of a non-public site.
-- **Mutations**: none. The content origin has no session-borne mutation and
-  therefore no CSRF cookie. Its only POST is `/-/code`, which is anonymous and
-  guarded by its own origin check (`Origin`, falling back to
-  `Sec-Fetch-Site`), so a form on another site fails there. The content logout
-  is a GET and deliberately forgeable.
+- **Mutations**: none that a cookie alone authorises, and so no CSRF cookie.
+  `/-/code` is anonymous and guarded by its own origin check (`Origin`,
+  falling back to `Sec-Fetch-Site`), so a form on another site fails there.
+  The content logout is a GET and deliberately forgeable. Site feedback adds
+  the rest, and none of it takes a cookie as its credential: giving consent
+  takes a sealed nonce from Toon's own sandboxed page and sets no cookie, the
+  widget API takes the page token in a header, and ending consent is a GET as
+  forgeable as the logout and as harmless, because it can only take consent
+  away (design.md §16.6, §16.8).
 
 Accepted, in short: a third-party page can have a visited site's assets loaded
 with the visitor's credentials and observe their effect, but not read its
@@ -427,6 +440,62 @@ to the site, it withholds the cookie again and the assets of a non-public
 sandboxed site do not load. Verified working in Chromium; the durable fix for
 both sides is an origin per site, which makes the sandbox and this exception
 unnecessary at once.
+
+## Site feedback
+
+Visitors give feedback on a site's pages through the widget API on the
+content host. No page carries a widget yet. The rules are in design.md §16.
+
+| Item | Status |
+|---|---|
+| Feedback nobody asked for: a site takes none until its settings turn it on, the live site only on top of the previews, and without an account only when the site widens who may give it (design.md §16.1) | implemented: `models/publication.py`, `alembic/versions/0011_feedback.py`, `backend/tests/test_migrations.py` |
+| A forged or replayed page token: it is sealed with a key from `TOON_SESSION_SECRET`, expires after twelve hours, is parsed as strictly as it is minted, and is taken by the widget API alone, never by a page or an asset (design.md §16.5) | implemented: `serving/feedback_seal.py`, `serving/feedback_token.py`, `backend/tests/test_feedback_seal.py`, `backend/tests/test_feedback_token.py` |
+| A token that outlives the access it was minted for: every call checks the session, the consent and the gate again, and every ground for refusal answers the one byte-identical `FEEDBACK_UNAVAILABLE` (design.md §16.5) | implemented: `serving/feedback_access.py`, `auth/revalidation.py`, `backend/tests/test_feedback_api.py`, `backend/tests/test_feedback_matrix.py` |
+| A site's scripts sending in a visitor's name: feedback with an account only after consent on Toon's own sandboxed page, which takes no single press as consent and sets no cookie (design.md §16.6) | implemented: `serving/feedback_consent.py`, `serving/feedback_token.py`, `auth/sessions.py`, `platform/pages.py`, `backend/tests/test_feedback_consent.py`, `backend/tests/test_feedback_token.py`, `backend/tests/test_sessions.py`. See "What site feedback adds" below |
+| A cross-origin page reading answers with the visitor's credentials: CORS only under `/-/feedback/v1/`, `Access-Control-Allow-Origin: *` without credentials on an API that reads no cookie (design.md §16.8) | implemented: `ratelimit.py` (`FEEDBACK_API_HEADERS`), `serving/feedback_api.py`, `backend/tests/test_feedback_api.py`, `backend/tests/test_ratelimit.py`, `backend/tests/test_app_integration.py` |
+| Paths under the prefix that no route names: the neutral 404 for every other method and path, on both hosts (design.md §4a, §16.8) | implemented: `host_separation.py`, `serving/feedback_routes.py`, `backend/tests/test_host_separation.py`, `backend/tests/test_feedback_api.py` |
+| Hostile input: one rule for every string a submitter writes, strict JSON in closed schemas, and author fields from the session or from nowhere, each refusal a 422 and never a 500 (design.md §16.9) | implemented: `serving/feedback_input.py`, `serving/feedback_api.py`, `backend/tests/test_feedback_input.py`, `backend/tests/test_feedback_api.py` |
+| Hostile screenshots and bodies that cost the event loop: the bytes decide the type, the dimensions come from a header found within a bounded walk, nothing is decoded, and the delimiters of a body are counted before it is parsed (design.md §16.9) | implemented: `serving/feedback_images.py`, `serving/feedback_body.py`, `backend/tests/test_feedback_images.py`, `backend/tests/test_feedback_body.py` |
+| Spam and storage exhaustion: caps on open items, screenshot space and replies, checked under advisory locks, and write counters per author and per site in counters of their own. Authors count attempts, a site counts accepted writes: each write reserves the site's before its body is read and gives it back unless it is stored, so concurrent writes cannot take a site past its budget, refused attempts cannot lock a site out and a flood of author keys cannot evict a site's (design.md §16.10) | implemented: `serving/feedback_api.py`, `constants.py`, `backend/tests/test_feedback_api.py`, `backend/tests/test_feedback_matrix.py` |
+| Memory exhaustion by uploads: a budget for the bodies in flight that every chunk takes its room in before it is parsed, a share per client and a deadline per body (design.md §16.10) | implemented: `serving/feedback_body.py`, `constants.py`, `backend/tests/test_feedback_body.py` |
+| Feedback kept longer than needed: the nightly cleanup purges it on its terms (design.md §16.12) | implemented: `previews/cleanup_job.py`, `backend/tests/test_cleanup_job.py`. See `docs/privacy.md` |
+
+### What site feedback adds, and what is accepted
+
+This is the explicit risk assessment BIO2 asks for a security-relevant
+change, as for WebAssembly above.
+
+What it adds. Until now the platform's only POST on the content host was the
+code of a secret link. Site feedback adds more:
+
+- **An API that takes input from whoever may see a page.** On a public site
+  that takes feedback without an account that is anyone. What bounds it: a
+  token per page view that is checked again on every call, the validation,
+  the quotas, the counters and the rate-limit class.
+- **Session-borne actions and CORS on the content origin.** Consent, ending
+  consent and the widget API with a session in its token, and
+  `Access-Control-Allow-Origin: *` on that API. What bounds it: no cookie is
+  the credential of any of them (see "Why the content cookies are
+  SameSite=None"), the consent page cannot be reached into by any site and
+  takes no single press as consent, giving consent sets no cookie, and the
+  API allows no credentials.
+
+Accepted, each in design.md: a site's own scripts can act for a visitor on
+that site's feedback once the visitor consented (§16.6), a content cookie
+planted from elsewhere for a session that consented already cannot be told
+from the visitor's own (§16.6), the scripts can find out whether a signed-in
+visitor's write budget on that site is spent (§16.10), the sites share the
+platform-wide screenshot cap first come, first served (§16.10), and without
+a minimum receive rate a client with enough addresses can keep every create
+at a 503 (§16.10). A token reaches no other site's feedback and no other
+site's count.
+
+Switching it off. Per site, with `sites.feedback_enabled` off every widget
+call for the site is refused at once, because each call asks the site's
+setting again. What was given stays until it is deleted or purged. On the
+platform every site starts with feedback off. Removing the feature is the
+downgrade of migration `0011_feedback`, which drops every item, reply and
+screenshot with the three settings.
 
 ## Ingest and storage
 
@@ -451,6 +520,7 @@ unnecessary at once.
 | Trusted proxy configuration mandatory in production mode (startup refused without it) | implemented: `config.py` (`TOON_BEHIND_PROXY` mandatory with `TOON_ENVIRONMENT=productie`; both answers are valid, so unset cannot be one), `net.py`, `backend/tests/test_config.py` |
 | Code of a secret link: its own class `code`, ten attempts per quarter of an hour per client IP and on top of that ten per quarter of an hour per selector | implemented: `ratelimit.py` (`RateLimitClass.CODE`), `serving/code_page.py`, `config.py` (`TOON_RATELIMIT_CODE_*`), `backend/tests/test_code_page.py`, `backend/tests/test_ratelimit.py` |
 | 429 with `Retry-After`, no escalating penalties | implemented: `ratelimit.py`, `backend/tests/test_ratelimit.py` |
+| Site feedback: its own class `feedback` for every path under `/-/feedback/`, 300 requests per minute per key with a backstop of 10000, so feedback neither spends nor shares the budget of page views, and in the widget API write counters per author and per site: authors count attempts, a site counts accepted writes, reserved before the body is read so concurrent writes cannot pass its budget (design.md §10, §16.10) | implemented: `ratelimit.py` (`RateLimitClass.FEEDBACK`), `config.py` (`TOON_RATELIMIT_FEEDBACK_*`), `serving/feedback_api.py`, `backend/tests/test_ratelimit.py`, `backend/tests/test_feedback_api.py`, `backend/tests/test_app_integration.py` |
 | Creation budget: per member at most 20 new groups, sites and addresses together per hour, through the admin and the CLI together; every attempt that passes the role check and the input validation counts, a slug collision included, and so does every change of address but sending the slug that is already there. Over budget: 429 `TOO_MANY_CREATIONS` with `Retry-After`, audited as `admin_access`/`refused`. It bounds what a stolen CLI token can litter the platform with, and with the limit of five old slugs how many addresses a member can hold back; the counter lives in process memory, like the other per-member limits | implemented: `api/admin.py` (`_require_creation_budget`), `backend/tests/test_cli_creation.py` (`TestCreationBudget`), `backend/tests/test_addresses_api.py` |
 
 ## Audit
@@ -845,7 +915,8 @@ authority: `session_from_request` (admin and API) accepts kind `admin` only, con
 and a login attempt carries its kind so that a callback never redeems an
 attempt of the other flow. A content login creates no member record (spec §7
 "Looking"). On the content host, host separation allows only `/-/login` and
-`/-/oauth2/callback` from the `/-/` namespace; everything else there, the API
+`/-/oauth2/callback` from the `/-/` namespace, and everything under
+`/-/feedback/` (design.md §4a). Everything else there, the API
 first of all, is the neutral 404. On the admin host the same spelling exists
 for the admin flow; the host decides which of the two you get. The two E2E
 scenarios that were waiting on this (group member via `_version`, invitee with
@@ -945,8 +1016,8 @@ the Origin of the form navigation to `Origin: null`, which would cost the origin
 guard its teeth. The page URL carries only the selector, never the verifier, so
 a same-origin `Referer` to our own POST target leaks nothing.
 
-The code goes with a POST to `/-/code` (the only POST path on the
-content host), with the selector and the intended path in the body; the path
+The code goes with a POST to `/-/code` (besides those of site feedback, the
+only POST path on the content host), with the selector and the intended path in the body. The path
 is validated as a returnTo (own origin, no scheme, host or
 backslash). An anonymous visitor has no session and therefore no CSRF token;
 instead: the same origin only (`Origin`, otherwise, and when it is the literal
