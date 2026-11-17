@@ -45,9 +45,11 @@ signal that tells its subresource loads apart from a third party's. Under Lax
 the browser withholds the cookie there and every non-public site loses its
 assets. What None costs is written out in docs/security.md; the short version
 is that a third-party page can then have private assets loaded with the
-visitor's credentials, while the pages themselves stay unreadable to it (no
-CORS headers anywhere, `frame-ancestors 'none'`). The durable fix is an origin
-per site, which makes both the sandbox and this exception unnecessary.
+visitor's credentials, while the pages themselves stay unreadable to it
+(content answers carry no CORS headers, `frame-ancestors 'none'`, and the
+feedback widget API, the one answer with CORS headers, allows no credentials
+and reads no cookie). The durable fix is an origin per site, which makes both
+the sandbox and this exception unnecessary.
 """
 
 from __future__ import annotations
@@ -106,6 +108,10 @@ _CLEANUP_INTERVAL = 128
 # the session is gone: the gate finds no session behind the id.
 _MAX_CONTENT_SITES = 32
 
+# Ceiling on the sites one content session holds feedback consent for. Past
+# it, consent for a further site is refused.
+_MAX_FEEDBACK_SITES = 32
+
 
 @dataclass(frozen=True)
 class Visitor:
@@ -150,6 +156,13 @@ class Session:
     # cookie for, so the logout can clear every one of them: a browser only
     # deletes a cookie when the path matches.
     content_sites: frozenset[str] = frozenset()
+    # The ids of the sites whose feedback this content session's visitor
+    # agreed, on Toon's own consent page, to give with their account. Only
+    # there does a page token carry the session for feedback with an account
+    # (serving/feedback_token.py).
+    # The consent ends with the session: rotation, logout, expiry and a
+    # back-channel logout all remove the record.
+    feedback_sites: frozenset[str] = frozenset()
     # Whether the login that made this session was started from the admin
     # origin itself. A login a third-party page navigated the browser into is
     # still a valid session, but does not count as fresh where freshness is
@@ -218,6 +231,30 @@ class SessionStore:
         if session is None or prefix in session.content_sites or len(session.content_sites) >= _MAX_CONTENT_SITES:
             return
         self._sessions[session_id] = replace(session, content_sites=session.content_sites | {prefix})
+
+    def consent_feedback(self, session_id: str, site_id: str) -> Session | None:
+        """Records that the visitor of this content session agreed to give
+        feedback on the site with their account. The session with the consent
+        in it, or None when there is no such content session or it already
+        holds consent for as many sites as it may."""
+        session = self.get_session(session_id)
+        if session is None or session.kind is not SessionKind.CONTENT:
+            return None
+        if site_id not in session.feedback_sites and len(session.feedback_sites) >= _MAX_FEEDBACK_SITES:
+            return None
+        updated = replace(session, feedback_sites=session.feedback_sites | {site_id})
+        self._sessions[session_id] = updated
+        return updated
+
+    def withdraw_feedback(self, session_id: str, site_id: str) -> Session | None:
+        """Ends the consent for one site. The session without it, or None when
+        there is no such content session."""
+        session = self.get_session(session_id)
+        if session is None or session.kind is not SessionKind.CONTENT:
+            return None
+        updated = replace(session, feedback_sites=session.feedback_sites - {site_id})
+        self._sessions[session_id] = updated
+        return updated
 
     def mark_checked(self, session_id: str, *, refresh_token: str | None, at: datetime) -> Session | None:
         """Records that the IdP confirmed this session, with the rotated

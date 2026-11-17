@@ -102,7 +102,8 @@ volume. So the stack has to be up (`./dev/up.sh`).
 
 **The seed is destructive and repeatable.** It first wipes every group and
 every member (with everything hanging off them: sites, versions, previews,
-invitees, secret links, linked repositories and CLI sessions) plus the
+invitees, secret links, linked repositories, CLI sessions and feedback
+items with their replies and screenshots) plus the
 matching version directories on the content volume, and then puts the whole
 set down again. The audit log is left untouched: the triggers from
 `0001_base` refuse every UPDATE and every DELETE within the retention

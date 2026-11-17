@@ -481,6 +481,31 @@ class TestHandingInTheCode:
         # with its own site and would otherwise get none of its assets.
         assert "SameSite=none" in response.headers["set-cookie"]
 
+    @pytest.mark.parametrize(
+        ("content_type", "accepted"),
+        [
+            ("application/x-www-form-urlencoded; charset=UTF-8", True),
+            ("Application/X-WWW-Form-Urlencoded", True),
+            ("application/x-www-form-urlencodedx", False),
+        ],
+        ids=["with-a-charset", "in-capitals", "a-longer-type"],
+    )
+    async def test_the_form_type_is_compared_without_its_parameters(
+        self, client, environment, content_type, accepted
+    ):
+        data = {
+            "selector": environment.world.key_selector,
+            "code": environment.world.key_verifier,
+            "path": "/aurora/geheim/",
+        }
+        response = await client.post(
+            PATH_CONTENT_CODE, data=data, headers={**FORM_HEADERS, "content-type": content_type}
+        )
+        if accepted:
+            assert response.status_code == 303
+        else:
+            assert _is_neutral_404(response)
+
     async def test_after_the_code_the_page_itself_follows(self, client, environment):
         await self._post(client, environment)
         # The client keeps the cookie the redirect set, exactly as a browser does.

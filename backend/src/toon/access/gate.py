@@ -33,12 +33,13 @@ from toon.access.decision import (
     REASON_UNKNOWN_SITE,
     REASON_UNKNOWN_VERSION,
     AccessDecision,
+    FeedbackPolicy,
     allow,
     login_redirect,
     neutral_404,
 )
 from toon.auth.sessions import Visitor
-from toon.constants import AccessBase, AccessPolicy
+from toon.constants import AccessBase, AccessPolicy, FeedbackIdentity
 from toon.ingest.store import version_ref
 from toon.models.identity import Group, GroupMember, Member, MemberStatus, SiteMember
 from toon.models.publication import Invitee, Preview, Site, Version
@@ -110,6 +111,8 @@ async def decide_version(
         storage_ref=version_ref(site.id, version.id),
         external_sources=bool(site.external_sources),
         sandbox=bool(site.sandbox),
+        site_id=site.id,
+        feedback=_feedback_policy(site),
     )
 
 
@@ -170,6 +173,16 @@ def _site_access(site: Site) -> AccessPolicy:
     )
 
 
+def _feedback_policy(site: Site) -> FeedbackPolicy:
+    # The site's own settings on a preview too: an override changes who may
+    # look, never whether feedback is collected.
+    return FeedbackPolicy(
+        enabled=bool(site.feedback_enabled),
+        identity=FeedbackIdentity(site.feedback_identity),
+        live=bool(site.feedback_live),
+    )
+
+
 async def _assess(
     db: AsyncSession,
     site: Site,
@@ -192,6 +205,8 @@ async def _assess(
             sandbox=bool(site.sandbox),
             key_selector=key_selector,
             redeem_key_id=redeem_key_id,
+            site_id=site.id,
+            feedback=_feedback_policy(site),
         )
 
     if access.base is AccessBase.PUBLIC:

@@ -92,6 +92,98 @@ describe('privacy statement', () => {
     wrapper.unmount();
   });
 
+  it.each([
+    [
+      'nl',
+      [
+        'Feedback: wat je over een pagina van een site stuurt',
+        'Met een naam bewaart Toon alleen die naam, zonder naam geen naam, SSO-id of e-mailadres.',
+        'Je tekst of de schermafbeelding kan nog wel iets over je zeggen.',
+        'dus soms ook gegevens van anderen of van jezelf.',
+        'Bij feedback bewaart Toon geen IP-adres en niets van wat je browser over zichzelf meestuurt.',
+        'Om misbruik te beperken telt Toon wel hoeveel feedback er per site binnenkomt: per account als je feedback met je account geeft of moest inloggen om de pagina te zien, en anders per IP-adres.',
+        'Bezoekgegevens en geslaagde inlogpogingen worden na 180 dagen verwijderd.',
+        'Overige auditgegevens, zoals geweigerde toegang, mislukte of afgebroken inlogpogingen en beheerhandelingen, blijven drie jaar bewaard',
+        'Feedback die je met je account stuurde, kun je opvragen of laten verwijderen met een verzoek',
+        'Die telling staat alleen in het werkgeheugen. Ze loopt standaard over tien minuten en is uiterlijk even lang na afloop weg.',
+        'de grootte en de pixelverhouding van je browservenster',
+        'een platformbeheerder zou de tijden naast elkaar kunnen leggen',
+        'zodat het team van een site opmerkingen over die site kan lezen, beantwoorden en afhandelen',
+        'Of een site feedback aanneemt, en van wie, is een instelling van die site.',
+        'de schermafbeelding 30 dagen nadat de feedback is afgehandeld',
+        'om afgeschermde content te bekijken of om feedback te geven met je account',
+        'is alleen voor redacteuren en beheerders van de site',
+        'Feedback met alleen een naam of zonder naam hangt niet aan een account, dus een verzoek vindt die niet altijd terug.',
+        'ook op een openbare site, bijvoorbeeld om feedback te geven met je account',
+      ],
+    ],
+    [
+      'en',
+      [
+        'Feedback: what you send about a page of a site',
+        'With a name Toon keeps only that name, without a name no name, SSO ID or e-mail address.',
+        'Your text or the screenshot can still say something about you.',
+        'so sometimes data of other people or of yourself too.',
+        'With feedback Toon keeps no IP address and none of the details your browser sends about itself.',
+        'To limit misuse, Toon does count how much feedback comes in per site: per account when you give feedback with your account or had to sign in to see the page, otherwise per IP address.',
+        'Visit data and successful sign-ins are deleted after 180 days.',
+        'Other audit data, such as refused access, failed or abandoned sign-ins and administrative actions, is kept for three years',
+        'To see or delete feedback you sent with your account, send a request',
+        'That count is kept in working memory only. It runs over ten minutes by default, and is gone at most that long after it ends.',
+        'the size and the pixel ratio of your browser window',
+        'a platform administrator could put the times side by side',
+        'so the team of a site can read, answer and resolve remarks about that site',
+        'Whether a site takes feedback, and from whom, is a setting of that site.',
+        'the screenshot 30 days after the feedback was resolved',
+        'to view restricted content or to give feedback with your account',
+        'is for editors and administrators of the site only',
+        'Feedback sent with only a name or without a name is not tied to an account, so a request cannot always find it.',
+        'a public one included, for instance to give feedback with your account',
+      ],
+    ],
+  ] as const)('says in %s what feedback keeps, how long and who sees it', async (locale, sentences) => {
+    serve(OPERATOR);
+    const wrapper = await render(Privacy, locale);
+
+    for (const sentence of sentences) expect(wrapper.text()).toContain(sentence);
+    // Signing in to give feedback is recorded on a public site too.
+    expect(wrapper.text()).not.toMatch(/Van openbare sites wordt niets bijgehouden|Nothing is recorded for public sites/);
+    // Without a name the text and the screenshot can still say who it was, and
+    // the count against misuse is not only per address.
+    expect(wrapper.text()).not.toMatch(/niets over jou|nothing about you|even per IP-adres|for a short while per IP address/);
+    // Signed in is not enough to be counted per account: a public page, or one
+    // a secret link opened, counts a signed-in visitor by address too. And a
+    // sign-in that failed or was broken off stays three years, not 180 days.
+    expect(wrapper.text()).not.toMatch(/als je bent ingelogd|when you are signed in|inlogmomenten|sign-in moments/);
+    // Every item keeps the size of the window, which is data about the browser
+    // and not the size of the screen.
+    expect(wrapper.text()).not.toMatch(/gegevens over je browser|data about your browser/);
+    expect(wrapper.text()).not.toMatch(/grootte van je scherm|size of your screen/);
+    // Nothing shows a site's pages a button, the site team the feedback, or
+    // lets a site administrator choose.
+    expect(wrapper.text()).not.toMatch(/feedbackknop|feedback button|Mijn feedback|My feedback/);
+    expect(wrapper.text()).not.toMatch(/kiest de beheerder|chosen by the administrator|Reageert het siteteam|site team replies/);
+    wrapper.unmount();
+  });
+
+  it.each([
+    [
+      'nl',
+      'Op sites die feedback verzamelen, verwerkt Toon ook wat bezoekers als feedback sturen: hun opmerking, eventueel een schermafbeelding en hun naam, en met een account ook hun e-mailadres. Die feedback is bedoeld voor het team van de site.',
+    ],
+    [
+      'en',
+      'On sites that collect feedback, Toon also processes what visitors send as feedback: their remark, possibly a screenshot and their name, and with an account their e-mail address too. That feedback is meant for the team of the site.',
+    ],
+  ] as const)('says in its opening, in %s, that it covers what visitors send as feedback', async (locale, sentence) => {
+    serve(OPERATOR);
+    const wrapper = await render(Privacy, locale);
+
+    // The consent page links here: the first paragraph says it.
+    expect(wrapper.find('p').text()).toContain(sentence);
+    wrapper.unmount();
+  });
+
   it('names no organisation of its own and does not claim to store one', async () => {
     serve(NOBODY);
     for (const locale of ['nl', 'en'] as const) {

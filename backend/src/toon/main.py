@@ -17,7 +17,8 @@ turns away a same-site content origin), the CLI login API (the
 same origin check), the public operator endpoint (the same origin check),
 session API for the SPA
 (origin checking registered in the router itself), API docs, platform and
-auth routes (`platform.pages`), and the serving router last because it is a
+auth routes (`platform.pages`), the code page and the feedback routes on the
+content host, and the serving router last because it is a
 content catch-all (`/{group}/{site}/{rest:path}`) that would otherwise
 swallow every later route; its own last route catches whatever no route at all
 claimed and answers the neutral 404. The problem+json handlers from
@@ -74,6 +75,9 @@ from toon.previews.cleanup_job import cleanup_job
 from toon.ratelimit import InMemoryCounter, make_rate_limit_middleware
 from toon.security_headers import SecurityHeadersMiddleware, is_https
 from toon.serving.code_page import router as code_router
+from toon.serving.feedback_api import write_counter_sweep
+from toon.serving.feedback_body import BodyBudget
+from toon.serving.feedback_routes import router as feedback_router
 from toon.serving.router import router as serving_router
 
 API_VERSION = "1.5.0"
@@ -185,16 +189,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Counts code attempts per selector, next to the per-IP counting the
         # rate-limit middleware does (serving/code_page.py).
         app.state.code_attempts = InMemoryCounter()
+        # Feedback writes per author and per site, next to the per-IP
+        # counting of the rate-limit middleware (serving/feedback_api.py).
+        # Apart, so that a flood of author keys cannot evict a site's.
+        app.state.feedback_author_writes = InMemoryCounter()
+        app.state.feedback_site_writes = InMemoryCounter()
+        # The widget API bodies in flight, in all and per client.
+        app.state.feedback_bodies = BodyBudget()
         app.state.oidc_client = OidcClient(settings, oidc_http)
         app.state.ci_verifier = CiTokenVerifier(settings, ci_http)
         app.state.ci_providers = ProviderClient(ci_http)
         try:
             async with (
                 cleanup_job(
-                    session_factory, content_store, live_versions_kept=settings.live_versions_kept
+                    session_factory,
+                    content_store,
+                    live_versions_kept=settings.live_versions_kept,
+                    feedback_resolved_retention_days=settings.feedback_resolved_retention_days,
+                    feedback_screenshot_retention_days=settings.feedback_screenshot_retention_days,
+                    feedback_open_retention_days=settings.feedback_open_retention_days,
                 ) as cleanup_task,
                 storage_check_job(app, content_store, settings) as storage_task,
                 audit_retention_job(settings.db_url) as audit_retention_task,
+                write_counter_sweep(app.state.feedback_author_writes, app.state.feedback_site_writes),
             ):
                 app.state.cleanup_task = cleanup_task
                 app.state.storage_task = storage_task
@@ -299,9 +316,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Admin host only (host_separation.py); no origin check, because the OP
     # calls it server to server and authenticates with the logout token itself.
     app.include_router(backchannel_router)
-    # The only POST on the content host; before the serving catch-all for the
-    # same reason.
+    # The content host's own POSTs and site feedback, before the serving
+    # catch-all for the same reason.
     app.include_router(code_router)
+    app.include_router(feedback_router)
     app.include_router(serving_router)
 
     return app

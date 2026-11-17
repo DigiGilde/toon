@@ -65,7 +65,8 @@ EXTERNAL_SOURCES: dict[str, tuple[str, ...]] = {
 # and reach the gate with the site's credentials, but only because those
 # cookies are SameSite=None (auth/sessions.py). What cannot work here is what
 # the browser fetches in CORS mode: web fonts, module scripts and fetch/XHR
-# arrive with `Origin: null` and no cookie, and this app sets no CORS headers.
+# arrive with `Origin: null` and no cookie, and content answers carry no CORS
+# headers.
 # A site that needs those has to have the switch off.
 SANDBOX: dict[str, tuple[str, ...]] = {
     "sandbox": ("allow-scripts", "allow-forms", "allow-popups"),

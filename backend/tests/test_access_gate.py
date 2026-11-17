@@ -25,9 +25,9 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from toon.access import keys
-from toon.access.decision import DecisionKind
+from toon.access.decision import DecisionKind, FeedbackPolicy
 from toon.access.gate import Visitor, _is_invitee, code_page_needed, decide, decide_preview, decide_version
-from toon.constants import AccessBase, AccessPolicy, Role
+from toon.constants import AccessBase, AccessPolicy, FeedbackIdentity, Role
 from toon.ingest.store import version_ref
 from toon.models.identity import Group, GroupMember, Member, MemberStatus, SiteMember
 from toon.models.publication import AccessKey, Invitee, KeyStatus, Preview, Site, Version, VersionTarget
@@ -65,6 +65,15 @@ class World:
     other_site_key_plain: str
     other_site_id: uuid.UUID
     other_site_version_id: uuid.UUID
+    # The site's feedback settings, which every allow carries along.
+    feedback: FeedbackPolicy
+
+
+# What a site's feedback settings are when nobody has touched them.
+FEEDBACK_UNTOUCHED = FeedbackPolicy(enabled=False, identity=FeedbackIdentity.ACCOUNT, live=False)
+# The matrix runs on settings that differ from those in every field, so an
+# allow that carried the defaults instead of the site's own would show.
+FEEDBACK_MATRIX = FeedbackPolicy(enabled=True, identity=FeedbackIdentity.ANONYMOUS, live=True)
 
 
 POLICIES = [
@@ -92,7 +101,10 @@ async def make_world(
     preview_override: AccessPolicy | None = None,
     with_live: bool = True,
     preview_expires_at: datetime | None = None,
+    feedback: FeedbackPolicy | None = None,
 ) -> World:
+    """Without `feedback` the site keeps the feedback settings a new site
+    gets."""
     group = Group(slug="aurora", name="Aurora", default_access_base=AccessBase.PUBLIC)
     db.add(group)
     await db.flush()
@@ -120,6 +132,10 @@ async def make_world(
         access_keys=policy.keys,
         access_invitees=policy.invitees,
     )
+    if feedback is not None:
+        site.feedback_enabled = feedback.enabled
+        site.feedback_identity = feedback.identity
+        site.feedback_live = feedback.live
     other_site = Site(
         group_id=group.id,
         slug="ander",
@@ -198,6 +214,7 @@ async def make_world(
         other_site_key_plain=other_plain,
         other_site_id=other_site.id,
         other_site_version_id=other_live.id,
+        feedback=FEEDBACK_UNTOUCHED if feedback is None else feedback,
     )
 
 
@@ -299,14 +316,24 @@ def expected(policy: AccessPolicy, name: str, *, preview: bool) -> tuple[Decisio
     return (DecisionKind.NEUTRAL_404, "NO_ACCESS")
 
 
-def check(decision, kind: DecisionKind, reason: str, expected_version_id, expected_access) -> None:
+def check(
+    decision, kind: DecisionKind, reason: str, expected_version_id, expected_access, world: World | None = None
+) -> None:
+    """An allow is checked against the world it was decided in: it names that
+    site and carries its feedback settings, which is what lets serving offer
+    the feedback widget without another query. A refusal names no site."""
     assert decision.kind is kind, (decision.kind, decision.reason_code)
     assert decision.reason_code == reason
     if kind is DecisionKind.ALLOW:
+        assert world is not None, "an allow needs the world it was decided in"
         assert decision.version_id == expected_version_id
         assert decision.effective_access == expected_access
+        assert decision.site_id == world.site_id
+        assert decision.feedback == world.feedback
     else:
         assert decision.version_id is None
+        assert decision.site_id is None
+        assert decision.feedback is None
 
 
 # --- Who counts as belonging to this site ---
@@ -390,10 +417,10 @@ async def test_a_secret_link_outlives_deactivating_the_member(db):
 @pytest.mark.parametrize("name", VISITOR_NAMES)
 @pytest.mark.parametrize("policy", POLICIES, ids=policy_id)
 async def test_matrix_live(db, policy, name):
-    world = await make_world(db, policy)
+    world = await make_world(db, policy, feedback=FEEDBACK_MATRIX)
     decision = await decide(db, world.group_slug, world.site_slug, visitors(world)[name])
     kind, reason = expected(policy, name, preview=False)
-    check(decision, kind, reason, world.live_version_id, policy)
+    check(decision, kind, reason, world.live_version_id, policy, world)
 
 
 # --- The matrix: a preview inherits the site's access policy ---
@@ -402,12 +429,12 @@ async def test_matrix_live(db, policy, name):
 @pytest.mark.parametrize("name", VISITOR_NAMES)
 @pytest.mark.parametrize("policy", POLICIES, ids=policy_id)
 async def test_matrix_preview_inherits(db, policy, name):
-    world = await make_world(db, policy)
+    world = await make_world(db, policy, feedback=FEEDBACK_MATRIX)
     decision = await decide_preview(
         db, world.group_slug, world.site_slug, world.preview_ref, visitors(world)[name]
     )
     kind, reason = expected(policy, name, preview=True)
-    check(decision, kind, reason, world.preview_version_id, policy)
+    check(decision, kind, reason, world.preview_version_id, policy, world)
 
 
 # --- The matrix: a preview override beats the site's own policy ---
@@ -438,12 +465,13 @@ OVERRIDE_PAIRS = [
 @pytest.mark.parametrize("name", VISITOR_NAMES)
 @pytest.mark.parametrize(("site_policy", "override"), OVERRIDE_PAIRS, ids=repr)
 async def test_matrix_preview_override(db, site_policy, override, name):
-    world = await make_world(db, site_policy, preview_override=override)
+    world = await make_world(db, site_policy, preview_override=override, feedback=FEEDBACK_MATRIX)
     decision = await decide_preview(
         db, world.group_slug, world.site_slug, world.preview_ref, visitors(world)[name]
     )
     kind, reason = expected(override, name, preview=True)
-    check(decision, kind, reason, world.preview_version_id, override)
+    # The override decides who may look, the feedback settings stay the site's.
+    check(decision, kind, reason, world.preview_version_id, override, world)
 
 
 # --- The matrix: _version for whoever belongs to the site ---
@@ -460,12 +488,12 @@ async def test_matrix_preview_override(db, site_policy, override, name):
     ids=policy_id,
 )
 async def test_matrix_version(db, policy, name):
-    world = await make_world(db, policy)
+    world = await make_world(db, policy, feedback=FEEDBACK_MATRIX)
     decision = await decide_version(
         db, world.group_slug, world.site_slug, world.live_version_id, visitors(world)[name]
     )
     if name == "group_member_active":
-        check(decision, DecisionKind.ALLOW, "OK", world.live_version_id, AccessPolicy(AccessBase.SITE_TEAM))
+        check(decision, DecisionKind.ALLOW, "OK", world.live_version_id, AccessPolicy(AccessBase.SITE_TEAM), world)
     else:
         # Anonymous too: neutral 404, never a login redirect (spec §7).
         check(decision, DecisionKind.NEUTRAL_404, "NO_ACCESS", None, None)
@@ -490,7 +518,7 @@ async def _change_address(db, world: World, moved: str) -> tuple[str, str]:
 @pytest.mark.parametrize("name", VISITOR_NAMES)
 @pytest.mark.parametrize("policy", POLICIES, ids=policy_id)
 async def test_matrix_after_a_change_of_address(db, policy, name, moved):
-    world = await make_world(db, policy)
+    world = await make_world(db, policy, feedback=FEEDBACK_MATRIX)
     group, site = await _change_address(db, world, moved)
     visitor = visitors(world)[name]
     unknown = "UNKNOWN_GROUP" if moved == "group" else "UNKNOWN_SITE"
@@ -502,8 +530,10 @@ async def test_matrix_after_a_change_of_address(db, policy, name, moved):
     ]:
         check(decision, DecisionKind.NEUTRAL_404, unknown, None, None)
 
+    # The new address names the same site: the id an allow carries does not
+    # follow the slugs.
     kind, reason = expected(policy, name, preview=False)
-    check(await decide(db, group, site, visitor), kind, reason, world.live_version_id, policy)
+    check(await decide(db, group, site, visitor), kind, reason, world.live_version_id, policy, world)
     kind, reason = expected(policy, name, preview=True)
     check(
         await decide_preview(db, group, site, world.preview_ref, visitor),
@@ -511,10 +541,11 @@ async def test_matrix_after_a_change_of_address(db, policy, name, moved):
         reason,
         world.preview_version_id,
         policy,
+        world,
     )
     version = await decide_version(db, group, site, world.live_version_id, visitor)
     if name == "group_member_active":
-        check(version, DecisionKind.ALLOW, "OK", world.live_version_id, AccessPolicy(AccessBase.SITE_TEAM))
+        check(version, DecisionKind.ALLOW, "OK", world.live_version_id, AccessPolicy(AccessBase.SITE_TEAM), world)
     else:
         check(version, DecisionKind.NEUTRAL_404, "NO_ACCESS", None, None)
 
@@ -584,7 +615,7 @@ async def test_preview_with_future_expiry_date_stays_accessible(db):
     decision = await decide_preview(
         db, world.group_slug, world.site_slug, world.preview_ref, visitors(world)["anonymous"]
     )
-    check(decision, DecisionKind.ALLOW, "OK", world.preview_version_id, AccessPolicy(AccessBase.PUBLIC))
+    check(decision, DecisionKind.ALLOW, "OK", world.preview_version_id, AccessPolicy(AccessBase.PUBLIC), world)
 
 
 async def test_revoking_breaks_an_existing_cookie_immediately(db):
@@ -610,7 +641,9 @@ async def test_key_on_preview_with_key_override(db):
     decision = await decide_preview(
         db, world.group_slug, world.site_slug, world.preview_ref, Visitor(key_query=world.key_plain)
     )
-    check(decision, DecisionKind.ALLOW, "OK", world.preview_version_id, AccessPolicy(AccessBase.NOBODY, keys=True))
+    check(
+        decision, DecisionKind.ALLOW, "OK", world.preview_version_id, AccessPolicy(AccessBase.NOBODY, keys=True), world
+    )
 
 
 async def test_valid_query_beats_invalid_cookie(db):
@@ -621,7 +654,9 @@ async def test_valid_query_beats_invalid_cookie(db):
         world.site_slug,
         Visitor(key_query=world.key_plain, key_cookie=str(world.revoked_key_id)),
     )
-    check(decision, DecisionKind.ALLOW, "OK", world.live_version_id, AccessPolicy(AccessBase.NOBODY, keys=True))
+    check(
+        decision, DecisionKind.ALLOW, "OK", world.live_version_id, AccessPolicy(AccessBase.NOBODY, keys=True), world
+    )
 
 
 async def test_valid_cookie_beats_invalid_query(db):
@@ -632,7 +667,9 @@ async def test_valid_cookie_beats_invalid_query(db):
         world.site_slug,
         Visitor(key_query="kapot", key_cookie=str(world.key_id)),
     )
-    check(decision, DecisionKind.ALLOW, "OK", world.live_version_id, AccessPolicy(AccessBase.NOBODY, keys=True))
+    check(
+        decision, DecisionKind.ALLOW, "OK", world.live_version_id, AccessPolicy(AccessBase.NOBODY, keys=True), world
+    )
 
 
 async def test_version_unknown_id(db):
@@ -661,7 +698,7 @@ async def test_version_accessible_also_without_live_version(db):
     decision = await decide_version(
         db, world.group_slug, world.site_slug, world.preview_version_id, visitors(world)["group_member_active"]
     )
-    check(decision, DecisionKind.ALLOW, "OK", world.preview_version_id, AccessPolicy(AccessBase.SITE_TEAM))
+    check(decision, DecisionKind.ALLOW, "OK", world.preview_version_id, AccessPolicy(AccessBase.SITE_TEAM), world)
 
 
 async def test_login_redirect_carries_the_policy_no_version(db):
@@ -686,6 +723,7 @@ async def test_a_secret_link_opens_a_site_that_is_otherwise_sso_only(db):
         "OK",
         world.live_version_id,
         AccessPolicy(AccessBase.SSO, keys=True),
+        world,
     )
 
 
@@ -703,6 +741,29 @@ async def test_a_stale_key_cookie_does_not_shut_out_a_logged_in_visitor(db):
     world = await make_world(db, AccessPolicy(AccessBase.SSO, keys=True))
     visitor = Visitor(sub="kijker", key_cookie=str(world.revoked_key_id))
     assert (await decide(db, world.group_slug, world.site_slug, visitor)).kind is DecisionKind.ALLOW
+
+
+@pytest.mark.parametrize("base", [AccessBase.NOBODY, AccessBase.SITE_TEAM])
+async def test_a_secret_link_lets_a_signed_in_visitor_outside_the_team_in(db, base):
+    """The visitor the consent page for feedback asks about with the link of
+    its ticket (serving/feedback_consent.py): signed in, outside the team,
+    let in by the link alone, on live and on a preview. Revoked, the link
+    lets nobody in, and the session alone does not either."""
+    world = await make_world(db, AccessPolicy(base, keys=True))
+    visitor = Visitor(
+        sub="lid-buiten", email="lid-buiten@example.org", email_verified=True, key_cookie=str(world.key_id)
+    )
+    pages = (
+        lambda: decide(db, world.group_slug, world.site_slug, visitor),
+        lambda: decide_preview(db, world.group_slug, world.site_slug, world.preview_ref, visitor),
+    )
+    for page in pages:
+        decision = await page()
+        assert (decision.kind, decision.site_id) == (DecisionKind.ALLOW, world.site_id)
+        assert decision.key_selector is not None
+    await keys.revoke(db, world.key_id)
+    for page in pages:
+        check(await page(), DecisionKind.NEUTRAL_404, "NO_ACCESS", None, None)
 
 
 async def test_extras_add_nothing_to_a_public_base(db):
@@ -819,6 +880,40 @@ async def test_an_allow_carries_the_storage_and_switches_serving_needs(db):
         (DecisionKind.ALLOW, preview_ref, False, True),
         (DecisionKind.ALLOW, live_ref, False, True),
     ]
+
+
+FEEDBACK_SETTINGS = [
+    FeedbackPolicy(enabled=enabled, identity=identity, live=live)
+    for enabled in (False, True)
+    for identity in FeedbackIdentity
+    for live in (False, True)
+]
+
+
+def feedback_id(feedback: FeedbackPolicy) -> str:
+    return "-".join(
+        ["on" if feedback.enabled else "off", feedback.identity.value, "live" if feedback.live else "previews"]
+    )
+
+
+@pytest.mark.parametrize("feedback", FEEDBACK_SETTINGS, ids=feedback_id)
+async def test_an_allow_carries_the_site_and_its_feedback_settings(db, feedback):
+    """Serving offers the feedback widget from these two without a query of
+    its own, on live, a preview and a `_version` view alike. The preview here
+    has an override of its own: that decides who may look, while the
+    feedback settings stay the site's."""
+    world = await make_world(
+        db, AccessPolicy(AccessBase.PUBLIC), preview_override=AccessPolicy(AccessBase.SSO), feedback=feedback
+    )
+    visitor = visitors(world)["group_member_active"]
+
+    decisions = [
+        await decide(db, world.group_slug, world.site_slug, visitor),
+        await decide_preview(db, world.group_slug, world.site_slug, world.preview_ref, visitor),
+        await decide_version(db, world.group_slug, world.site_slug, world.live_version_id, visitor),
+    ]
+
+    assert [(d.kind, d.site_id, d.feedback) for d in decisions] == [(DecisionKind.ALLOW, world.site_id, feedback)] * 3
 
 
 async def test_only_a_key_in_the_url_is_handed_on_to_be_redeemed(db):

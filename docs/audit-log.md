@@ -80,12 +80,19 @@ not even derived. A correct code writes no row of its own: the visitor gets
 the same cookie as with a full link, and the request after that is the row
 that says content was viewed.
 
-Whoever views through a secret link is not logged in and stays `anonymous`
-without a pseudonym. Which link it was is in `refs.selector`: the public
-part of the link, the same one that appears with `key_create` and
+Whoever views through a secret link without a session on that site stays
+`anonymous` without a pseudonym. Which link it was is in `refs.selector`:
+the public part of the link, the same one that appears with `key_create` and
 `key_revoke` and that admin sees in the list of links. The secret part never
 appears in the log. Whoever gave a link to one person can trace who viewed;
 whoever shares a link with several people sees only that it was that link.
+A link visitor who signs in on that site gets its session cookie, and from
+then until the session ends their page views there carry their pseudonym
+beside `refs.selector`, kept like every `content_access` row. Saying yes to
+feedback with their account does that too: the way back from the consent
+page runs through the login, which sets that cookie (`docs/design.md`
+§16.6). The consent page says so before they say yes. Signing in for
+feedback and going back without saying yes sets no cookie for the site.
 
 ### Logging in and out
 
@@ -161,6 +168,17 @@ their site needs browser storage.
 nightly cleanup keeps for this site (set on the site's Versions tab):
 `refs.live_versions_kept` is the new number, `0` for keeping all, or `null`
 when the site went back to the platform default `TOON_LIVE_VERSIONS_KEPT`.
+
+What happens through the feedback widget API and the consent pages on the
+content host writes no row: giving feedback, a submitter replying to or
+deleting their own item, saying yes to feedback with their account or taking
+that back, and the refusals of all of these, like viewing public content.
+What a visitor sends is kept with the item, where its retention and its
+deletion reach it, and a row about it would outlast both. Signing in for it
+writes its `login` row as every sign-in does. A session the IdP ends writes
+its `idp_session_ended` row as on any other request, also when a widget call
+is the request that finds out. On a non-public site every page view is in
+the log already, one row per page.
 
 `group_name` and `site_title` are about the display name of a group and the
 display title of a site (set on the Settings tab of each). `refs` carries
@@ -297,6 +315,10 @@ reach those any more.
 The row is written in its own transaction after the removal committed, and a
 failure to write it is logged without stopping the cleanup of the next site,
 as with every other fail-open audit write.
+
+The same job purges site feedback past its retention (`docs/design.md`
+§16.12). That writes no row either: a row per item would keep, for three
+years, a trace of what the purge is there to remove.
 
 ### CLI pairing (`toon login`)
 

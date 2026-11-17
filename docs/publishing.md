@@ -136,7 +136,8 @@ only the browser console tells you what is missing.
 
 Under the shielding the browser fetches some files in CORS mode, and from
 an opaque origin those requests reach Toon as `Origin: null` without the
-visitor's cookie. Toon sends no CORS headers, so the browser refuses them:
+visitor's cookie. Toon sends no CORS headers with a site's files, so the
+browser refuses them:
 
 | What | Under the shielding |
 | --- | --- |
@@ -1195,6 +1196,9 @@ does not keep what it serves:
 - Previews expire automatically after thirty days without a new deploy.
 - A site admin can delete a site and a group admin a whole group, with
   every version in it.
+- Feedback on a site goes by itself: the screenshot of a resolved item after
+  30 days, a resolved item after 90 and an item that stays open after 365,
+  by default.
 - The content volume is not backed up as an archive, and nothing in Toon
   records that a page was an official publication.
 

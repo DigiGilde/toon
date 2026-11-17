@@ -233,6 +233,16 @@ class Settings(BaseSettings):
     # Only true for an installation inside the Dutch central government.
     security_txt_ncsc: bool = False
 
+    # Site feedback. One screenshot. The widget API holds a whole request in
+    # memory, so the ceiling stays low.
+    feedback_screenshot_max_bytes: int = Field(default=2 * 1024 * 1024, ge=1, le=16 * 1024 * 1024)
+    # Retention in days, for the nightly cleanup, where 0 keeps. A resolved item
+    # goes this long after it was resolved and its screenshot sooner, an item
+    # nobody resolved this long after it came in.
+    feedback_resolved_retention_days: int = Field(default=90, ge=0, le=3650)
+    feedback_screenshot_retention_days: int = Field(default=30, ge=0, le=3650)
+    feedback_open_retention_days: int = Field(default=365, ge=0, le=3650)
+
     ratelimit_login_max: int = Field(default=10)
     ratelimit_login_window_s: int = Field(default=60)
     ratelimit_login_global_max: int = Field(default=1000)
@@ -248,6 +258,17 @@ class Settings(BaseSettings):
     ratelimit_code_max: int = Field(default=10)
     ratelimit_code_window_s: int = Field(default=900)
     ratelimit_code_global_max: int = Field(default=500)
+    # Everything under /-/feedback/ on the content host: the widget API and
+    # the pages around it. The widget's API calls send no cookies, so they
+    # count per client IP. The consent page and the stop page are top-level
+    # navigations that carry the content anchor cookie when the visitor has
+    # one, and then count per SSO sub, like every signed-in request. The
+    # consent form posts from an opaque origin, which brings no Lax cookie
+    # along, so that POST counts per client IP. A preflight counts like any
+    # other request.
+    ratelimit_feedback_max: int = Field(default=300, ge=1)
+    ratelimit_feedback_window_s: int = Field(default=60, ge=1)
+    ratelimit_feedback_global_max: int = Field(default=10000, ge=1)
 
     @field_validator("ci_forgejo_hosts")
     @classmethod

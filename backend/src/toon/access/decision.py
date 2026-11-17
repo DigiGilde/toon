@@ -10,7 +10,7 @@ import enum
 import uuid
 from dataclasses import dataclass
 
-from toon.constants import AccessPolicy
+from toon.constants import AccessPolicy, FeedbackIdentity
 
 REASON_OK = "OK"
 REASON_LOGIN_REQUIRED = "LOGIN_REQUIRED"
@@ -38,6 +38,17 @@ class DecisionKind(enum.StrEnum):
 
 
 @dataclass(frozen=True)
+class FeedbackPolicy:
+    """A site's feedback settings (models/publication.py): whether its pages
+    get the widget, the widest author kind it takes, and whether the live
+    site counts as well as its previews."""
+
+    enabled: bool
+    identity: FeedbackIdentity
+    live: bool
+
+
+@dataclass(frozen=True)
 class AccessDecision:
     kind: DecisionKind
     version_id: uuid.UUID | None
@@ -55,6 +66,9 @@ class AccessDecision:
     storage_ref: str | None = None
     external_sources: bool = False
     sandbox: bool = False
+    # Set on an allow only: a refusal names no site.
+    site_id: uuid.UUID | None = None
+    feedback: FeedbackPolicy | None = None
 
 
 def allow(
@@ -66,6 +80,8 @@ def allow(
     sandbox: bool = False,
     key_selector: str | None = None,
     redeem_key_id: uuid.UUID | None = None,
+    site_id: uuid.UUID | None = None,
+    feedback: FeedbackPolicy | None = None,
 ) -> AccessDecision:
     return AccessDecision(
         DecisionKind.ALLOW,
@@ -77,6 +93,8 @@ def allow(
         storage_ref=storage_ref,
         external_sources=external_sources,
         sandbox=sandbox,
+        site_id=site_id,
+        feedback=feedback,
     )
 
 

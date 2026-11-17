@@ -22,6 +22,7 @@ from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Mapped, mapped_column
 
+from toon.constants import FeedbackIdentity
 from toon.models.base import ACCESS_BASE_ENUM, Base, IDMixin
 
 
@@ -33,6 +34,13 @@ class VersionTarget(enum.StrEnum):
 class KeyStatus(enum.StrEnum):
     ACTIVE = "active"
     REVOKED = "revoked"
+
+
+FEEDBACK_IDENTITY_ENUM = SAEnum(
+    FeedbackIdentity,
+    name="feedback_identity",
+    values_callable=lambda enumcls: [member.value for member in enumcls],
+)
 
 
 class Site(IDMixin, Base):
@@ -63,6 +71,21 @@ class Site(IDMixin, Base):
     # every other site on the content hostname.
     sandbox: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=true(), default=True
+    )
+    # Site feedback (serving/feedback_*): whether the widget is added to the
+    # site's pages, the most open author kind allowed, and whether live pages
+    # count as well as previews.
+    feedback_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=false(), default=False
+    )
+    feedback_identity: Mapped[FeedbackIdentity] = mapped_column(
+        FEEDBACK_IDENTITY_ENUM,
+        nullable=False,
+        server_default=FeedbackIdentity.ACCOUNT.value,
+        default=FeedbackIdentity.ACCOUNT,
+    )
+    feedback_live: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=false(), default=False
     )
     # use_alter: breaks the circular dependency with versions (versions.site_id -> sites.id).
     live_version_id: Mapped[uuid.UUID | None] = mapped_column(

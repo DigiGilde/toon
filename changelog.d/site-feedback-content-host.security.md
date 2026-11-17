@@ -1,0 +1,1 @@
+- The content host takes site feedback under `/-/feedback/`, where the widget API answers any origin with `Access-Control-Allow-Origin: *` and accepts writes only under a sealed page token.
