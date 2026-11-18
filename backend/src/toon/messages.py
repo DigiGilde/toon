@@ -1,4 +1,4 @@
-"""The texts of problem+json answers, in Dutch and in English.
+"""The texts of problem+json answers, in English and in Dutch.
 
 The API answers with `{type, title, status, detail, code}`. The `code` is the
 contract: a client branches on it, and it never changes with the language.
@@ -17,7 +17,7 @@ that only ever appears inside another message, never a code of its own.
 Fragments travel as a `Msg` in the parameters of the message that holds them,
 so that a composed message is composed in one language.
 
-NL is the reference. The two catalogues are held to the same keys and the
+English is the default language of the API. The two catalogues are held to the same keys and the
 same parameters per key at import time, and test_messages.py holds them to
 the raise sites: a code that exists in one language only, or a message that
 no longer matches what the code raises, is a failing test rather than a Dutch
@@ -35,19 +35,6 @@ from typing import Final
 from toon import i18n
 
 # Every status code the API answers with; see api/errors.py.
-TITLES_NL: Final[dict[int, str]] = {
-    400: "Ongeldig verzoek",
-    401: "Niet geauthenticeerd",
-    403: "Geen toegang",
-    404: "Niet gevonden",
-    408: "Verzoek duurde te lang",
-    409: "Conflict",
-    413: "Inhoud te groot",
-    422: "Onverwerkbare invoer",
-    429: "Te veel verzoeken",
-    503: "Niet beschikbaar",
-}
-
 TITLES_EN: Final[dict[int, str]] = {
     400: "Bad request",
     401: "Not authenticated",
@@ -61,10 +48,369 @@ TITLES_EN: Final[dict[int, str]] = {
     503: "Unavailable",
 }
 
+TITLES_NL: Final[dict[int, str]] = {
+    400: "Ongeldig verzoek",
+    401: "Niet geauthenticeerd",
+    403: "Geen toegang",
+    404: "Niet gevonden",
+    408: "Verzoek duurde te lang",
+    409: "Conflict",
+    413: "Inhoud te groot",
+    422: "Onverwerkbare invoer",
+    429: "Te veel verzoeken",
+    503: "Niet beschikbaar",
+}
+
 # A status that is not in the table at all (never raised by Toon itself, but
 # Starlette can produce one) still needs a title.
-FALLBACK_TITLE_NL: Final[str] = "Fout"
 FALLBACK_TITLE_EN: Final[str] = "Error"
+FALLBACK_TITLE_NL: Final[str] = "Fout"
+
+EN: Final[dict[str, str]] = {
+    # -- Session, member, origin ---------------------------------------------
+    "NO_SESSION": "There is no valid session.",
+    "NO_SESSION.not_logged_in": "Not signed in.",
+    "SESSION_NOT_FRESH": (
+        "Sign in again to link a device. Your session is more than fifteen minutes old."
+    ),
+    "MEMBER_DEACTIVATED": "Your access has been withdrawn by a platform administrator.",
+    "MEMBER_NOT_ACTIVE": "Not an active member.",
+    "CSRF_INVALID": "The CSRF token is missing or invalid.",
+    "ORIGIN_REFUSED": "This request does not come from the admin origin.",
+    "NOT_ADMIN": "Only a platform administrator may do this.",
+    "INSUFFICIENT_ROLE": "This needs at least the role {role}.",
+    "INSUFFICIENT_ROLE.site_address": "Changing a site's address needs a role in its group.",
+    "INSUFFICIENT_ROLE.site_address_release": (
+        "Only an administrator of the group can release another site's address."
+    ),
+    "role.reader": "reader",
+    "role.editor": "editor",
+    "role.admin": "admin",
+    "NO_AUTHENTICATION": "No valid session or bearer token.",
+    "BEARER_NOT_ACCEPTED": (
+        "Bearer authentication is accepted only on the deploy and CLI endpoints, for creating a group "
+        "or site, for linking a repository and for reading, marking and answering feedback."
+    ),
+    # -- Groups, sites, members ----------------------------------------------
+    "UNKNOWN_GROUP": "Unknown group.",
+    "UNKNOWN_SITE": "Unknown site.",
+    "UNKNOWN_SITE.deploy": "Unknown group or site.",
+    "UNKNOWN_MEMBER": "Unknown member.",
+    "UNKNOWN_MEMBER.must_sign_in": "Unknown member. They have to sign in to the admin themselves first.",
+    "UNKNOWN_INVITEE": "Unknown invitee.",
+    "UNKNOWN_KEY": "Unknown key.",
+    "UNKNOWN_PREVIEW": "Unknown preview.",
+    "UNKNOWN_ASSET": "Unknown docs asset.",
+    "CLI_SESSION_UNKNOWN": "Unknown CLI session.",
+    "USER_CODE_UNKNOWN": "This code is unknown, expired or already used. Run `toon login` again.",
+    "NOT_GROUP_MEMBER": "This member is not in the group.",
+    "NOT_GROUP_MEMBER.you": "You are not a member of this group.",
+    "NOT_SITE_MEMBER": "This member has no role on this site.",
+    "ALREADY_GROUP_MEMBER": "This member is already in the group.",
+    "ALREADY_SITE_MEMBER": "This member already has a role of their own on this site.",
+    "SLUG_EXISTS.group": "A group with slug {slug!r} already exists.",
+    "SLUG_EXISTS.site": "A site with slug {slug!r} already exists in this group.",
+    "SLUG_EXISTS.group_previous": "The slug {slug!r} was recently the address of another group. Choose another slug.",
+    "SLUG_EXISTS.site_previous": (
+        "The slug {slug!r} was recently the address of another site in this group. Choose another slug."
+    ),
+    "SLUG_INVALID": "Slug is invalid or reserved: {slug!r}.",
+    "TOO_MANY_PREVIOUS_SLUGS": (
+        "This already has {max} previous addresses that still redirect. Change back to one of them, or wait "
+        "until one has expired."
+    ),
+    "FIELD_EMPTY": "Field {field!r} must not be empty.",
+    "FIELD_CONTROL_CHARACTERS": "Field {field!r} must not contain control or formatting characters.",
+    "FIELD_TOO_LONG": "Field {field!r} may be at most {max} characters long.",
+    "INVITEE_EXISTS": "{identifier!r} is already on the invitee list.",
+    "SELF_NOT_ALLOWED.deactivate": (
+        "You cannot deactivate yourself. Have another platform administrator do that."
+    ),
+    "SELF_NOT_ALLOWED.demote": (
+        "You cannot take the administrator role away from yourself. Have another platform "
+        "administrator do that."
+    ),
+    "BOOTSTRAP_MEMBER": (
+        "This is the bootstrap account from TOON_BOOTSTRAP_ADMIN_SUB. It is restored on every "
+        "sign-in, so change that setting instead of this member."
+    ),
+    "LAST_PLATFORM_ADMIN": "This is the last active platform administrator. Appoint someone else first.",
+    "LAST_GROUP_ADMIN": "This is the last administrator of the group. Appoint someone else first.",
+    "LAST_GROUP_MEMBER": "This is the last member of the group. Add someone else first.",
+    "SANDBOX_REQUIRED": "In a preview, only a platform administrator can turn off shielding from other sites.",
+    # -- Audit lookups --------------------------------------------------------
+    "AUDIT_UNAVAILABLE": "The audit log is unavailable.",
+    "AUDIT_IP_UNKNOWN": "No audit record with this id and an encrypted IP address.",
+    "LOOKUP_LIMIT_REACHED": "The daily limit for identity lookups has been reached.",
+    "AUDIT_PURGE_ALREADY_ON_HOLD": "The audit purge is already on hold.",
+    "AUDIT_PURGE_NOT_ON_HOLD": "The audit purge is not on hold.",
+    "HOLD_REASON_EMPTY": "Give a reason, such as a case or ticket number.",
+    "HOLD_REASON_TOO_LONG": (
+        "The reason is longer than {max} characters. Shorten it, or refer to the case or ticket number."
+    ),
+    "HOLD_REASON_INVISIBLE_CHARACTER": (
+        "The reason holds an invisible character, such as a zero-width space. Type the reason again or paste "
+        "it as plain text."
+    ),
+    "HOLD_REASON_EMAIL": (
+        "The reason holds an e-mail address. Every platform administrator can read the reason in the audit "
+        "log. Give a case or ticket number instead."
+    ),
+    "SEARCH_TOO_SHORT": "Search with at least {minimum} characters.",
+    "CURSOR_INVALID": "The cursor is unreadable. Ask for the first page again.",
+    "ACTOR_PSEUDONYM_INVALID": "An audit pseudonym is {length} hexadecimal characters.",
+    "PSEUDONYM_UNKNOWN": "No member, content viewer or linked repository found for this pseudonym.",
+    "IDENTIFIER_UNKNOWN": "No member or content viewer with this e-mail address.",
+    "IDENTIFIER_AMBIGUOUS.email": "More than one person with this e-mail address. Use the SSO subject.",
+    "IDENTIFIER_AMBIGUOUS.member_email": (
+        "More than one member with this e-mail address. Use the SSO subject."
+    ),
+    "IDENTIFIER_AMBIGUOUS.member_name": (
+        "More than one member with this name. Use the e-mail address."
+    ),
+    "IDENTIFIER_AMBIGUOUS.repository": (
+        "This repository is linked on more than one provider. Name the host as well."
+    ),
+    # -- Repositories and CI --------------------------------------------------
+    "REPOSITORY_NOT_SET": "No repository is linked to this site.",
+    "REPOSITORY_INVALID": "Owner or repository is not a valid name.",
+    "REPOSITORY_NOT_FOUND": (
+        "Repository {owner}/{repo} not found on {host}, or not public. If it is private, enter the "
+        "repository ID and the owner ID yourself."
+    ),
+    "REPOSITORY_IDS_INVALID": "Enter both the repository ID and the owner ID, as positive whole numbers.",
+    "REPOSITORY_IDS_MISMATCH": (
+        "{host} gives {owner}/{repo} other IDs than the ones entered. Leave the IDs empty, or copy them from "
+        "{host}."
+    ),
+    "LIVE_BRANCH_INVALID": "This live branch is not a valid branch name.",
+    "SITE_ID_REQUIRED_PERMANENT": "Once a site id is required, it stays required.",
+    "LIVE_VERSIONS_KEPT_INVALID": (
+        "The number of previous versions kept must be a whole number of 0 or more."
+    ),
+    "LIVE_VERSIONS_KEPT_TOO_LARGE": "This number is too large to store. Choose a smaller one.",
+    "HOST_NOT_ALLOWED": "This Forgejo instance is not in TOON_CI_FORGEJO_HOSTS.",
+    "HOST_NOT_ALLOWED.github": "GitHub does not come with another host.",
+    "CI_PROVIDER_RATE_LIMITED": "{host} is not accepting lookups right now. Try again later.",
+    "CI_PROVIDER_UNREACHABLE.lookup": "{host} is unreachable. Try again later.",
+    "CI_PROVIDER_UNREACHABLE.keys": (
+        "The keys of the CI provider cannot be fetched. Try again later."
+    ),
+    "CI_PROVIDER_UNREACHABLE.repository": (
+        "Forgejo is unreachable to check the repository. Try again later."
+    ),
+    "CI_TOKEN_INVALID.not_a_jwt": "The CI token is not a valid JWT.",
+    "CI_TOKEN_INVALID.algorithm": "The CI token has to be signed with RS256.",
+    "CI_TOKEN_INVALID.no_kid": "The CI token names no key (kid).",
+    "CI_TOKEN_INVALID.unknown_key": "The CI token is signed with an unknown key.",
+    "CI_TOKEN_INVALID.expired": "The CI token is invalid or expired.",
+    "CI_TOKEN_INVALID.no_lifetime": "The CI token is missing exp or iat.",
+    "CI_TOKEN_INVALID.replayed": "This CI token has been used already. Request a new token for every call.",
+    "CI_ISSUER_UNKNOWN": (
+        "The CI token does not come from GitHub or from a configured Forgejo instance."
+    ),
+    "CI_ISSUER_UNKNOWN.mismatch": "The issuer of the CI token is not right.",
+    "CI_AUDIENCE_MISMATCH": (
+        "The audience of the CI token has to be exactly the admin URL of Toon ({audience}), or for "
+        "one site {audience}/-/sites/ followed by the site id."
+    ),
+    "CI_AUDIENCE_MISMATCH.no_base_url": (
+        "The audience of the CI token has to be exactly the admin URL of Toon "
+        "(TOON_BASE_URL is not set)."
+    ),
+    "CI_AUDIENCE_MISMATCH.site": "This ID token's repository is not linked to the site its site id names.",
+    "CI_REPOSITORY_NOT_TRUSTED": (
+        "This repository may not publish to this site. Link it to the site in the admin first."
+    ),
+    "CI_BRANCH_NOT_ALLOWED.event": (
+        "Publishing live is allowed from a push, a manual run (workflow_dispatch) or a schedule "
+        "only. Publish from this event as a preview."
+    ),
+    "CI_BRANCH_NOT_ALLOWED.branch": (
+        "Only the branch {branch} may publish live. Publish from this ref as a preview."
+    ),
+    "CI_SITE_ID_REQUIRED": (
+        "This site only accepts a workflow that names its site id. Add `site-id` (action) or "
+        "`--site-id` (CLI) with the id from the Deploy tab of your site in Toon. "
+        "An older action or CLI ignores or refuses that option: update it first."
+    ),
+    "SITE_MOVED": (
+        "This workflow publishes to {address}. Use that address as the site: `site:` in the action, "
+        "`--site` for the CLI."
+    ),
+    # -- Deploy tokens, keys, expiry -----------------------------------------
+    "TOKEN_INVALID": "The token is invalid, revoked or expired.",
+    "TOKEN_INVALID.missing": "The token is missing.",
+    "TOKEN_INVALID.cli_only": "Only a CLI token from `toon login` is accepted here.",
+    "EXPIRY_IN_PAST": "The expiry date is in the past.",
+    "EXPIRY_TOO_FAR": "The expiry date may be at most {days} days ahead.",
+    # -- CLI login ------------------------------------------------------------
+    "TOO_MANY_ATTEMPTS": "Too many attempts. Wait a few minutes.",
+    "TOO_MANY_CREATIONS": "At most {limit} new groups, sites and addresses per hour. Try again later.",
+    "TOO_MANY_REQUESTS": "Too many requests. Try again in a few moments.",
+    "TOO_MANY_REQUESTS.cli_login": "Too many sign-in attempts from this address. Try again later.",
+    "TOO_MANY_REQUESTS.feedback": "A lot of feedback is coming in right now. Try again in a few minutes.",
+    "INVALID_GRANT.device_code_missing": "`deviceCode` is missing.",
+    "INVALID_GRANT.device_code_unknown": "Unknown or already used device code.",
+    "INVALID_GRANT.refresh_token_missing": "`refreshToken` is missing.",
+    "INVALID_GRANT.refresh_token_unknown": "Unknown or revoked refresh token.",
+    "INVALID_GRANT.refresh_token_rotated": (
+        "This refresh token has just been refreshed. Use the new one."
+    ),
+    "INVALID_GRANT.refresh_token_reused": (
+        "This refresh token has been used before. The CLI session has been revoked."
+    ),
+    "INVALID_GRANT.session_expired": "The CLI session has expired. Sign in again with `toon login`.",
+    "INVALID_GRANT.member_not_active": "The member behind this CLI session is no longer active.",
+    "EXPIRED_TOKEN.device_code": "The device code has expired. Start signing in again.",
+    "SLOW_DOWN": "Ask at most once every {interval} seconds. Wait longer.",
+    "AUTHORIZATION_PENDING": "Not approved in the admin yet.",
+    "ACCESS_DENIED": "Linking was refused.",
+    "ACCESS_DENIED.approver_not_active": "The member who approved this is no longer active.",
+    # -- Upload and multipart -------------------------------------------------
+    "BODY_TOO_LARGE": "Upload larger than {max_body} bytes.",
+    "CLIENT_ABORTED": "Upload aborted by the client.",
+    "NOT_MULTIPART": "Invalid input: {field} (multipart/form-data with a file field required).",
+    "FILE_MISSING": "Invalid input: {field}.",
+    "MULTIPART_INVALID": "Invalid multipart request.",
+    "MULTIPART_INVALID.no_field_name": "Multipart part without a field name.",
+    "MULTIPART_INVALID.unexpected_file_field": "Unexpected file field {field!r}.",
+    "MULTIPART_INVALID.more_than_one_file": "More than one file in the upload.",
+    "MULTIPART_INVALID.too_many_fields": "Too many form fields.",
+    "MULTIPART_INVALID.field_too_large": "Form field {field!r} is too large.",
+    "MULTIPART_INVALID.incomplete": "The multipart request is incomplete.",
+    "PREVIEW_REF_INVALID": "The preview ref is not a valid slug.",
+    # -- Validation FastAPI itself signals ------------------------------------
+    "INVALID_INPUT": "Invalid input: {fields}",
+    "INVALID_INPUT.request": "Invalid input: request",
+    # -- Ingest ---------------------------------------------------------------
+    "ORIGIN_INVALID": "Exactly one of member_id or ci_repository has to be set.",
+    "UNKNOWN_VERSION": "This version does not exist.",
+    "UNKNOWN_VERSION.site": "Unknown version for this site.",
+    "VERSION_OTHER_SITE": "This version does not belong to this site.",
+    "ROLLBACK_TARGET_PREVIEW": "Versions targeting 'preview' are never a rollback target.",
+    # -- Bundles: paths -------------------------------------------------------
+    "NULL_BYTE": "Path contains a null byte: {path!r}",
+    "ABSOLUTE_PATH": "Absolute path refused: {path}",
+    "PATH_TRAVERSAL": "Path with a '..' segment refused: {path}",
+    "EMPTY_PATH": "Empty path refused: {path!r}",
+    "TOO_DEEP": "Path deeper than {max_depth} levels: {path}",
+    "DUPLICATE_PATH": "Path occurs more than once, or as both a directory and a file: {path}",
+    "SECRET_FILE": (
+        "'{path}' does not belong on a website and is not published. Publish the directory with "
+        "the built site (often 'dist' or 'build') instead of the whole project directory, or take "
+        "'{secret}' out of the bundle."
+    ),
+    "RESERVED_SEGMENT": (
+        "'{segment}' sits {where} and is a reserved segment. Rename the directory or the file, "
+        "or publish another directory"
+    ),
+    "RESERVED_SEGMENT.base_path": "'{segment}' is a reserved segment",
+    "where.base_path": "in the root of base path '{base}'",
+    "where.peeled": "in the root of the site after peeling off '{peeled}'",
+    "where.bundle_root": "in the root of the bundle",
+    # -- Bundles: limits and archives -----------------------------------------
+    "TOO_MANY_FILES": "The bundle holds more than {limit} files or directories.",
+    "TOO_MANY_FILES.archive_entries": (
+        "The archive holds more than {limit} entries. Whatever falls outside the root of the site "
+        "counts towards that too."
+    ),
+    "FILE_TOO_LARGE": "File '{path}' is larger than {max_file} bytes unpacked.",
+    "TOTAL_TOO_LARGE": "The bundle is larger than {max_total} bytes unpacked.",
+    "TOTAL_TOO_LARGE.archive": "The archive is larger than {max_total} bytes unpacked.",
+    "SITE_QUOTA_EXCEEDED": (
+        "This site already uses {used} of {max_bytes} bytes, which leaves no room for the "
+        "{added} bytes of this version. Old live versions beyond the number kept are removed "
+        "nightly. Otherwise remove previews you no longer need, or ask the platform "
+        "administrator for more room."
+    ),
+    "STORAGE_UNAVAILABLE": (
+        "There is too little free space to publish right now. Try again later. The platform "
+        "administrator has been notified."
+    ),
+    "VOLUME_UNMEASURABLE": "The fill level of the content volume cannot be measured.",
+    "SYMLINK_REFUSED": "Symlink in the archive refused: {name}",
+    "HARDLINK_REFUSED": "Hard link in the archive refused: {name}",
+    "SPECIAL_FILE": "Not a regular file, refused: {name}",
+    "INVALID_ARCHIVE.zip": "Zip archive unreadable: {error}",
+    "INVALID_ARCHIVE.zip_entry": "Zip entry unreadable: {error}",
+    "INVALID_ARCHIVE.tar": "Tar.gz archive unreadable: {error}",
+    "INVALID_ARCHIVE.tar_entry": "Tar entry unreadable: {name}",
+    "INVALID_ARCHIVE.html": "Html file unreadable: {error}",
+    "UNKNOWN_FORMAT": "Only .html, .zip, .tar.gz or .tgz is accepted.",
+    "EMPTY_ARCHIVE": (
+        "The bundle holds no publishable files. OS metadata alone "
+        "({junk_dir}, {junk_prefix}*, .DS_Store) does not count."
+    ),
+    # -- Bundles: the root of the site ---------------------------------------
+    "BASE_PATH_INVALID": "The base path is invalid: {cause}",
+    "BASE_PATH_UNKNOWN": "Base path '{base_path}' is not a directory in the bundle",
+    "BASE_PATH_UNKNOWN.case_variant": (
+        "Base path '{base_path}' is not a directory in the bundle. The bundle does hold "
+        "'{variant}', and capitals count"
+    ),
+    "BASE_PATH_UNKNOWN.peeled": (
+        "Base path '{base_path}' is not a directory in the bundle. The enclosing directory "
+        "'{peeled}' has been peeled off already, so a path inside it is enough"
+    ),
+    "BASE_PATH_UNKNOWN.file": "Base path '{base_path}' points at a file, not at a directory",
+    "BASE_PATH_UNKNOWN.html_file": (
+        "A single html file holds no directories. Leave the base path ('{base_path}') out"
+    ),
+    "BASE_PATH_WITHOUT_INDEX.empty": "Base path '{base_path}' holds no files",
+    "BASE_PATH_WITHOUT_INDEX.empty_with_suggestion": (
+        "Base path '{base_path}' holds no files. {suggestion}"
+    ),
+    "BASE_PATH_WITHOUT_INDEX.no_index": "Base path '{base_path}' holds no {index}",
+    "BASE_PATH_WITHOUT_INDEX.no_index_with_suggestion": (
+        "Base path '{base_path}' holds no {index}. {suggestion}"
+    ),
+    "suggestion.in_root": "The {index} sits in the root of the bundle. Leave the base path field out",
+    "suggestion.nearest": "The nearest one sits at '{path}'",
+    "NO_INDEX": "The bundle holds no {index} anywhere. The root of the bundle needs one",
+    "NO_INDEX.case_variant": (
+        "The bundle holds no {index} anywhere. The root of the bundle needs one. Mind you: "
+        "'{variant}' does not count, because the server is case sensitive. Rename the file to "
+        "'{index}'"
+    ),
+    "NO_INDEX.nearest": (
+        "No {index} in the root of the bundle. The nearest one sits at '{shortest}'. Publish the "
+        "directory '{directory}' itself, or send along the base path field with the value "
+        "'{directory}'"
+    ),
+    # -- Site feedback: the widget API, then the admin ------------------------
+    "FEEDBACK_UNAVAILABLE": "This does not work from this page right now. Reload the page and try again.",
+    "FEEDBACK_ACCOUNT_REQUIRED": (
+        "This only works when you give feedback with your account. Sign in and try again."
+    ),
+    "FEEDBACK_INVALID": "Something is wrong with the field {field}.",
+    "FEEDBACK_PAGE_MOVED": "The site or group has a new address. Reload the page.",
+    "FEEDBACK_AUTHOR_NOT_ALLOWED": (
+        "This site does not take feedback this way. Reload the page and choose another way."
+    ),
+    "FEEDBACK_SCREENSHOT_TOO_LARGE": (
+        "The screenshot is too large. Choose a smaller part or send without a screenshot."
+    ),
+    "FEEDBACK_SCREENSHOT_INVALID": "This screenshot cannot be used. Send your feedback without a screenshot.",
+    "FEEDBACK_SCREENSHOT_QUOTA": (
+        "There is no room left for screenshots. Send your feedback without a screenshot."
+    ),
+    "FEEDBACK_SITE_FULL": "This site has too much open feedback already. Try again later.",
+    "FEEDBACK_THREAD_FULL": "This feedback cannot take any more replies.",
+    "FEEDBACK_BUSY": "Toon cannot take your feedback right now. Try again in a minute.",
+    "FEEDBACK_TIMEOUT": "Sending took too long. Try again, without the screenshot if need be.",
+    "FEEDBACK_NOT_FOUND": "Unknown feedback.",
+    "FEEDBACK_REF_WITHOUT_PREVIEW": "The filter ref only works together with target=preview.",
+    # -- Examples in the OpenAPI document, one per status code ----------------
+    "example.401": "There is no active session.",
+    "example.403": "You have no access here.",
+    "example.404": "This does not exist, or you may not see it.",
+    "example.409": "This clashes with the current state.",
+    "example.413": "The request is larger than allowed.",
+    "example.422": "The input is not right.",
+    "example.429": "Too many requests. Try again later.",
+    "example.other": "Something went wrong.",
+}
 
 NL: Final[dict[str, str]] = {
     # -- Session, member, origin ---------------------------------------------
@@ -412,352 +758,6 @@ NL: Final[dict[str, str]] = {
     "example.422": "De invoer klopt niet.",
     "example.429": "Te veel verzoeken. Probeer het later opnieuw.",
     "example.other": "Er ging iets mis.",
-}
-
-EN: Final[dict[str, str]] = {
-    # -- Session, member, origin ---------------------------------------------
-    "NO_SESSION": "There is no valid session.",
-    "NO_SESSION.not_logged_in": "Not signed in.",
-    "SESSION_NOT_FRESH": (
-        "Sign in again to link a device. Your session is more than fifteen minutes old."
-    ),
-    "MEMBER_DEACTIVATED": "Your access has been withdrawn by a platform administrator.",
-    "MEMBER_NOT_ACTIVE": "Not an active member.",
-    "CSRF_INVALID": "The CSRF token is missing or invalid.",
-    "ORIGIN_REFUSED": "This request does not come from the admin origin.",
-    "NOT_ADMIN": "Only a platform administrator may do this.",
-    "INSUFFICIENT_ROLE": "This needs at least the role {role}.",
-    "INSUFFICIENT_ROLE.site_address": "Changing a site's address needs a role in its group.",
-    "INSUFFICIENT_ROLE.site_address_release": (
-        "Only an administrator of the group can release another site's address."
-    ),
-    "role.reader": "reader",
-    "role.editor": "editor",
-    "role.admin": "admin",
-    "NO_AUTHENTICATION": "No valid session or bearer token.",
-    "BEARER_NOT_ACCEPTED": (
-        "Bearer authentication is accepted only on the deploy and CLI endpoints, for creating a group "
-        "or site, for linking a repository and for reading, marking and answering feedback."
-    ),
-    # -- Groups, sites, members ----------------------------------------------
-    "UNKNOWN_GROUP": "Unknown group.",
-    "UNKNOWN_SITE": "Unknown site.",
-    "UNKNOWN_SITE.deploy": "Unknown group or site.",
-    "UNKNOWN_MEMBER": "Unknown member.",
-    "UNKNOWN_MEMBER.must_sign_in": "Unknown member. They have to sign in to the admin themselves first.",
-    "UNKNOWN_INVITEE": "Unknown invitee.",
-    "UNKNOWN_KEY": "Unknown key.",
-    "UNKNOWN_PREVIEW": "Unknown preview.",
-    "UNKNOWN_ASSET": "Unknown docs asset.",
-    "CLI_SESSION_UNKNOWN": "Unknown CLI session.",
-    "USER_CODE_UNKNOWN": "This code is unknown, expired or already used. Run `toon login` again.",
-    "NOT_GROUP_MEMBER": "This member is not in the group.",
-    "NOT_GROUP_MEMBER.you": "You are not a member of this group.",
-    "NOT_SITE_MEMBER": "This member has no role on this site.",
-    "ALREADY_GROUP_MEMBER": "This member is already in the group.",
-    "ALREADY_SITE_MEMBER": "This member already has a role of their own on this site.",
-    "SLUG_EXISTS.group": "A group with slug {slug!r} already exists.",
-    "SLUG_EXISTS.site": "A site with slug {slug!r} already exists in this group.",
-    "SLUG_EXISTS.group_previous": "The slug {slug!r} was recently the address of another group. Choose another slug.",
-    "SLUG_EXISTS.site_previous": (
-        "The slug {slug!r} was recently the address of another site in this group. Choose another slug."
-    ),
-    "SLUG_INVALID": "Slug is invalid or reserved: {slug!r}.",
-    "TOO_MANY_PREVIOUS_SLUGS": (
-        "This already has {max} previous addresses that still redirect. Change back to one of them, or wait "
-        "until one has expired."
-    ),
-    "FIELD_EMPTY": "Field {field!r} must not be empty.",
-    "FIELD_CONTROL_CHARACTERS": "Field {field!r} must not contain control or formatting characters.",
-    "FIELD_TOO_LONG": "Field {field!r} may be at most {max} characters long.",
-    "INVITEE_EXISTS": "{identifier!r} is already on the invitee list.",
-    "SELF_NOT_ALLOWED.deactivate": (
-        "You cannot deactivate yourself. Have another platform administrator do that."
-    ),
-    "SELF_NOT_ALLOWED.demote": (
-        "You cannot take the administrator role away from yourself. Have another platform "
-        "administrator do that."
-    ),
-    "BOOTSTRAP_MEMBER": (
-        "This is the bootstrap account from TOON_BOOTSTRAP_ADMIN_SUB. It is restored on every "
-        "sign-in, so change that setting instead of this member."
-    ),
-    "LAST_PLATFORM_ADMIN": "This is the last active platform administrator. Appoint someone else first.",
-    "LAST_GROUP_ADMIN": "This is the last administrator of the group. Appoint someone else first.",
-    "LAST_GROUP_MEMBER": "This is the last member of the group. Add someone else first.",
-    "SANDBOX_REQUIRED": "In a preview, only a platform administrator can turn off shielding from other sites.",
-    # -- Audit lookups --------------------------------------------------------
-    "AUDIT_UNAVAILABLE": "The audit log is unavailable.",
-    "AUDIT_IP_UNKNOWN": "No audit record with this id and an encrypted IP address.",
-    "LOOKUP_LIMIT_REACHED": "The daily limit for identity lookups has been reached.",
-    "AUDIT_PURGE_ALREADY_ON_HOLD": "The audit purge is already on hold.",
-    "AUDIT_PURGE_NOT_ON_HOLD": "The audit purge is not on hold.",
-    "HOLD_REASON_EMPTY": "Give a reason, such as a case or ticket number.",
-    "HOLD_REASON_TOO_LONG": (
-        "The reason is longer than {max} characters. Shorten it, or refer to the case or ticket number."
-    ),
-    "HOLD_REASON_INVISIBLE_CHARACTER": (
-        "The reason holds an invisible character, such as a zero-width space. Type the reason again or paste "
-        "it as plain text."
-    ),
-    "HOLD_REASON_EMAIL": (
-        "The reason holds an e-mail address. Every platform administrator can read the reason in the audit "
-        "log. Give a case or ticket number instead."
-    ),
-    "SEARCH_TOO_SHORT": "Search with at least {minimum} characters.",
-    "CURSOR_INVALID": "The cursor is unreadable. Ask for the first page again.",
-    "ACTOR_PSEUDONYM_INVALID": "An audit pseudonym is {length} hexadecimal characters.",
-    "PSEUDONYM_UNKNOWN": "No member, content viewer or linked repository found for this pseudonym.",
-    "IDENTIFIER_UNKNOWN": "No member or content viewer with this e-mail address.",
-    "IDENTIFIER_AMBIGUOUS.email": "More than one person with this e-mail address. Use the SSO subject.",
-    "IDENTIFIER_AMBIGUOUS.member_email": (
-        "More than one member with this e-mail address. Use the SSO subject."
-    ),
-    "IDENTIFIER_AMBIGUOUS.member_name": (
-        "More than one member with this name. Use the e-mail address."
-    ),
-    "IDENTIFIER_AMBIGUOUS.repository": (
-        "This repository is linked on more than one provider. Name the host as well."
-    ),
-    # -- Repositories and CI --------------------------------------------------
-    "REPOSITORY_NOT_SET": "No repository is linked to this site.",
-    "REPOSITORY_INVALID": "Owner or repository is not a valid name.",
-    "REPOSITORY_NOT_FOUND": (
-        "Repository {owner}/{repo} not found on {host}, or not public. If it is private, enter the "
-        "repository ID and the owner ID yourself."
-    ),
-    "REPOSITORY_IDS_INVALID": "Enter both the repository ID and the owner ID, as positive whole numbers.",
-    "REPOSITORY_IDS_MISMATCH": (
-        "{host} gives {owner}/{repo} other IDs than the ones entered. Leave the IDs empty, or copy them from "
-        "{host}."
-    ),
-    "LIVE_BRANCH_INVALID": "This live branch is not a valid branch name.",
-    "SITE_ID_REQUIRED_PERMANENT": "Once a site id is required, it stays required.",
-    "LIVE_VERSIONS_KEPT_INVALID": (
-        "The number of previous versions kept must be a whole number of 0 or more."
-    ),
-    "LIVE_VERSIONS_KEPT_TOO_LARGE": "This number is too large to store. Choose a smaller one.",
-    "HOST_NOT_ALLOWED": "This Forgejo instance is not in TOON_CI_FORGEJO_HOSTS.",
-    "HOST_NOT_ALLOWED.github": "GitHub does not come with another host.",
-    "CI_PROVIDER_RATE_LIMITED": "{host} is not accepting lookups right now. Try again later.",
-    "CI_PROVIDER_UNREACHABLE.lookup": "{host} is unreachable. Try again later.",
-    "CI_PROVIDER_UNREACHABLE.keys": (
-        "The keys of the CI provider cannot be fetched. Try again later."
-    ),
-    "CI_PROVIDER_UNREACHABLE.repository": (
-        "Forgejo is unreachable to check the repository. Try again later."
-    ),
-    "CI_TOKEN_INVALID.not_a_jwt": "The CI token is not a valid JWT.",
-    "CI_TOKEN_INVALID.algorithm": "The CI token has to be signed with RS256.",
-    "CI_TOKEN_INVALID.no_kid": "The CI token names no key (kid).",
-    "CI_TOKEN_INVALID.unknown_key": "The CI token is signed with an unknown key.",
-    "CI_TOKEN_INVALID.expired": "The CI token is invalid or expired.",
-    "CI_TOKEN_INVALID.no_lifetime": "The CI token is missing exp or iat.",
-    "CI_TOKEN_INVALID.replayed": "This CI token has been used already. Request a new token for every call.",
-    "CI_ISSUER_UNKNOWN": (
-        "The CI token does not come from GitHub or from a configured Forgejo instance."
-    ),
-    "CI_ISSUER_UNKNOWN.mismatch": "The issuer of the CI token is not right.",
-    "CI_AUDIENCE_MISMATCH": (
-        "The audience of the CI token has to be exactly the admin URL of Toon ({audience}), or for "
-        "one site {audience}/-/sites/ followed by the site id."
-    ),
-    "CI_AUDIENCE_MISMATCH.no_base_url": (
-        "The audience of the CI token has to be exactly the admin URL of Toon "
-        "(TOON_BASE_URL is not set)."
-    ),
-    "CI_AUDIENCE_MISMATCH.site": "This ID token's repository is not linked to the site its site id names.",
-    "CI_REPOSITORY_NOT_TRUSTED": (
-        "This repository may not publish to this site. Link it to the site in the admin first."
-    ),
-    "CI_BRANCH_NOT_ALLOWED.event": (
-        "Publishing live is allowed from a push, a manual run (workflow_dispatch) or a schedule "
-        "only. Publish from this event as a preview."
-    ),
-    "CI_BRANCH_NOT_ALLOWED.branch": (
-        "Only the branch {branch} may publish live. Publish from this ref as a preview."
-    ),
-    "CI_SITE_ID_REQUIRED": (
-        "This site only accepts a workflow that names its site id. Add `site-id` (action) or "
-        "`--site-id` (CLI) with the id from the Deploy tab of your site in Toon. "
-        "An older action or CLI ignores or refuses that option: update it first."
-    ),
-    "SITE_MOVED": (
-        "This workflow publishes to {address}. Use that address as the site: `site:` in the action, "
-        "`--site` for the CLI."
-    ),
-    # -- Deploy tokens, keys, expiry -----------------------------------------
-    "TOKEN_INVALID": "The token is invalid, revoked or expired.",
-    "TOKEN_INVALID.missing": "The token is missing.",
-    "TOKEN_INVALID.cli_only": "Only a CLI token from `toon login` is accepted here.",
-    "EXPIRY_IN_PAST": "The expiry date is in the past.",
-    "EXPIRY_TOO_FAR": "The expiry date may be at most {days} days ahead.",
-    # -- CLI login ------------------------------------------------------------
-    "TOO_MANY_ATTEMPTS": "Too many attempts. Wait a few minutes.",
-    "TOO_MANY_CREATIONS": "At most {limit} new groups, sites and addresses per hour. Try again later.",
-    "TOO_MANY_REQUESTS": "Too many requests. Try again in a few moments.",
-    "TOO_MANY_REQUESTS.cli_login": "Too many sign-in attempts from this address. Try again later.",
-    "TOO_MANY_REQUESTS.feedback": "A lot of feedback is coming in right now. Try again in a few minutes.",
-    "INVALID_GRANT.device_code_missing": "`deviceCode` is missing.",
-    "INVALID_GRANT.device_code_unknown": "Unknown or already used device code.",
-    "INVALID_GRANT.refresh_token_missing": "`refreshToken` is missing.",
-    "INVALID_GRANT.refresh_token_unknown": "Unknown or revoked refresh token.",
-    "INVALID_GRANT.refresh_token_rotated": (
-        "This refresh token has just been refreshed. Use the new one."
-    ),
-    "INVALID_GRANT.refresh_token_reused": (
-        "This refresh token has been used before. The CLI session has been revoked."
-    ),
-    "INVALID_GRANT.session_expired": "The CLI session has expired. Sign in again with `toon login`.",
-    "INVALID_GRANT.member_not_active": "The member behind this CLI session is no longer active.",
-    "EXPIRED_TOKEN.device_code": "The device code has expired. Start signing in again.",
-    "SLOW_DOWN": "Ask at most once every {interval} seconds. Wait longer.",
-    "AUTHORIZATION_PENDING": "Not approved in the admin yet.",
-    "ACCESS_DENIED": "Linking was refused.",
-    "ACCESS_DENIED.approver_not_active": "The member who approved this is no longer active.",
-    # -- Upload and multipart -------------------------------------------------
-    "BODY_TOO_LARGE": "Upload larger than {max_body} bytes.",
-    "CLIENT_ABORTED": "Upload aborted by the client.",
-    "NOT_MULTIPART": "Invalid input: {field} (multipart/form-data with a file field required).",
-    "FILE_MISSING": "Invalid input: {field}.",
-    "MULTIPART_INVALID": "Invalid multipart request.",
-    "MULTIPART_INVALID.no_field_name": "Multipart part without a field name.",
-    "MULTIPART_INVALID.unexpected_file_field": "Unexpected file field {field!r}.",
-    "MULTIPART_INVALID.more_than_one_file": "More than one file in the upload.",
-    "MULTIPART_INVALID.too_many_fields": "Too many form fields.",
-    "MULTIPART_INVALID.field_too_large": "Form field {field!r} is too large.",
-    "MULTIPART_INVALID.incomplete": "The multipart request is incomplete.",
-    "PREVIEW_REF_INVALID": "The preview ref is not a valid slug.",
-    # -- Validation FastAPI itself signals ------------------------------------
-    "INVALID_INPUT": "Invalid input: {fields}",
-    "INVALID_INPUT.request": "Invalid input: request",
-    # -- Ingest ---------------------------------------------------------------
-    "ORIGIN_INVALID": "Exactly one of member_id or ci_repository has to be set.",
-    "UNKNOWN_VERSION": "This version does not exist.",
-    "UNKNOWN_VERSION.site": "Unknown version for this site.",
-    "VERSION_OTHER_SITE": "This version does not belong to this site.",
-    "ROLLBACK_TARGET_PREVIEW": "Versions targeting 'preview' are never a rollback target.",
-    # -- Bundles: paths -------------------------------------------------------
-    "NULL_BYTE": "Path contains a null byte: {path!r}",
-    "ABSOLUTE_PATH": "Absolute path refused: {path}",
-    "PATH_TRAVERSAL": "Path with a '..' segment refused: {path}",
-    "EMPTY_PATH": "Empty path refused: {path!r}",
-    "TOO_DEEP": "Path deeper than {max_depth} levels: {path}",
-    "DUPLICATE_PATH": "Path occurs more than once, or as both a directory and a file: {path}",
-    "SECRET_FILE": (
-        "'{path}' does not belong on a website and is not published. Publish the directory with "
-        "the built site (often 'dist' or 'build') instead of the whole project directory, or take "
-        "'{secret}' out of the bundle."
-    ),
-    "RESERVED_SEGMENT": (
-        "'{segment}' sits {where} and is a reserved segment. Rename the directory or the file, "
-        "or publish another directory"
-    ),
-    "RESERVED_SEGMENT.base_path": "'{segment}' is a reserved segment",
-    "where.base_path": "in the root of base path '{base}'",
-    "where.peeled": "in the root of the site after peeling off '{peeled}'",
-    "where.bundle_root": "in the root of the bundle",
-    # -- Bundles: limits and archives -----------------------------------------
-    "TOO_MANY_FILES": "The bundle holds more than {limit} files or directories.",
-    "TOO_MANY_FILES.archive_entries": (
-        "The archive holds more than {limit} entries. Whatever falls outside the root of the site "
-        "counts towards that too."
-    ),
-    "FILE_TOO_LARGE": "File '{path}' is larger than {max_file} bytes unpacked.",
-    "TOTAL_TOO_LARGE": "The bundle is larger than {max_total} bytes unpacked.",
-    "TOTAL_TOO_LARGE.archive": "The archive is larger than {max_total} bytes unpacked.",
-    "SITE_QUOTA_EXCEEDED": (
-        "This site already uses {used} of {max_bytes} bytes, which leaves no room for the "
-        "{added} bytes of this version. Old live versions beyond the number kept are removed "
-        "nightly. Otherwise remove previews you no longer need, or ask the platform "
-        "administrator for more room."
-    ),
-    "STORAGE_UNAVAILABLE": (
-        "There is too little free space to publish right now. Try again later. The platform "
-        "administrator has been notified."
-    ),
-    "VOLUME_UNMEASURABLE": "The fill level of the content volume cannot be measured.",
-    "SYMLINK_REFUSED": "Symlink in the archive refused: {name}",
-    "HARDLINK_REFUSED": "Hard link in the archive refused: {name}",
-    "SPECIAL_FILE": "Not a regular file, refused: {name}",
-    "INVALID_ARCHIVE.zip": "Zip archive unreadable: {error}",
-    "INVALID_ARCHIVE.zip_entry": "Zip entry unreadable: {error}",
-    "INVALID_ARCHIVE.tar": "Tar.gz archive unreadable: {error}",
-    "INVALID_ARCHIVE.tar_entry": "Tar entry unreadable: {name}",
-    "INVALID_ARCHIVE.html": "Html file unreadable: {error}",
-    "UNKNOWN_FORMAT": "Only .html, .zip, .tar.gz or .tgz is accepted.",
-    "EMPTY_ARCHIVE": (
-        "The bundle holds no publishable files. OS metadata alone "
-        "({junk_dir}, {junk_prefix}*, .DS_Store) does not count."
-    ),
-    # -- Bundles: the root of the site ---------------------------------------
-    "BASE_PATH_INVALID": "The base path is invalid: {cause}",
-    "BASE_PATH_UNKNOWN": "Base path '{base_path}' is not a directory in the bundle",
-    "BASE_PATH_UNKNOWN.case_variant": (
-        "Base path '{base_path}' is not a directory in the bundle. The bundle does hold "
-        "'{variant}', and capitals count"
-    ),
-    "BASE_PATH_UNKNOWN.peeled": (
-        "Base path '{base_path}' is not a directory in the bundle. The enclosing directory "
-        "'{peeled}' has been peeled off already, so a path inside it is enough"
-    ),
-    "BASE_PATH_UNKNOWN.file": "Base path '{base_path}' points at a file, not at a directory",
-    "BASE_PATH_UNKNOWN.html_file": (
-        "A single html file holds no directories. Leave the base path ('{base_path}') out"
-    ),
-    "BASE_PATH_WITHOUT_INDEX.empty": "Base path '{base_path}' holds no files",
-    "BASE_PATH_WITHOUT_INDEX.empty_with_suggestion": (
-        "Base path '{base_path}' holds no files. {suggestion}"
-    ),
-    "BASE_PATH_WITHOUT_INDEX.no_index": "Base path '{base_path}' holds no {index}",
-    "BASE_PATH_WITHOUT_INDEX.no_index_with_suggestion": (
-        "Base path '{base_path}' holds no {index}. {suggestion}"
-    ),
-    "suggestion.in_root": "The {index} sits in the root of the bundle. Leave the base path field out",
-    "suggestion.nearest": "The nearest one sits at '{path}'",
-    "NO_INDEX": "The bundle holds no {index} anywhere. The root of the bundle needs one",
-    "NO_INDEX.case_variant": (
-        "The bundle holds no {index} anywhere. The root of the bundle needs one. Mind you: "
-        "'{variant}' does not count, because the server is case sensitive. Rename the file to "
-        "'{index}'"
-    ),
-    "NO_INDEX.nearest": (
-        "No {index} in the root of the bundle. The nearest one sits at '{shortest}'. Publish the "
-        "directory '{directory}' itself, or send along the base path field with the value "
-        "'{directory}'"
-    ),
-    # -- Site feedback: the widget API, then the admin ------------------------
-    "FEEDBACK_UNAVAILABLE": "This does not work from this page right now. Reload the page and try again.",
-    "FEEDBACK_ACCOUNT_REQUIRED": (
-        "This only works when you give feedback with your account. Sign in and try again."
-    ),
-    "FEEDBACK_INVALID": "Something is wrong with the field {field}.",
-    "FEEDBACK_PAGE_MOVED": "The site or group has a new address. Reload the page.",
-    "FEEDBACK_AUTHOR_NOT_ALLOWED": (
-        "This site does not take feedback this way. Reload the page and choose another way."
-    ),
-    "FEEDBACK_SCREENSHOT_TOO_LARGE": (
-        "The screenshot is too large. Choose a smaller part or send without a screenshot."
-    ),
-    "FEEDBACK_SCREENSHOT_INVALID": "This screenshot cannot be used. Send your feedback without a screenshot.",
-    "FEEDBACK_SCREENSHOT_QUOTA": (
-        "There is no room left for screenshots. Send your feedback without a screenshot."
-    ),
-    "FEEDBACK_SITE_FULL": "This site has too much open feedback already. Try again later.",
-    "FEEDBACK_THREAD_FULL": "This feedback cannot take any more replies.",
-    "FEEDBACK_BUSY": "Toon cannot take your feedback right now. Try again in a minute.",
-    "FEEDBACK_TIMEOUT": "Sending took too long. Try again, without the screenshot if need be.",
-    "FEEDBACK_NOT_FOUND": "Unknown feedback.",
-    "FEEDBACK_REF_WITHOUT_PREVIEW": "The filter ref only works together with target=preview.",
-    # -- Examples in the OpenAPI document, one per status code ----------------
-    "example.401": "There is no active session.",
-    "example.403": "You have no access here.",
-    "example.404": "This does not exist, or you may not see it.",
-    "example.409": "This clashes with the current state.",
-    "example.413": "The request is larger than allowed.",
-    "example.422": "The input is not right.",
-    "example.429": "Too many requests. Try again later.",
-    "example.other": "Something went wrong.",
 }
 
 _CATALOGUES: Final[dict[str, dict[str, str]]] = {"nl": NL, "en": EN}
