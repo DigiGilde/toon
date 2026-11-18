@@ -95,3 +95,4 @@ next free number before it merges.
 | [0013](0013-feedback-screenshots-in-the-database.md) | Feedback screenshots in the database | Accepted |
 | [0014](0014-feedback-editor-in-a-sandboxed-frame.md) | Write feedback in the NLDD editor in a sandboxed, content-addressed frame, loaded on demand | Accepted |
 | [0015](0015-feedback-with-an-account-on-unshielded-pages.md) | Feedback with an account on pages without the shielding | Accepted |
+| [0016](0016-beta-rolls-out-to-a-standing-deployment.md) | beta rolls out to a standing deployment in the preview project | Accepted |

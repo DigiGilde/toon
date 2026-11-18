@@ -8,6 +8,7 @@ checked here, on every commit.
 
 from __future__ import annotations
 
+import ast
 import base64
 import importlib.util
 import json
@@ -280,12 +281,15 @@ class TestTheScans:
         steps = deploy["jobs"]["build"]["steps"]
         scans = [s for s in steps if s.get("uses") == LOCAL_TRIVY]
 
-        # One that reports everything, one that closes the gate, and the SBOM.
-        assert len(scans) == 3
+        # One that reports everything, one that closes the gate, and the SBOM;
+        # and the gate once more for the beta preview image.
+        assert len(scans) == 4
         gate = [s for s in scans if s.get("with", {}).get("exit-code") == "1"]
-        assert len(gate) == 1
-        assert gate[0]["with"]["severity"] == "CRITICAL,HIGH"
-        assert gate[0]["with"]["trivyignores"] == ".trivyignore.yaml"
+        assert len(gate) == 2
+        for each in gate:
+            assert each["with"]["severity"] == "CRITICAL,HIGH"
+            assert each["with"]["trivyignores"] == ".trivyignore.yaml"
+            assert each["with"]["ignore-unfixed"] is True
 
     def test_what_runs_is_scanned_every_day(self) -> None:
         """Dependabot raises no alerts for uv.lock or for the OS packages
@@ -299,8 +303,10 @@ class TestTheScans:
     def test_the_image_is_scanned_by_the_digest_that_was_pushed(self, deploy) -> None:
         """A tag can move between the push and the scan."""
         steps = deploy["jobs"]["build"]["steps"]
-        for scan in (s for s in steps if s.get("uses") == LOCAL_TRIVY):
-            assert scan["with"]["image-ref"] == "${{ steps.tag.outputs.name }}@${{ steps.push.outputs.digest }}"
+        refs = [s["with"]["image-ref"] for s in steps if s.get("uses") == LOCAL_TRIVY]
+        assert refs == ["${{ steps.tag.outputs.name }}@${{ steps.push.outputs.digest }}"] * 3 + [
+            "${{ steps.tag.outputs.name }}@${{ steps.beta-preview.outputs.digest }}"
+        ]
 
     def test_the_build_job_does_not_keep_the_token_in_git(self, deploy) -> None:
         """It holds `packages: write` and runs the Containerfile."""
@@ -331,12 +337,17 @@ class TestTheScans:
         attests = [
             s for s in provenance["steps"] if str(s.get("uses", "")).startswith("actions/attest@")
         ]
-        assert len(attests) == 2
+        assert len(attests) == 3
         for step in attests:
             assert step["with"]["subject-name"] == "${{ needs.build.outputs.name }}"
-            assert step["with"]["subject-digest"] == "${{ needs.build.outputs.digest }}"
             assert step["with"]["push-to-registry"] is True
-        assert [s["with"].get("sbom-path") for s in attests] == [None, "sbom.cdx.json"]
+        assert [s["with"]["subject-digest"] for s in attests] == [
+            "${{ needs.build.outputs.digest }}",
+            "${{ needs.build.outputs.digest }}",
+            "${{ needs.build.outputs.beta-preview-digest }}",
+        ]
+        assert [s["with"].get("sbom-path") for s in attests] == [None, "sbom.cdx.json", None]
+        assert [s.get("if") for s in attests] == [None, None, "needs.build.outputs.beta-preview-digest != ''"]
 
     def test_the_attestation_job_runs_no_project_code(self, deploy) -> None:
         """A job with `id-token: write` can mint a token for any audience it
@@ -348,11 +359,12 @@ class TestTheScans:
             "packages": "write",
         }
 
-        # No checkout, no build, no scan: login, download, attest twice.
+        # No checkout, no build, no scan: login, download, attest.
         steps = deploy["jobs"]["provenance"]["steps"]
         assert [s["uses"].split("@")[0] for s in steps] == [
             "docker/login-action",
             "actions/download-artifact",
+            "actions/attest",
             "actions/attest",
             "actions/attest",
         ]
@@ -891,7 +903,8 @@ class TestTheReleaseImage:
         assert _step(build, "Build and push the image")["with"]["tags"] == image
         assert build["outputs"]["image"] == image
         pushed = "${{ steps.tag.outputs.name }}@${{ steps.push.outputs.digest }}"
-        for step in build["steps"]:
+        beta = build["steps"].index(_step(build, "Build and push the beta preview image"))
+        for step in build["steps"][:beta]:
             if "image-ref" in step.get("with", {}):
                 assert step["with"]["image-ref"] == pushed, step.get("name")
         assert _step(deploy["jobs"]["production"], "Roll out to ZAD")["with"]["image"] == (
@@ -934,9 +947,40 @@ class TestTheReleaseImage:
 
     def test_only_a_pull_request_builds_the_preview_target(self, build) -> None:
         """The demo seed lives in the `preview` stage only: a release, a
-        push to beta and the merge queue build `runtime`, without it."""
+        push to beta and the merge queue build `runtime`, without it. A push
+        to beta builds a second image for its deployment (below)."""
         push = _step(build, "Build and push the image")
         assert push["with"]["target"] == "${{ github.event_name == 'pull_request' && 'preview' || 'runtime' }}"
+
+    def test_a_push_to_beta_also_builds_the_preview_target_for_its_deployment(self, build) -> None:
+        """The deployment `beta` runs TOON_ENVIRONMENT=preview, which refuses
+        an image without the seed. A second image, tagged `beta`, labelled
+        with the commit preview.yml checks, built only after the gate on the
+        runtime image and gated itself; a release tag never builds it."""
+        names = [step.get("name") for step in build["steps"]]
+        runtime_gate = names.index("Scan the image, gate on high and critical (trivy)")
+        assert names[runtime_gate + 1 :] == [
+            "Build and push the beta preview image",
+            "Scan the beta preview image, gate on high and critical (trivy)",
+        ]
+        beta = runtime_gate + 1
+        step = build["steps"][beta]
+        assert step["id"] == "beta-preview"
+        assert step["if"] == "github.event_name == 'push' && github.ref == 'refs/heads/beta'"
+        assert step["uses"] == _step(build, "Build and push the image")["uses"]
+        assert step["with"] == {
+            "context": ".",
+            "file": "containers/toon/Containerfile",
+            "target": "preview",
+            "push": True,
+            "tags": "${{ steps.tag.outputs.name }}:beta",
+            "labels": "org.opencontainers.image.revision=${{ github.sha }}",
+            "cache-from": "type=gha",
+        }
+        assert build["outputs"]["beta-preview-digest"] == "${{ steps.beta-preview.outputs.digest }}"
+        gate = build["steps"][beta + 1]
+        assert gate["if"] == "steps.beta-preview.outputs.digest != ''"
+        assert gate["with"]["exit-code"] == "1"
 
     def test_every_build_of_the_toon_image_names_its_target(self) -> None:
         """The last stage, the default target, is `preview`: a build that
@@ -954,7 +998,7 @@ class TestTheReleaseImage:
             if build.get("dockerfile") == "containers/toon/Containerfile":
                 assert build["target"] == "runtime", name
                 builds += 1
-        assert builds == 3
+        assert builds == 4
 
 
 PREVIEW_FAKES = {
@@ -998,7 +1042,13 @@ esac
 """,
     "curl": """#!/bin/sh
 echo "$*" >> "$FAKE/curl.log"
-cat "$FAKE/healthz"
+case "$*" in
+  *"--write-out"*)
+    while [ "$1" != "--output" ]; do shift; done
+    cp "$FAKE/content.body" "$2"
+    cat "$FAKE/content.code" ;;
+  *) cat "$FAKE/healthz" ;;
+esac
 """,
     "sleep": """#!/bin/sh
 """,
@@ -1006,6 +1056,14 @@ cat "$FAKE/healthz"
 
 HEAD_SHA = "a" * 40
 DIGEST = "sha256:" + "b" * 64
+# What the content host answers on /-/healthz: every refusal's body.
+NEUTRAL_404_BODY = ast.literal_eval(
+    re.search(
+        r"^NEUTRAL_404_BODY = (b\".*\")$",
+        (ROOT / "backend" / "src" / "toon" / "serving" / "response.py").read_text(encoding="utf-8"),
+        re.MULTILINE,
+    ).group(1)
+)
 
 
 @pytest.fixture
@@ -1034,6 +1092,8 @@ class TestPreviewWorkflow:
             path.chmod(0o755)
         (fake / "output").touch()
         (fake / "describe").write_text('{"status": "Healthy", "pending_rollout": {"count": 0}}')
+        (fake / "content.body").write_bytes(NEUTRAL_404_BODY)
+        (fake / "content.code").write_text("404")
         return fake
 
     def _run(self, step: dict, fake: Path, workflow: dict, **env: str) -> subprocess.CompletedProcess:
@@ -1044,6 +1104,8 @@ class TestPreviewWorkflow:
             "RUNNER_TEMP": str(fake),
             "REPOSITORY": "DigiGilde/toon",
             "NUMBER": "7",
+            "DEPLOYMENT": "pr-7",
+            "SOURCE_REF": "refs/pull/7/merge",
             "ZAD_PREVIEW_PROJECT_ID": "toond-zrj",
             **{k: str(v) for k, v in workflow["env"].items()},
             **env,
@@ -1086,6 +1148,11 @@ class TestPreviewWorkflow:
             "packages": "read",
             "pull-requests": "write",
         }
+        assert preview["jobs"]["beta"]["permissions"] == {
+            "attestations": "read",
+            "contents": "read",
+            "packages": "read",
+        }
 
     def test_the_proxy_image_is_pinned_by_digest(self, preview) -> None:
         assert re.fullmatch(
@@ -1103,7 +1170,7 @@ class TestPreviewWorkflow:
         key = "${{ secrets.ZAD_PREVIEW_API_KEY }}"
         assert "secrets.ZAD_API_KEY" not in json.dumps(preview)
         holders = {name for name, job in preview["jobs"].items() if key in str(job)}
-        assert holders == {"deploy", "teardown"}
+        assert holders == {"deploy", "teardown", "beta"}
         for name in holders:
             job = preview["jobs"][name]
             assert job["environment"]["name"] == "preview"
@@ -1112,6 +1179,7 @@ class TestPreviewWorkflow:
             assert [s["name"] for s in steps] == {
                 "deploy": ["Roll out the preview", "Delete the preview unless it is still asked for"],
                 "teardown": ["Delete the preview"],
+                "beta": ["Roll out the preview"],
             }[name]
             for step in steps:
                 # zadctl reads its key from this variable; never an argument.
@@ -1128,8 +1196,9 @@ class TestPreviewWorkflow:
 
     def test_zadctl_is_pinned_by_the_hash_of_its_archive(self, preview) -> None:
         assert re.fullmatch(r"[0-9a-f]{64}", preview["env"]["ZADCTL_SHA256"])
-        installs = [_step(job, "Install zadctl") for job in (preview["jobs"]["deploy"], preview["jobs"]["teardown"])]
-        assert installs[0]["run"] == installs[1]["run"]
+        jobs = ("deploy", "teardown", "beta")
+        installs = [_step(preview["jobs"][job], "Install zadctl") for job in jobs]
+        assert installs[0]["run"] == installs[1]["run"] == installs[2]["run"]
         script = installs[0]["run"]
         assert 'sha256sum --check --strict' in script
         assert script.index("sha256sum") < script.index("tar -xzf")
@@ -1348,7 +1417,7 @@ class TestPreviewWorkflow:
         (fake / "attest.refused").touch()
         result = self._resolve(preview, fake, f"{DIGEST} {HEAD_SHA}")
         assert _refused(result), result.stdout
-        assert "has no provenance from deploy.yml for pull request 7" in result.stdout
+        assert "has no provenance from deploy.yml for refs/pull/7/merge" in result.stdout
         assert self._outputs(fake) == {}
 
     def test_an_image_of_another_commit_is_not_even_verified(self, preview, fake) -> None:
@@ -1425,7 +1494,12 @@ class TestPreviewWorkflow:
         assert beheer["TOON_BASE_URL"] == "https://beheer-pr-7-toond-zrj.example.nl"
         assert beheer["TOON_CONTENT_BASE_URL"] == "https://site-pr-7-toond-zrj.example.nl"
         assert self._stdin(fake, 7) == {"TOON_APP": "pr-7-beheer:8080"}
-        assert (fake / "curl.log").read_text().rstrip().endswith("https://beheer-pr-7-toond-zrj.example.nl/-/healthz")
+        assert (fake / "curl.log").read_text().splitlines() == [
+            "--fail --silent --show-error --max-time 10 https://beheer-pr-7-toond-zrj.example.nl/-/healthz",
+            "--silent --show-error --max-time 10 --output "
+            + str(fake / "content-healthz")
+            + " --write-out %{http_code} https://site-pr-7-toond-zrj.example.nl/-/healthz",
+        ]
         assert self._outputs(fake) == {
             "admin": "https://beheer-pr-7-toond-zrj.example.nl",
             "content": "https://site-pr-7-toond-zrj.example.nl",
@@ -1533,6 +1607,51 @@ class TestPreviewWorkflow:
         assert len((fake / "curl.log").read_text().splitlines()) == 12
         assert self._outputs(fake) == {}
 
+    def test_the_neutral_404_the_rollout_expects_is_toons(self, preview) -> None:
+        """The body is spelled out in the rollout; it has to stay the bytes
+        serving/response.py sends for every refusal."""
+        script = _step(preview["jobs"]["deploy"], "Roll out the preview")["run"]
+        assert f'= "{NEUTRAL_404_BODY.decode().rstrip()}" ]' in script
+
+    @pytest.mark.parametrize(
+        ("code", "body"),
+        [
+            ("200", b'{"status": "ok"}'),
+            ("404", b"Not Found"),
+            ("200", b"<html>Waking up</html>"),
+            ("000", b""),
+        ],
+    )
+    def test_a_content_host_without_the_neutral_404_fails(self, preview, fake, code, body) -> None:
+        """A content host that serves the admin, the platform's page or
+        nothing at all: the two hosts are not separated as Toon expects."""
+        (fake / "content.code").write_text(code)
+        (fake / "content.body").write_bytes(body)
+        result = self._rollout(preview, fake)
+        assert result.returncode == 1
+        assert (
+            "::error::https://site-pr-7-toond-zrj.example.nl/-/healthz does not answer the neutral 404"
+            in result.stdout
+        )
+        assert len([c for c in (fake / "curl.log").read_text().splitlines() if "--write-out" in c]) == 12
+        assert self._outputs(fake) == {}
+
+    def test_a_content_host_that_comes_up_late_still_passes(self, preview, fake) -> None:
+        (fake / "content.code").write_text("502")
+        # 502 until the fifth request to the content host, then the 404.
+        curl = fake / "bin" / "curl"
+        curl.write_text(
+            curl.read_text().replace(
+                'cat "$FAKE/content.code" ;;',
+                'if [ "$(grep -c write-out "$FAKE/curl.log")" -ge 5 ]; then echo 404;'
+                ' else cat "$FAKE/content.code"; fi ;;',
+            )
+        )
+        result = self._rollout(preview, fake)
+        assert result.returncode == 0, result.stdout
+        assert len([c for c in (fake / "curl.log").read_text().splitlines() if "--write-out" in c]) == 5
+        assert set(self._outputs(fake)) == {"admin", "content"}
+
     def test_a_preview_still_asked_for_stays(self, preview, fake) -> None:
         self._pull_request(fake)
         step = _step(preview["jobs"]["deploy"], "Delete the preview unless it is still asked for")
@@ -1622,7 +1741,11 @@ class TestPreviewWorkflow:
         ]
         posted = (fake / "posted.md").read_text().splitlines()
         assert posted[0] == self.HEADING
-        assert "The preview is removed: deployment pr-7 was deleted with its database and volume." in posted
+        assert (
+            "The preview is removed: deployment pr-7 and its volume were deleted. ZAD only marks its"
+            " database for deletion: labelling this pull request again within ZAD's grace period"
+            " brings that database back."
+        ) in posted
 
     def test_without_a_comment_of_ours_teardown_writes_none(self, preview, fake) -> None:
         self._comments(fake, (1, "github-actions[bot]", f"> {self.HEADING}\n"))
@@ -1649,6 +1772,128 @@ class TestPreviewWorkflow:
         result = self._run(step, fake, preview)
         assert result.returncode == 0, result.stderr
         assert self._calls(fake) == ["deployment delete pr-7 --yes --ignore-not-found"]
+
+    # -- The deployment beta ----------------------------------------------
+
+    def _beta(self, step: dict, fake: Path, preview: dict, **env: str) -> subprocess.CompletedProcess:
+        values = {"NUMBER": "", "DEPLOYMENT": "beta", "SOURCE_REF": "refs/heads/beta", **env}
+        return self._run(step, fake, preview, **values)
+
+    def test_beta_follows_green_runs_of_test_and_deploy_for_a_push_to_beta(self, preview) -> None:
+        condition = " ".join(preview["jobs"]["beta"]["if"].split())
+        assert condition == (
+            "vars.ZAD_PREVIEW_PROJECT_ID != '' "
+            "&& github.event_name == 'workflow_run' "
+            "&& github.event.workflow_run.event == 'push' "
+            "&& github.event.workflow_run.head_branch == 'beta' "
+            "&& github.event.workflow_run.conclusion == 'success' "
+            "&& github.event.workflow_run.head_repository.full_name == github.repository"
+        )
+        assert "needs" not in preview["jobs"]["beta"]
+
+    def test_beta_is_its_own_deployment_with_its_own_image_and_ref(self, preview) -> None:
+        job = preview["jobs"]["beta"]
+        assert job["env"] == {
+            "REPOSITORY": "${{ github.repository }}",
+            "DEPLOYMENT": "beta",
+            "SOURCE_REF": "refs/heads/beta",
+        }
+        assert job["environment"] == {"name": "preview", "url": "${{ steps.rollout.outputs.admin }}"}
+        assert job["timeout-minutes"] == preview["jobs"]["deploy"]["timeout-minutes"]
+        deploy_env = preview["jobs"]["deploy"]["env"]
+        assert deploy_env["DEPLOYMENT"] == "pr-${{ needs.pull-request.outputs.number }}"
+        assert deploy_env["SOURCE_REF"] == "refs/pull/${{ needs.pull-request.outputs.number }}/merge"
+
+    def test_a_newer_beta_waits_for_the_rollout_in_progress(self, preview) -> None:
+        """One group for every beta rollout, apart from every pull request's
+        (whose group is a number): a rollout in progress finishes, and of the
+        runs waiting behind it only the newest is kept."""
+        assert preview["jobs"]["beta"]["concurrency"] == {"group": "preview-beta", "cancel-in-progress": False}
+
+    def test_beta_rolls_out_with_the_steps_of_a_preview_and_never_tears_down(self, preview) -> None:
+        """The same steps, so a fix to one is a fix to both; and nothing
+        that deletes, nothing that comments."""
+        beta = preview["jobs"]["beta"]["steps"]
+        assert [step["name"] for step in beta] == [
+            "Decide what to roll out",
+            "Resolve the image",
+            "Install zadctl",
+            "Roll out the preview",
+        ]
+        for step in beta[1:]:
+            assert step == _step(preview["jobs"]["deploy"], step["name"])
+        assert "delete" not in json.dumps(beta)
+        assert "comments" not in json.dumps(beta)
+
+    def _decide_beta(self, preview, fake, *, head: str) -> subprocess.CompletedProcess:
+        (fake / "bin" / "gh").write_text(f'#!/bin/sh\necho "$*" >> "$FAKE/gh.log"\necho {head}\n')
+        step = _step(preview["jobs"]["beta"], "Decide what to roll out")
+        return self._beta(step, fake, preview, GH_TOKEN="token", RUN_SHA=HEAD_SHA)
+
+    def test_beta_rolls_out_the_head_it_tested(self, preview, fake) -> None:
+        result = self._decide_beta(preview, fake, head=HEAD_SHA)
+        assert result.returncode == 0, result.stderr
+        assert self._outputs(fake) == {"go": "true", "head": HEAD_SHA}
+        assert (fake / "gh.log").read_text().splitlines() == [
+            "api repos/DigiGilde/toon/branches/beta --jq .commit.sha"
+        ]
+
+    def test_a_run_of_an_older_beta_commit_rolls_nothing_back(self, preview, fake) -> None:
+        """A rerun of an older run, or a run that a newer merge overtook:
+        the database may already carry the newer migrations."""
+        result = self._decide_beta(preview, fake, head="c" * 40)
+        assert result.returncode == 0, result.stderr
+        assert self._outputs(fake) == {"go": "false"}
+        assert f"beta is at {'c' * 40} now: its own run rolls that out" in result.stdout
+
+    def test_beta_takes_the_image_tagged_beta_attested_on_beta(self, preview, fake) -> None:
+        (fake / "skopeo.out").write_text(f"{DIGEST} {HEAD_SHA}\n")
+        step = _step(preview["jobs"]["beta"], "Resolve the image")
+        result = self._beta(step, fake, preview, GH_TOKEN="token", ACTOR="someone", HEAD=HEAD_SHA)
+        assert result.returncode == 0, result.stderr
+        assert self._outputs(fake) == {"ready": "true", "image": f"ghcr.io/digigilde/toon@{DIGEST}"}
+        assert "docker://ghcr.io/digigilde/toon:beta" in (fake / "skopeo.log").read_text()
+        verify = [line for line in (fake / "gh.log").read_text().splitlines() if line.startswith("attestation")]
+        assert verify == [
+            f"attestation verify oci://ghcr.io/digigilde/toon@{DIGEST} --repo DigiGilde/toon "
+            "--signer-workflow DigiGilde/toon/.github/workflows/deploy.yml "
+            "--source-ref refs/heads/beta --deny-self-hosted-runners"
+        ]
+
+    def test_a_beta_image_without_provenance_from_beta_is_refused(self, preview, fake) -> None:
+        (fake / "attest.refused").touch()
+        (fake / "skopeo.out").write_text(f"{DIGEST} {HEAD_SHA}\n")
+        step = _step(preview["jobs"]["beta"], "Resolve the image")
+        result = self._beta(step, fake, preview, GH_TOKEN="token", ACTOR="someone", HEAD=HEAD_SHA)
+        assert _refused(result), result.stdout
+        assert "has no provenance from deploy.yml for refs/heads/beta" in result.stdout
+
+    def test_a_beta_tag_moved_on_by_a_newer_push_is_left_to_its_run(self, preview, fake) -> None:
+        (fake / "skopeo.out").write_text(f"{DIGEST} {'c' * 40}\n")
+        step = _step(preview["jobs"]["beta"], "Resolve the image")
+        result = self._beta(step, fake, preview, GH_TOKEN="token", ACTOR="someone", HEAD=HEAD_SHA)
+        assert result.returncode == 0, result.stderr
+        assert self._outputs(fake) == {"ready": "false"}
+        assert not (fake / "gh.log").exists()
+
+    def test_beta_rolls_out_to_the_deployment_beta(self, preview, fake) -> None:
+        (fake / "env.beheer").write_text("{}")
+        (fake / "env.site").write_text("{}")
+        (fake / "url.beheer").write_text("beheer-beta-toond-zrj.example.nl\n")
+        (fake / "url.site").write_text("site-beta-toond-zrj.example.nl\n")
+        (fake / "healthz").write_text('{"status": "ok"}')
+        step = _step(preview["jobs"]["beta"], "Roll out the preview")
+        result = self._beta(step, fake, preview, IMAGE=f"ghcr.io/digigilde/toon@{DIGEST}")
+        assert result.returncode == 0, result.stderr
+        calls = self._calls(fake)
+        assert calls[0] == "--no-rollout deployment create beta -f -"
+        assert "deployment refresh beta" in calls
+        assert not [call for call in calls if "pr-" in call]
+        assert self._stdin(fake, 7) == {"TOON_APP": "beta-beheer:8080"}
+        assert self._outputs(fake) == {
+            "admin": "https://beheer-beta-toond-zrj.example.nl",
+            "content": "https://site-beta-toond-zrj.example.nl",
+        }
 
 
 class TestCodeQL:

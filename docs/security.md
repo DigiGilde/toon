@@ -770,7 +770,8 @@ Public Suffix List. No decision made yet.
 ### Pull request previews
 
 A pull request with the label `preview` runs as deployment `pr-<n>` in a ZAD
-project of its own (TDR-0012, `docs/deploying-on-zad.md` §8). That is pull
+project of its own (TDR-0012, `docs/deploying-on-zad.md` §8), and `beta`
+runs as the standing deployment `beta` beside them (TDR-0016). That is pull
 request code on a public host, so `TOON_ENVIRONMENT=preview` holds it to
 every production requirement (`TOON_BEHIND_PROXY`,
 `TOON_OIDC_ISS_REQUIRED`, an https issuer on a real host, a base URL) and adds three
@@ -781,8 +782,8 @@ behaviours that only exist there:
   member, so a restart or a new push wipes nothing. The seed refuses any
   environment but `dev` and `preview`. Only the `preview` build target of
   `containers/toon/Containerfile` carries it, which only pull request builds
-  take: the production image has no seed, and run as a preview it stops
-  before it serves.
+  and the image for the deployment `beta` take: the production image has no
+  seed, and run as a preview it stops before it serves.
 - **An editor role on first sign-in.** A member created by signing in to a
   preview becomes an editor of the demo group `rijksoverheid`
   (`auth/members.py`). An existing member gets nothing new.

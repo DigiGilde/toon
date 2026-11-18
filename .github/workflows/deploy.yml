@@ -1,6 +1,8 @@
 # How Toon ends up on ZAD: build and push the image, then deploy with
-# zad-actions. A push to `beta` builds, scans and attests the image and
-# deploys nowhere; production follows a release tag (vYYYY.M.D[.N]) alone.
+# zad-actions. A push to `beta` builds, scans and attests the image, plus
+# the preview image that preview.yml rolls out to the deployment `beta` in
+# the preview project; production follows a release tag (vYYYY.M.D[.N])
+# alone.
 #
 # Needed in advance, outside this file:
 #   - secret ZAD_API_KEY of the environment `productie`, which admits tags
@@ -62,6 +64,7 @@ jobs:
       image: ${{ steps.release.outputs.image || steps.tag.outputs.image }}
       name: ${{ steps.tag.outputs.name }}
       digest: ${{ steps.push.outputs.digest }}
+      beta-preview-digest: ${{ steps.beta-preview.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -174,6 +177,33 @@ jobs:
           ignore-unfixed: true
           exit-code: "1"
 
+      # The deployment `beta` runs with TOON_ENVIRONMENT=preview, which needs
+      # the demo seed. Only after the gate above, and from the stages this
+      # builder holds already. The tag `beta` moves with every push;
+      # preview.yml reads it once and checks the revision.
+      - name: Build and push the beta preview image
+        id: beta-preview
+        if: github.event_name == 'push' && github.ref == 'refs/heads/beta'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: containers/toon/Containerfile
+          target: preview
+          push: true
+          tags: ${{ steps.tag.outputs.name }}:beta
+          labels: org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha
+
+      - name: Scan the beta preview image, gate on high and critical (trivy)
+        if: steps.beta-preview.outputs.digest != ''
+        uses: ./.github/actions/trivy
+        with:
+          image-ref: ${{ steps.tag.outputs.name }}@${{ steps.beta-preview.outputs.digest }}
+          trivyignores: .trivyignore.yaml
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+
   # A job holding `id-token: write` can mint an OIDC token for any audience
   # it names, and that token carries this repository's identity. So it does
   # not belong in `build`, which runs the whole dependency tree of this
@@ -233,6 +263,15 @@ jobs:
           subject-name: ${{ needs.build.outputs.name }}
           subject-digest: ${{ needs.build.outputs.digest }}
           sbom-path: sbom.cdx.json
+          push-to-registry: true
+
+      # preview.yml verifies this before it rolls the image out to `beta`.
+      - name: Attest the beta preview image's build provenance (SLSA)
+        if: needs.build.outputs.beta-preview-digest != ''
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ needs.build.outputs.name }}
+          subject-digest: ${{ needs.build.outputs.beta-preview-digest }}
           push-to-registry: true
 
 

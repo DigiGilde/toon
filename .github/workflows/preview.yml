@@ -2,13 +2,16 @@
 # from this repository rolls it out to its own deployment pr-<n> in the
 # preview project, every later green run of "Test and deploy" updates it,
 # and taking the label off or closing the pull request deletes it
-# (docs/deploying-on-zad.md §8, TDR-0012).
+# (docs/deploying-on-zad.md §8, TDR-0012). Every green run for a push to
+# beta rolls that commit out to the standing deployment `beta` in the same
+# project, which is never torn down (TDR-0016).
 #
 # Needed in advance, outside this file:
 #   - the environment `preview` (branch policy `beta`) with the secret
 #     ZAD_PREVIEW_API_KEY, the preview project's key, never production's;
 #   - the repository variable ZAD_PREVIEW_PROJECT_ID, the preview project;
-#   - the components `beheer` and `site` in that project, set up once.
+#   - the components `beheer` and `site` in that project, set up once;
+#   - no sleep rule that matches `beta`.
 #
 # These jobs hold the ZAD key, so they never check out or run pull request
 # code: they run in the context of the base branch (pull_request_target,
@@ -125,6 +128,9 @@ jobs:
     env:
       REPOSITORY: ${{ github.repository }}
       NUMBER: ${{ needs.pull-request.outputs.number }}
+      # Both the deployment and the image tag deploy.yml pushes for it.
+      DEPLOYMENT: pr-${{ needs.pull-request.outputs.number }}
+      SOURCE_REF: refs/pull/${{ needs.pull-request.outputs.number }}/merge
     steps:
       # Rolls out only the pull request's current head, and only once a run
       # of "Test and deploy" on that commit has passed: the image is pushed
@@ -163,10 +169,11 @@ jobs:
             echo "head=${head}"
           } >> "$GITHUB_OUTPUT"
 
-      # The tag pr-<n> moves with every push, so it is read once, here, and
-      # the rollout names the digest. Its revision label says which commit it
+      # The tag moves with every push, so it is read once, here, and the
+      # rollout names the digest. Its revision label says which commit it
       # was built from; any other commit than the head is not this preview.
-      - name: Resolve the image
+      - &resolve
+        name: Resolve the image
         id: image
         if: steps.target.outputs.go == 'true'
         env:
@@ -179,24 +186,24 @@ jobs:
           printf '%s' "${GH_TOKEN}" | skopeo login ghcr.io --username "${ACTOR}" --password-stdin > /dev/null
           read -r digest revision < <(skopeo inspect \
             --format '{{.Digest}} {{index .Labels "org.opencontainers.image.revision"}}' \
-            "docker://${name}:pr-${NUMBER}")
+            "docker://${name}:${DEPLOYMENT}")
           if [[ ! "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-            echo "::error::${name}:pr-${NUMBER} has no usable digest"
+            echo "::error::${name}:${DEPLOYMENT} has no usable digest"
             exit 1
           fi
           if [ "${revision:-}" != "${HEAD}" ]; then
-            echo "::notice::${name}:pr-${NUMBER} was built from ${revision:-an unknown commit}, not from ${HEAD}"
+            echo "::notice::${name}:${DEPLOYMENT} was built from ${revision:-an unknown commit}, not from ${HEAD}"
             echo "ready=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # Any run that may push packages can move a tag, one from another
           # pull request's own deploy.yml included. The provenance that
-          # deploy.yml attests for the index ties this digest to a run for
-          # this pull request.
+          # deploy.yml attests for the index ties this digest to a run on
+          # SOURCE_REF.
           if ! gh attestation verify "oci://${name}@${digest}" --repo "${REPOSITORY}" \
             --signer-workflow "${REPOSITORY}/.github/workflows/deploy.yml" \
-            --source-ref "refs/pull/${NUMBER}/merge" --deny-self-hosted-runners > /dev/null; then
-            echo "::error::${name}@${digest} has no provenance from deploy.yml for pull request ${NUMBER}"
+            --source-ref "${SOURCE_REF}" --deny-self-hosted-runners > /dev/null; then
+            echo "::error::${name}@${digest} has no provenance from deploy.yml for ${SOURCE_REF}"
             exit 1
           fi
           {
@@ -204,7 +211,8 @@ jobs:
             echo "image=${name}@${digest}"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Install zadctl
+      - &install
+        name: Install zadctl
         if: steps.image.outputs.ready == 'true' || steps.target.outputs.remove == 'true'
         run: |
           set -euo pipefail
@@ -218,9 +226,10 @@ jobs:
 
       # Everything is saved with --no-rollout first and rolled out by the
       # refresh at the end, so a pod never starts without its own base URLs
-      # and secrets. The secrets are made once per preview and never
+      # and secrets. The secrets are made once per deployment and never
       # rotated; they reach zadctl on stdin, never on a command line.
-      - name: Roll out the preview
+      - &rollout
+        name: Roll out the preview
         id: rollout
         if: steps.image.outputs.ready == 'true'
         env:
@@ -229,7 +238,7 @@ jobs:
           IMAGE: ${{ steps.image.outputs.image }}
         run: |
           set -euo pipefail
-          deployment="pr-${NUMBER}"
+          deployment="${DEPLOYMENT}"
 
           https_url() {
             local url="${1%/}"
@@ -330,6 +339,22 @@ jobs:
             echo "::error::${admin}/-/healthz does not report ok"
             exit 1
           fi
+          # The content host answers the same path with the neutral 404 of
+          # serving/response.py: it reaches Toon and keeps the admin out.
+          separated=false
+          for _ in $(seq 1 12); do
+            code="$(curl --silent --show-error --max-time 10 --output "${RUNNER_TEMP}/content-healthz" \
+              --write-out '%{http_code}' "${content}/-/healthz" || true)"
+            if [ "${code}" = 404 ] && [ "$(cat "${RUNNER_TEMP}/content-healthz")" = "Niet gevonden" ]; then
+              separated=true
+              break
+            fi
+            sleep 5
+          done
+          if [ "${separated}" != true ]; then
+            echo "::error::${content}/-/healthz does not answer the neutral 404"
+            exit 1
+          fi
 
           {
             echo "admin=${admin}"
@@ -395,9 +420,66 @@ jobs:
             gh api --method POST "repos/${REPOSITORY}/issues/${NUMBER}/comments" -F "body=@${body}" > /dev/null
           fi
 
+  # beta after every merge, on the standing deployment `beta`: colleagues
+  # see what the next release holds. Never torn down, so its database
+  # lives on and every rollout migrates it; the seed only fills it once.
+  # The steps after the first are the pull request's, by alias.
+  beta:
+    if: >-
+      vars.ZAD_PREVIEW_PROJECT_ID != ''
+      && github.event_name == 'workflow_run'
+      && github.event.workflow_run.event == 'push'
+      && github.event.workflow_run.head_branch == 'beta'
+      && github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      attestations: read
+      contents: read
+      packages: read
+    environment:
+      name: preview
+      url: ${{ steps.rollout.outputs.admin }}
+    # A group keeps one pending run, and a newer one cancels it: a burst of
+    # merges rolls out the one in progress and the newest, nothing between.
+    concurrency:
+      group: preview-beta
+      cancel-in-progress: false
+    env:
+      REPOSITORY: ${{ github.repository }}
+      DEPLOYMENT: beta
+      SOURCE_REF: refs/heads/beta
+    steps:
+      # A rerun of an older run would roll beta back onto a database its
+      # newer migrations already changed.
+      - name: Decide what to roll out
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          head="$(gh api "repos/${REPOSITORY}/branches/beta" --jq '.commit.sha')"
+          if [ "${RUN_SHA}" != "${head}" ]; then
+            echo "::notice::This run tested ${RUN_SHA}, beta is at ${head} now: its own run rolls that out"
+            echo "go=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          {
+            echo "go=true"
+            echo "head=${head}"
+          } >> "$GITHUB_OUTPUT"
+
+      - *resolve
+      - *install
+      - *rollout
+
   # Two moments: the label comes off, or a pull request closes. Every close,
   # labelled or not: a deploy that overtook the label coming off may have
-  # left a preview behind. The deployment goes with its database and volume.
+  # left a preview behind. The deployment goes with its volume; ZAD only
+  # marks its database for deletion, and labelling the same pull request
+  # again within ZAD's grace period brings that database back.
   teardown:
     if: >-
       vars.ZAD_PREVIEW_PROJECT_ID != ''
@@ -473,6 +555,6 @@ jobs:
           {
             echo "${HEADING}"
             echo
-            echo "The preview is removed: deployment pr-${NUMBER} was deleted with its database and volume."
+            echo "The preview is removed: deployment pr-${NUMBER} and its volume were deleted. ZAD only marks its database for deletion: labelling this pull request again within ZAD's grace period brings that database back."
           } > "${body}"
           gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${existing}" -F "body=@${body}" > /dev/null
