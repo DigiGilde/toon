@@ -1182,7 +1182,21 @@ memberships; only a group admin may.
 API Design Rules) with `code` as the machine-readable extension: 401, 403, 404,
 409, 413, 422, 429 with `Retry-After`. Invalid input is a 422 by house rule,
 where the API Design Rules ask for 400: a deliberate deviation, kept for every
-endpoint alike. The OpenAPI schema and a self-hosted docs
+endpoint alike.
+
+**Unknown fields.** A JSON body that only arrives over an admin session
+(`SessionBody` in `api/schema.py`) refuses a field it does not know with a 422
+that names it, and its schema says `additionalProperties: false`. Such a body
+comes from the SPA, which ships with the server, or from a platform admin
+calling by hand (the audit lookups and the IP reveal), so a stray key is a
+client mistake or an attempt to set what the route does not offer. A body a
+separately distributed client sends ignores an unknown field instead: the CLI
+(creating a group or a site, linking a repository, the `toon login` device flow
+and logout, setting the status of a feedback item and replying to one) may run
+a different version than the server, and a newer CLI may send a field an older
+server does not know yet.
+
+The OpenAPI schema and a self-hosted docs
 UI sit on `/-/api/docs`; the assets are local files because the CSP of §9 allows
 no CDN. Both come in English and Dutch: `?lang=`, then the language a signed-in
 member set on their profile, then `Accept-Language`, and otherwise English, the

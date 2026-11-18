@@ -1,0 +1,1 @@
+- The admin API refuses an unknown field with a 422 in a body that only arrives over an admin session (the admin interface, or a platform admin calling the API by hand), instead of ignoring it. Bodies the CLI sends still ignore one.

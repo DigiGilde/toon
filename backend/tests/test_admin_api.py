@@ -20,6 +20,7 @@ from types import SimpleNamespace
 import pytest
 import pytest_asyncio
 from fastapi import FastAPI
+from fastapi.routing import APIRoute
 from helpers_audit import install_audit_recorder
 from helpers_ci import FORGEJO_HOST, MockCi
 from helpers_oidc import APP_BASE_URL, CONTENT_BASE_URL, make_test_client, set_session_cookie
@@ -32,6 +33,7 @@ from toon.access import keys as access_keys
 from toon.api import deploys
 from toon.api.admin import make_admin_router
 from toon.api.errors import register_error_handlers
+from toon.api.schema import SessionBody
 from toon.audit.log import ANONYMOUS, AuditLog
 from toon.audit.pseudonymisation import pseudonymise
 from toon.auth.sessions import CSRF_COOKIE, CSRF_HEADER, SessionStore
@@ -42,6 +44,7 @@ from toon.constants import AccessBase, Role
 from toon.db import make_session_factory
 from toon.ingest.store import ContentStore, version_ref
 from toon.models.audit import AuditLogEntry, ContentViewer
+from toon.models.base import Base
 from toon.models.ci import CiProvider, SiteRepository
 from toon.models.cli import CliSession
 from toon.models.identity import Group, GroupMember, Member, MemberStatus, PlatformRole, SiteMember
@@ -4096,3 +4099,209 @@ class TestIpRevealDecryptFailure:
 
         assert response.status_code == 404
         assert response.json()["code"] == "AUDIT_IP_UNKNOWN"
+
+
+# -- Unknown fields in a body that only arrives over a session ---------------
+
+
+async def _session_body_world(app, factory, data) -> dict[str, str]:
+    """What every session-only body needs to be accepted without a stray key:
+    the platform admin as group admin, a group and site reader, a preview, a
+    linked repository, a pending `toon login` and an audit row with an IP
+    address. Returns the path and body placeholders."""
+    await _join_group(factory, data.group, data.admin_member, Role.ADMIN)
+    await _join_group(factory, data.group, data.member_b, Role.READER)
+    await _join_site(factory, data.site, data.member_b, Role.READER)
+    await _new_member(factory, sub="lid-c", email="c@example.nl")
+    async with factory() as db:
+        version = Version(site_id=data.site.id, target=VersionTarget.PREVIEW, member_id=data.member_a.id)
+        db.add(version)
+        await db.flush()
+        db.add(Preview(site_id=data.site.id, ref="pr-1", version_id=version.id))
+        db.add(
+            SiteRepository(
+                site_id=data.site.id,
+                provider=CiProvider.GITHUB,
+                host="https://github.com",
+                owner="MinBZK",
+                repo="Website",
+                repository_id=1001,
+                owner_id=2002,
+                live_branch="main",
+                ids_confirmed=True,
+                created_by=data.member_a.id,
+                site_id_required=False,
+            )
+        )
+        await db.commit()
+    async with factory() as db:
+        pending = await cli.create_device_authorization(db, client_name=None, ip_truncated=None)
+    await app.state.audit_log.write_strict("test_ip", ANONYMOUS, "allowed", ip="192.0.2.7")
+    async with factory() as db:
+        entry_id = await db.scalar(select(AuditLogEntry.id).where(AuditLogEntry.action == "test_ip"))
+    return {
+        "group_slug": "team",
+        "site_slug": "site",
+        "ref": "pr-1",
+        "member_id": str(data.member_b.id),
+        "user_code": pending.user_code,
+        "pseudonym": pseudonymise(app.state.settings.audit_pepper, data.member_b.sso_subject),
+        "entry_id": str(entry_id),
+    }
+
+
+async def _domain_state(factory) -> dict[str, list[str]]:
+    """Every row outside the audit log."""
+    state: dict[str, list[str]] = {}
+    async with factory() as db:
+        for table in Base.metadata.sorted_tables:
+            if table.name not in {"audit_log_entries", "audit_log_chain_heads"}:
+                rows = (await db.execute(select(table))).all()
+                state[table.name] = sorted(repr(tuple(row)) for row in rows)
+    return state
+
+
+# (method, route, body); `{...}` in the route and in a top-level string value
+# of the body is filled from _session_body_world.
+SESSION_BODIES = [
+    ("PUT", "/me/language", {"language": "en"}),
+    ("PUT", "/groups/{group_slug}/name", {"name": "Ander team"}),
+    ("PUT", "/groups/{group_slug}/slug", {"slug": "ander-team"}),
+    ("PUT", "/groups/{group_slug}/default-access", {"base": "public"}),
+    ("POST", "/groups/{group_slug}/members", {"identifier": "c@example.nl"}),
+    ("PUT", "/groups/{group_slug}/members/{member_id}/role", {"role": "editor"}),
+    ("PUT", "/sites/{group_slug}/{site_slug}/title", {"title": "Andere site"}),
+    ("PUT", "/sites/{group_slug}/{site_slug}/slug", {"slug": "andere-site"}),
+    ("PUT", "/sites/{group_slug}/{site_slug}/access", {"base": "public"}),
+    ("PUT", "/sites/{group_slug}/{site_slug}/external-sources", {"externalSources": False}),
+    ("PUT", "/sites/{group_slug}/{site_slug}/sandbox", {"sandbox": False}),
+    ("PUT", "/sites/{group_slug}/{site_slug}/live-versions-kept", {"liveVersionsKept": 2}),
+    (
+        "PUT",
+        "/sites/{group_slug}/{site_slug}/feedback-settings",
+        {"enabled": True, "identity": "name", "live": False},
+    ),
+    ("POST", "/sites/{group_slug}/{site_slug}/invitees", {"identifier": "gast@example.nl"}),
+    ("POST", "/sites/{group_slug}/{site_slug}/keys", {"label": "reviewers"}),
+    ("PUT", "/sites/{group_slug}/{site_slug}/repository/site-id-required", {"siteIdRequired": True}),
+    ("POST", "/sites/{group_slug}/{site_slug}/members", {"identifier": "c@example.nl"}),
+    ("PUT", "/sites/{group_slug}/{site_slug}/members/{member_id}/role", {"role": "editor"}),
+    (
+        "PUT",
+        "/sites/{group_slug}/{site_slug}/previews/{ref}/access",
+        {"access": {"base": "sso", "keys": False, "invitees": False}},
+    ),
+    ("POST", "/cli/device-authorizations/lookup", {"userCode": "{user_code}"}),
+    ("POST", "/cli/device-authorizations/approve", {"userCode": "{user_code}"}),
+    ("POST", "/cli/device-authorizations/deny", {"userCode": "{user_code}"}),
+    ("PUT", "/platform/members/{member_id}/platform-role", {"platformRole": "admin"}),
+    ("POST", "/platform/audit/purge-hold", {"reason": "incident 2026-091"}),
+    (
+        "POST",
+        "/platform/audit/actor-pseudonym",
+        {"identifier": "c@example.nl", "reason": "onderzoek naar melding 2026-091"},
+    ),
+    (
+        "POST",
+        "/platform/audit/actor-identity",
+        {"actorPseudonym": "{pseudonym}", "reason": "onderzoek naar melding 2026-091"},
+    ),
+    ("POST", "/platform/audit/entries/{entry_id}/ip", {"reason": "onderzoek naar melding 2026-091"}),
+]
+
+
+class TestUnknownBodyFields:
+    """A body that only arrives over an admin session (from the SPA, which
+    ships with the server, or from a platform admin calling by hand) refuses
+    a field it does not know: a stray key is a client mistake or an attempt to
+    set what the route does not offer. A body the CLI sends stays lenient
+    (test_cli_creation.py), since a CLI of another version may send it."""
+
+    @pytest.mark.parametrize(
+        ("method", "route", "body"), SESSION_BODIES, ids=[f"{method} {route}" for method, route, _ in SESSION_BODIES]
+    )
+    async def test_a_stray_key_is_422_and_changes_nothing(self, client, app, factory, data, method, route, body):
+        world = await _session_body_world(app, factory, data)
+        # With a budget of one lookup, the clean lookup below only goes
+        # through if the refused one did not use it up.
+        app.state.settings.audit_lookup_daily_limit = 1
+        headers = login(client, app, sub="admin-sub", email="admin@example.nl")
+        url = BASE + route.format(**world)
+        clean = {name: value.format(**world) if isinstance(value, str) else value for name, value in body.items()}
+        before = await _domain_state(factory)
+
+        refused = await client.request(method, url, json={**clean, "unknownField": True}, headers=headers)
+
+        assert refused.status_code == 422, refused.text
+        assert refused.headers["content-type"] == PROBLEM
+        assert refused.json()["detail"] == "Invalid input: unknownField"
+        assert await _domain_state(factory) == before
+        # The same body without the stray key goes through, so the 422 above
+        # is the stray key's alone.
+        accepted = await client.request(method, url, json=clean, headers=headers)
+        assert accepted.status_code < 300, accepted.text
+
+    async def test_the_cases_cover_every_route_with_a_session_body(self):
+        """A new session-only body joins SESSION_BODIES, or the test above never
+        sends it a stray key."""
+        routes = {
+            (method, route.path)
+            for route in make_admin_router().routes
+            if isinstance(route, APIRoute)
+            and route.body_field is not None
+            and issubclass(route.body_field.field_info.annotation, SessionBody)
+            for method in route.methods
+        }
+        covered = {(method, BASE + route) for method, route, _ in SESSION_BODIES}
+        covered.add(("POST", f"{BASE}/platform/audit/purge-hold/end"))
+        assert covered == routes
+
+    async def test_purge_hold_end_refuses_a_stray_key_and_keeps_the_hold(self, client, app, factory, data):
+        """Ending a hold needs one first, which SESSION_BODIES cannot give."""
+        headers = login(client, app, sub="admin-sub", email="admin@example.nl")
+        started = await client.post(
+            f"{BASE}/platform/audit/purge-hold", json={"reason": "incident 2026-091"}, headers=headers
+        )
+        assert started.status_code < 300, started.text
+        before = await _domain_state(factory)
+
+        refused = await client.post(
+            f"{BASE}/platform/audit/purge-hold/end",
+            json={"reason": "afgerond", "unknownField": True},
+            headers=headers,
+        )
+
+        assert refused.status_code == 422
+        assert refused.json()["detail"] == "Invalid input: unknownField"
+        assert await _domain_state(factory) == before
+        ended = await client.post(
+            f"{BASE}/platform/audit/purge-hold/end", json={"reason": "afgerond"}, headers=headers
+        )
+        assert ended.status_code < 300, ended.text
+
+    async def test_a_stray_key_in_the_nested_access_is_refused_in_the_language_asked_for(
+        self, client, app, factory, data
+    ):
+        await _session_body_world(app, factory, data)
+        headers = login(client, app, sub="admin-sub", email="admin@example.nl")
+        before = await _domain_state(factory)
+
+        refused = await client.put(
+            f"{BASE}/sites/team/site/previews/pr-1/access",
+            json={"access": {"base": "sso", "keys": False, "invitees": False, "everyone": True}},
+            headers={**headers, "Accept-Language": "nl"},
+        )
+
+        assert refused.status_code == 422
+        assert refused.json()["detail"] == "Ongeldige invoer: access.everyone"
+        assert await _domain_state(factory) == before
+
+    async def test_the_snake_case_name_of_a_field_is_no_stray_key(self, client, app, factory, data):
+        headers = login(client, app, sub="lid-a", email="a@example.nl")
+
+        response = await client.put(
+            f"{BASE}/sites/team/site/external-sources", json={"external_sources": False}, headers=headers
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["externalSources"] is False
