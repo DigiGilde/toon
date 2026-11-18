@@ -50,7 +50,7 @@ export type DropResult =
 
 const ARCHIVE_OR_PAGE = /\.(zip|tgz|tar\.gz|html)$/i;
 
-/** What the deploy API accepts without packing (`ingest/unpacker.py`). */
+/** What the deploy API accepts without packing (`ingest/unpacker/bundle.py`). */
 export function isDirectlyUsable(name: string): boolean {
   return ARCHIVE_OR_PAGE.test(name);
 }
@@ -69,7 +69,7 @@ export function isMetadata(name: string): boolean {
 /**
  * Files that never belong on a website and that come along automatically with a
  * whole site folder. The ingest refuses them too (`SECRET_FILE` in
- * `ingest/unpacker.py`); they are here to say so before anything goes over the
+ * `ingest/unpacker/paths.py`); they are here to say so before anything goes over the
  * wire, and to tell the user what to do instead.
  *
  * No blanket ban on dotfiles: `.well-known/` and `.gitignore` are allowed.

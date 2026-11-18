@@ -25,7 +25,7 @@ CLIENT_TS = ROOT / "frontend" / "src" / "api" / "client.ts"
 WIDGET_CONFIG_TS = ROOT / "frontend" / "src" / "feedback-widget" / "config.ts"
 DOCS_INIT = ROOT / "backend" / "src" / "toon" / "static" / "docs" / "docs-init.js"
 CLI = ROOT / "cli" / "toon_cli" / "__init__.py"
-UNPACKER = ROOT / "backend" / "src" / "toon" / "ingest" / "unpacker.py"
+UNPACKER = ROOT / "backend" / "src" / "toon" / "ingest" / "unpacker" / "bundle.py"
 
 LIMIT_SETTINGS = {
     "files": "ingest_max_files",
@@ -46,7 +46,7 @@ def _backend_extensions() -> set[str]:
     source = UNPACKER.read_text(encoding="utf-8")
     calls = re.findall(r"name\.endswith\(([^)]*\)?)\)", source)
     extensions = {ext for call in calls for ext in re.findall(r'"(\.[a-z.]+)"', call)}
-    assert extensions, "no name.endswith(...) dispatch found in unpacker.py"
+    assert extensions, "no name.endswith(...) dispatch found in unpacker/bundle.py"
     return extensions
 
 

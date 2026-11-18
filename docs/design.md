@@ -713,7 +713,7 @@ transaction as the version insert. Rollback is a pointer swap to an earlier
 version with target `live`; a version with target `preview` is never a rollback
 target. Every live version is kept.
 
-Code: `ingest/unpacker.py`, `ingest/store.py`, `ingest/service.py`. Guarded by:
+Code: `ingest/unpacker/`, `ingest/store.py`, `ingest/service.py`. Guarded by:
 `test_unpacker.py`, `test_store.py`, `test_ingest_service.py`,
 `test_deploy_api.py`.
 
