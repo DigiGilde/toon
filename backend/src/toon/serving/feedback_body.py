@@ -12,9 +12,10 @@ sends nothing holds nothing.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import AsyncGenerator, Callable, Generator
 from contextlib import aclosing, contextmanager
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from fastapi import Request
 from python_multipart.exceptions import FormParserError
@@ -31,6 +32,11 @@ from toon.constants import (
 from toon.messages import Msg
 from toon.serving.feedback_images import ImageInfo
 from toon.serving.feedback_input import ProblemError, bad_field
+
+if TYPE_CHECKING:
+    # Declared under TYPE_CHECKING in python_multipart itself, so it cannot
+    # be imported at runtime.
+    from python_multipart.multipart import MultipartCallbacks
 
 # The JSON of one item, with room to spare.
 MAX_ITEM_BYTES = 32 * 1024
@@ -122,7 +128,7 @@ _MAX_LENGTH_DIGITS = 20
 
 
 @contextmanager
-def body_room(request: Request, limit: int, refusal: Callable[[], ProblemError]) -> Iterator[_Room]:
+def body_room(request: Request, limit: int, refusal: Callable[[], ProblemError]) -> Generator[_Room]:
     """This request's body among the bodies in flight until the block ends,
     with room for each chunk as it arrives, read to its declared length, or
     to `limit` when it declares none. A declared length above `limit` is
@@ -169,7 +175,7 @@ class _Parts:
         self._header_value = bytearray()
         self._disposition = b""
 
-    def callbacks(self) -> dict[str, Callable[..., None]]:
+    def callbacks(self) -> MultipartCallbacks:
         return {
             "on_part_begin": self._part_begin,
             "on_header_field": self._header_field,
@@ -245,7 +251,7 @@ class _Delimited:
         self._parser.write(chunk)
 
 
-async def _bounded(request: Request, room: _Room, refusal: Callable[[], ProblemError]) -> AsyncIterator[bytes]:
+async def _bounded(request: Request, room: _Room, refusal: Callable[[], ProblemError]) -> AsyncGenerator[bytes]:
     """The body as it streams in, each chunk with its room taken before it
     is read, and refused once the body is longer than the room's bound."""
     total = 0

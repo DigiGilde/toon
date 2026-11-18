@@ -69,6 +69,7 @@ from typing import IO, Protocol
 from toon import i18n, messages
 from toon.config import Settings
 from toon.constants import INDEX_FILE, RESERVED_SEGMENTS
+from toon.ingest.precompress import Writable
 from toon.messages import Msg
 
 _logger = logging.getLogger(__name__)
@@ -128,7 +129,7 @@ def _unreadable(error: Exception) -> str:
 class Destination(Protocol):
     """Where unpacked files go (the store's VersionWriter)."""
 
-    def open_file(self, rel_path: str) -> IO[bytes]: ...
+    def open_file(self, rel_path: str) -> Writable: ...
 
 
 @dataclass(frozen=True)
@@ -562,7 +563,7 @@ class _Tree:
         self.total += size
 
 
-def _copy_bounded(source: IO[bytes], target: IO[bytes], path: str, tree: _Tree, limits: Limits) -> int:
+def _copy_bounded(source: IO[bytes], target: Writable, path: str, tree: _Tree, limits: Limits) -> int:
     """Copies in chunks and counts the real unpacked bytes against the limits."""
     read_bytes_count = 0
     while True:
@@ -883,7 +884,7 @@ class _TarSource(gzip.GzipFile):
         self._blocks: dict[int, bytes] = {}
         self.recording = True
 
-    def read(self, size: int = -1) -> bytes:
+    def read(self, size: int | None = -1) -> bytes:
         start = self.tell()
         data = super().read(size)
         if self.recording and data:

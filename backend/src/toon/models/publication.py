@@ -22,7 +22,7 @@ from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Mapped, mapped_column
 
-from toon.constants import FeedbackIdentity
+from toon.constants import AccessBase, FeedbackIdentity
 from toon.models.base import ACCESS_BASE_ENUM, Base, IDMixin
 
 
@@ -54,7 +54,7 @@ class Site(IDMixin, Base):
     # Base plus extras: the base answers "who can view this site", the two
     # booleans widen it. They never narrow it, so on base `public` they change
     # nothing.
-    access_base: Mapped[str] = mapped_column(ACCESS_BASE_ENUM, nullable=False)
+    access_base: Mapped[AccessBase] = mapped_column(ACCESS_BASE_ENUM, nullable=False)
     access_keys: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=false(), default=False
     )
@@ -148,7 +148,7 @@ class Preview(IDMixin, Base):
     )
     # All three together or none: an override is one whole policy, never a
     # base borrowed from the preview with extras borrowed from the site.
-    access_base_override: Mapped[str | None] = mapped_column(ACCESS_BASE_ENUM, nullable=True)
+    access_base_override: Mapped[AccessBase | None] = mapped_column(ACCESS_BASE_ENUM, nullable=True)
     access_keys_override: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     access_invitees_override: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     last_updated_at: Mapped[datetime] = mapped_column(

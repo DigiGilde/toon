@@ -63,7 +63,7 @@ class ImageInfo:
     animated: bool
 
 
-def read_image(data: bytes) -> ImageInfo | None:
+def read_image(data: bytes | bytearray) -> ImageInfo | None:
     """The format, dimensions and animation flag of a PNG, JPEG or WebP
     header, or None for anything else, a header cut short included."""
     if data.startswith(_PNG_SIGNATURE):
@@ -75,7 +75,7 @@ def read_image(data: bytes) -> ImageInfo | None:
     return None
 
 
-def acceptable_screenshot(data: bytes) -> ImageInfo | None:
+def acceptable_screenshot(data: bytes | bytearray) -> ImageInfo | None:
     """The screenshot's header when Toon keeps it: one of the three formats,
     still, at most MAX_SIDE on each side and MAX_PIXELS in all."""
     info = read_image(data)
@@ -88,7 +88,7 @@ def acceptable_screenshot(data: bytes) -> ImageInfo | None:
     return info
 
 
-def _png(data: bytes) -> ImageInfo | None:
+def _png(data: bytes | bytearray) -> ImageInfo | None:
     if data[8:16] != _PNG_IHDR or len(data) < 33:
         return None
     width, height = struct.unpack_from(">II", data, 16)
@@ -109,7 +109,7 @@ def _png(data: bytes) -> ImageInfo | None:
     return None
 
 
-def _jpeg(data: bytes) -> ImageInfo | None:
+def _jpeg(data: bytes | bytearray) -> ImageInfo | None:
     end = min(len(data), HEADER_WINDOW)
     offset = 2
     for _ in range(MAX_SEGMENTS):
@@ -134,7 +134,7 @@ def _jpeg(data: bytes) -> ImageInfo | None:
     return None
 
 
-def _webp(data: bytes) -> ImageInfo | None:
+def _webp(data: bytes | bytearray) -> ImageInfo | None:
     (riff_size,) = struct.unpack_from("<I", data, 4)
     end = 8 + riff_size
     first = _riff_chunk(data, 12, end) if end <= len(data) else None
@@ -167,7 +167,7 @@ def _webp(data: bytes) -> ImageInfo | None:
     return None
 
 
-def _riff_chunk(data: bytes, offset: int, end: int) -> tuple[bytes, int, int] | None:
+def _riff_chunk(data: bytes | bytearray, offset: int, end: int) -> tuple[bytes | bytearray, int, int] | None:
     """The chunk at `offset` as (fourcc, offset of its body, its size), or
     None when its header lies past the header window or the chunk runs past
     `end`, the end of the RIFF data. A chunk of odd size is followed by one
@@ -182,7 +182,7 @@ def _riff_chunk(data: bytes, offset: int, end: int) -> tuple[bytes, int, int] | 
     return kind, body, size
 
 
-def _vp8(body: bytes) -> tuple[int, int] | None:
+def _vp8(body: bytes | bytearray) -> tuple[int, int] | None:
     # A key frame (bit 0 of the frame tag clear) starts the stream, and it
     # carries the start code and the 14-bit dimensions.
     if len(body) < 10 or body[0] & 1 or body[3:6] != _VP8_START_CODE:
@@ -191,7 +191,7 @@ def _vp8(body: bytes) -> tuple[int, int] | None:
     return width & 0x3FFF, height & 0x3FFF
 
 
-def _vp8l(body: bytes) -> tuple[int, int] | None:
+def _vp8l(body: bytes | bytearray) -> tuple[int, int] | None:
     if len(body) < 5 or body[0] != _VP8L_SIGNATURE:
         return None
     bits = int.from_bytes(body[1:5], "little")

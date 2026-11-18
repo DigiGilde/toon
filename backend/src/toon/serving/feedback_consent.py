@@ -268,7 +268,8 @@ async def _consent_site(
         if open_feedback(decision, preview=route.ref is not None) is None:
             return None
         title = await db.scalar(select(Site.title).where(Site.id == decision.site_id))
-    return None if title is None else _ConsentSite(decision.site_id, title)
+    # open_feedback admits only an ALLOW decision, and that one always names its site.
+    return None if title is None else _ConsentSite(decision.site_id, title)  # ty: ignore[invalid-argument-type]
 
 
 def consent_page_html(

@@ -371,9 +371,11 @@ def add_feedback_routes(router: APIRouter) -> None:
         # The lock the widget's replies take too, held until the commit: two
         # replies cannot both count the last free place.
         await db.execute(select(func.pg_advisory_xact_lock(func.hashtext(feedback_item_lock_key(item_id)))))
-        replies = await db.scalar(
-            select(func.count()).select_from(FeedbackReplyRow).where(FeedbackReplyRow.item_id == item_id)
-        )
+        replies = (
+            await db.execute(
+                select(func.count()).select_from(FeedbackReplyRow).where(FeedbackReplyRow.item_id == item_id)
+            )
+        ).scalar_one()
         if replies >= FEEDBACK_MAX_REPLIES:
             raise ApiError(409, "FEEDBACK_THREAD_FULL")
         reply = FeedbackReplyRow(

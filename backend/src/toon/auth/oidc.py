@@ -388,8 +388,8 @@ class OidcClient:
             raise OidcError("iss parameter is missing from the callback", reason=vocabulary.LOGIN_ISS_MISMATCH)
 
     def _make_client_assertion(self, token_endpoint: str) -> str:
-        private_jwk = self._private_jwk
-        if private_jwk is None:
+        private_jwk, private_key = self._private_jwk, self._private_key
+        if private_jwk is None or private_key is None:
             raise OidcError(
                 "client_assertion requires TOON_OIDC_CLIENT_AUTH=private_key_jwt",
                 reason=vocabulary.LOGIN_IDP_UNREACHABLE,
@@ -407,7 +407,7 @@ class OidcClient:
             "iat": now_,
             "exp": now_ + 300,
         }
-        return jwt.encode(header, claims, self._private_key, registry=self._registry)
+        return jwt.encode(header, claims, private_key, registry=self._registry)
 
     def _client_authentication(self, token_endpoint: str) -> tuple[dict[str, str], dict[str, str]]:
         """Returns (extra form fields, extra headers) for the token exchange."""

@@ -313,10 +313,10 @@ async def exchange_device_code(db: AsyncSession, device_code: str, *, now: datet
     return IssuedTokens(session=session, member=member, access_token=access_token, refresh_token=refresh_token)
 
 
-async def _just_rotated(db: AsyncSession, stored: CliRefreshToken, now: datetime) -> bool:
-    """Whether `stored` is the session's most recently rotated token, rotated
-    less than REFRESH_REUSE_GRACE ago."""
-    if now - stored.used_at >= REFRESH_REUSE_GRACE:
+async def _just_rotated(db: AsyncSession, stored: CliRefreshToken, used_at: datetime, now: datetime) -> bool:
+    """Whether `stored`, rotated at `used_at`, is the session's most recently
+    rotated token, rotated less than REFRESH_REUSE_GRACE ago."""
+    if now - used_at >= REFRESH_REUSE_GRACE:
         return False
     latest = await db.scalar(
         select(func.max(CliRefreshToken.used_at)).where(CliRefreshToken.session_id == stored.session_id)
@@ -338,7 +338,7 @@ async def refresh(db: AsyncSession, refresh_token: str, *, now: datetime | None 
 
     session = await db.scalar(select(CliSession).where(CliSession.id == stored.session_id).with_for_update())
     member = await db.get(Member, session.member_id) if session is not None else None
-    if stored.used_at is not None and session is not None and await _just_rotated(db, stored, now):
+    if stored.used_at is not None and session is not None and await _just_rotated(db, stored, stored.used_at, now):
         await db.rollback()
         raise GrantError(f"{INVALID_GRANT}.refresh_token_rotated")
     if stored.used_at is not None:

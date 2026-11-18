@@ -42,7 +42,7 @@ import logging
 import math
 import time
 import uuid
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
+from collections.abc import AsyncGenerator, Awaitable, Callable, Generator
 from contextlib import asynccontextmanager, contextmanager, suppress
 from datetime import UTC, datetime
 from typing import Any
@@ -219,7 +219,7 @@ async def _clean_every(counters: tuple[InMemoryCounter, ...], interval: float) -
 
 
 @asynccontextmanager
-async def write_counter_sweep(*counters: InMemoryCounter) -> AsyncIterator[asyncio.Task]:
+async def write_counter_sweep(*counters: InMemoryCounter) -> AsyncGenerator[asyncio.Task]:
     """Background task that drops the ended windows of the write counters once
     per window, for the lifespan of main.py: without writes that clean them,
     the key of the last giver would stay."""
@@ -255,7 +255,7 @@ def _too_many_writes(remaining_s: float) -> ProblemError:
 
 
 @contextmanager
-def _admitted_write(request: Request, context: FeedbackContext) -> Iterator[None]:
+def _admitted_write(request: Request, context: FeedbackContext) -> Generator[None]:
     """Counts a write attempt on the author's budget, then reserves one write
     on the site's: 429 when either is spent. The site gets its write back
     unless the block ends without an exception, which only a stored write
@@ -401,13 +401,15 @@ async def _check_quota(db: AsyncSession, site_id: uuid.UUID, size: int) -> None:
     # cannot pass the platform total together either.
     await db.execute(select(func.pg_advisory_xact_lock(func.hashtext("toon-feedback-screenshots"))))
     stored = func.coalesce(func.sum(FeedbackScreenshot.size_bytes), 0)
-    site_bytes = await db.scalar(
-        select(stored)
-        .select_from(FeedbackScreenshot)
-        .join(FeedbackItem, FeedbackItem.id == FeedbackScreenshot.item_id)
-        .where(FeedbackItem.site_id == site_id)
-    )
-    total_bytes = await db.scalar(select(stored).select_from(FeedbackScreenshot))
+    site_bytes = (
+        await db.execute(
+            select(stored)
+            .select_from(FeedbackScreenshot)
+            .join(FeedbackItem, FeedbackItem.id == FeedbackScreenshot.item_id)
+            .where(FeedbackItem.site_id == site_id)
+        )
+    ).scalar_one()
+    total_bytes = (await db.execute(select(stored).select_from(FeedbackScreenshot))).scalar_one()
     cap = FEEDBACK_TOTAL_SCREENSHOT_MAX_BYTES
     platform_full = total_bytes + size > cap
     # A site's own cap is the business of its team. This one stops every
@@ -471,7 +473,7 @@ async def my_items(request: Request) -> Response:
     return JSONResponse({"items": entries, "more": len(rows) > MAX_MINE}, headers=dict(FEEDBACK_API_HEADERS))
 
 
-def _mine_rows(context: FeedbackContext, session: Session) -> Select[tuple[FeedbackItem, bool]]:
+def _mine_rows(context: FeedbackContext, session: Session) -> Select[FeedbackItem, bool]:
     """The visitor's own items on this site, newest first and one more than
     shown, which tells whether there are more. Each comes with whether the
     preview it was given on still opens: one that is gone or past its expiry
@@ -570,7 +572,7 @@ def _item_id(value: str) -> uuid.UUID:
         raise _unavailable() from None
 
 
-def _own_item(context: FeedbackContext, session: Session, item_id: uuid.UUID) -> Select[tuple[uuid.UUID]]:
+def _own_item(context: FeedbackContext, session: Session, item_id: uuid.UUID) -> Select[uuid.UUID]:
     return select(FeedbackItem.id).where(
         FeedbackItem.id == item_id,
         FeedbackItem.site_id == context.site_id,

@@ -12,7 +12,7 @@ import asyncio
 import contextlib
 import logging
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -95,7 +95,7 @@ async def _run_checks(app: FastAPI, store: ContentStore, settings: Settings, int
 @asynccontextmanager
 async def storage_check_job(
     app: FastAPI, store: ContentStore, settings: Settings, *, interval: float = CHECK_INTERVAL_SECONDS
-) -> AsyncIterator[asyncio.Task]:
+) -> AsyncGenerator[asyncio.Task]:
     """Background task that measures the volume every `interval` seconds, so the
     ERROR line appears whether or not anyone calls /-/healthz."""
     task = asyncio.create_task(_run_checks(app, store, settings, interval))

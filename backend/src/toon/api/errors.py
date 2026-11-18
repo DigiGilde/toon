@@ -205,8 +205,8 @@ def problem_response(
     *,
     locale: str = i18n.API_DEFAULT,
     code: str | None = None,
-    headers: dict[str, str] | None = None,
-    extra: dict[str, object] | None = None,
+    headers: Mapping[str, str] | None = None,
+    extra: Mapping[str, object] | None = None,
 ) -> JSONResponse:
     content: dict[str, object] = {
         "type": "about:blank",

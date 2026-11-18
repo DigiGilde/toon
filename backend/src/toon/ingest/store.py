@@ -21,7 +21,7 @@ import shutil
 import stat
 import threading
 import uuid
-from collections.abc import Iterable, Iterator
+from collections.abc import Generator, Iterable
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -173,7 +173,7 @@ class ContentStore:
         return self._tmp / f"{uuid.uuid4()}{SPOOL_SUFFIX}"
 
     @contextmanager
-    def write_version(self, site_id: uuid.UUID, version_id: uuid.UUID) -> Iterator[VersionWriter]:
+    def write_version(self, site_id: uuid.UUID, version_id: uuid.UUID) -> Generator[VersionWriter]:
         """Work directory for a new version; on a normal exit atomically renamed
         to its final place, on an exception cleaned up entirely."""
         storage_ref = version_ref(site_id, version_id)

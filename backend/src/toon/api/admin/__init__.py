@@ -35,11 +35,11 @@ import shutil
 import time
 import unicodedata
 import uuid
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncGenerator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, overload
 
 from fastapi import APIRouter, Depends, Path, Query, Request
 from pydantic import ConfigDict, Field, field_validator
@@ -339,6 +339,10 @@ def _deleted(what: str) -> dict[int | str, dict[str, Any]]:
 # -- Request bodies ---------------------------------------------------------
 
 
+@overload
+def _require_aware(value: datetime) -> datetime: ...
+@overload
+def _require_aware(value: datetime | None) -> datetime | None: ...
 def _require_aware(value: datetime | None) -> datetime | None:
     if value is not None and value.tzinfo is None:
         return value.replace(tzinfo=UTC)
@@ -2166,7 +2170,7 @@ async def _is_last_group_member(db: AsyncSession, group_id: uuid.UUID, member_id
 
 
 @asynccontextmanager
-async def _group_keeps_an_admin(db: AsyncSession) -> AsyncIterator[None]:
+async def _group_keeps_an_admin(db: AsyncSession) -> AsyncGenerator[None]:
     """Turns the trigger ck_groups_keep_one_admin into a 409 instead of a 500.
 
     The trigger (migration 0001) raises a bare PL/pgSQL exception, so the
@@ -2748,7 +2752,9 @@ async def _resolve_ci_identifier(db: AsyncSession, identifier: str) -> str | Non
     return next(iter(subjects), None)
 
 
-async def _resolve_lookup_identifier(db: AsyncSession, identifier: str) -> tuple[str, str] | None:
+async def _resolve_lookup_identifier(
+    db: AsyncSession, identifier: str
+) -> tuple[Literal["member", "content_viewer"], str] | None:
     """Resolves an identifier for `actor-pseudonym`: an exact sso_subject
     match (member or content viewer) wins outright - the same sub in both
     tables is one person, not an ambiguity, member takes priority for the
@@ -5265,7 +5271,7 @@ def make_admin_router() -> APIRouter:
                     resolved = "ci"
                     result = ActorIdentityOut(
                         kind="ci",
-                        provider=str(repository.provider),
+                        provider=repository.provider.value,
                         host=repository.host,
                         repository=f"{repository.owner}/{repository.repo}",
                         sites=linked_sites,
