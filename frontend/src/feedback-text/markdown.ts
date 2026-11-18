@@ -4,7 +4,8 @@
  * and is stored as typed. This module turns it into a tree of a few node
  * types first (`parseFeedbackText`), framework-free, and the widget builds
  * DOM from that tree with `createElement` and text nodes alone
- * (`renderFeedbackText`). No step ever reads a string as markup, so there is
+ * (`renderFeedbackText`). The admin SPA renders the same tree with Vue
+ * (FeedbackMarkdown.vue). No step ever reads a string as markup, so there is
  * nothing to sanitise: a `<` is a character like any other.
  *
  * Supported: paragraphs split by a blank line, with their single line breaks
@@ -80,7 +81,7 @@ export interface ListItem {
 }
 export type Block = Paragraph | CodeBlock | Quote | List;
 
-/** Every link in rendered feedback text. */
+/** Every link, in the widget and in the admin SPA. */
 export const LINK_REL = 'noopener noreferrer nofollow ugc';
 /** The class of the element the widget puts the fragment in (styles.ts). */
 export const TEXT_CLASS = 'feedback-text';

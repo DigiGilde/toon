@@ -78,7 +78,7 @@ const name = useAutosavedText({
     emit('groupChanged', updated);
     return updated.name;
   },
-  // The cap of the API (TEXT_MAX_LENGTH in api/admin.py).
+  // The cap of the API (TEXT_MAX_LENGTH in api/admin/__init__.py).
   maxLength: 200,
   required: 'group.settings.name.required',
   tooLong: 'group.settings.name.tooLong',

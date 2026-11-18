@@ -14,6 +14,8 @@ export const siteNl = {
   'site.tabs.label': 'Siteonderdelen',
   'site.tabs.overview': 'Overzicht',
   'site.tabs.previews': 'Previews',
+  'site.tabs.feedback': 'Feedback',
+  'site.tabs.feedback.open': 'Feedback ({count})',
   'site.tabs.versions': 'Versies',
   'site.tabs.access': 'Toegang',
   'site.tabs.members': 'Leden',
@@ -61,6 +63,8 @@ export const siteNl = {
   'site.previews.accessFailed.detail': 'Opslaan is niet gelukt.',
   'site.previews.removeFailed': 'Preview {ref} niet verwijderd',
   'site.previews.removeFailed.detail': 'Verwijderen is niet gelukt.',
+  'site.previews.feedback.one': '1 open feedbackitem',
+  'site.previews.feedback.many': '{count} open feedbackitems',
 
   // -- Versies tab ----------------------------------------------------------
   'site.versions.loading': 'Versies laden',

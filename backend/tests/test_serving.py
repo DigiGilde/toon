@@ -3264,7 +3264,7 @@ class TestOldAddress:
 
     async def test_a_released_slug_serves_the_site_that_took_it_under_its_own_access(self, client, environment):
         """`site` moves and, while its old address still redirects, a group
-        admin gives that slug to `geheim` (api/admin.py, `release`): the old
+        admin gives that slug to `geheim` (api/admin/, `release`): the old
         address is now `geheim`'s, behind its secret link, and no longer a
         redirect to `nieuw` for anyone."""
         await _rename_site(environment, "site", "nieuw")

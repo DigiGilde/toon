@@ -1001,10 +1001,11 @@ no half upload. The live site stays as it was.
   on a page the visitor may see, it does the same for a value of exactly
   eight letters or digits (a link shared without its code). Do not use `key`
   as a query parameter of your own site.
-- **Feedback adds a script to your pages, once it is on**: with feedback
-  on for the site, Toon adds its feedback button to the HTML pages of your
-  previews as it serves them, and with feedback on the live site too to
-  those of your live site. A page a visitor opens there is then never cached and goes
+- **Feedback adds a script to your pages, once you turn it on**: with
+  "Feedback toestaan" (allow feedback) on the site's "Feedback" tab, Toon
+  adds its feedback button to the HTML pages of your previews as it serves
+  them, and with "Ook op de live site" (on the live site too) to those of
+  your live site. A page a visitor opens there is then never cached and goes
   out uncompressed. What Toon adds, and what it leaves alone, is in §10.
 - **Absolute base under `_version`**: if your site was built with an
   absolute base (for example hardcoded `https://example.org/path/`), then
@@ -1287,40 +1288,53 @@ plugin. The skill is `/toon:toon-publish` from then on.
 
 ## 10. Feedback on your site
 
-Toon can let visitors give feedback on a site's pages. A visitor points at a
-spot or an area, selects a text or comments on the page as a whole, with a
-screenshot if they want. The rules behind it are in `docs/design.md` §16.
+A site admin can let visitors give feedback on the site's pages. A visitor
+points at a spot or an area, selects a text or comments on the page as a whole, with a
+screenshot if they want, and your team reads it, answers it and marks it
+resolved on the site's "Feedback" tab. It is off until a site admin turns it
+on. The rules behind it are in `docs/design.md` §16.
 
-### The settings
+### Turning it on
 
-A site has three feedback settings:
+The settings are at the top of the site's "Feedback" tab, inline, for site
+admins. Everyone else sees one line there that says where the site stands.
+Under "Feedback verzamelen" (collecting feedback), a site admin turns on
+"Feedback toestaan" (allow feedback), and each change saves at once. Two
+choices follow:
 
-- Whether it takes feedback at all. Off by default.
-- Who may give it: only with an account (the default), also with a name the
-  visitor types themselves, or also without a name. With an account, a
-  visitor signs in and says yes once, with a tick and a press on a page of
-  Toon that names what your team will see with their feedback: their name
-  and their verified email address, each when there is one, the address for
-  your site's editors and admins only. A visitor who is signed in but did not
-  say yes can still give feedback with a name or without one, as far as the
-  setting allows, also on a site that needs a sign-in. That works for a
-  visitor who came in through a secret link as well: they sign in, say yes
-  and send with their account while the link lets them see the page.
-- Whether the live site takes it too. Off by default: without it only the
-  previews of your site get the button.
+- "Wie mag feedback geven" (who may give feedback): "Alleen met een account"
+  (only with an account, the default), "Ook met een zelf ingevulde naam" (also
+  with a name they type themselves) or "Ook zonder naam" (also without a
+  name). With an account, a visitor signs in and says yes once, with a tick
+  and a press on a page of Toon that names what your team will see with their
+  feedback: their name and their verified email address, each when there is
+  one, the address for your site's editors and admins only. A visitor who is
+  signed in but did not say yes can still give feedback with a name or
+  without one, as far as your choice allows, also on a site that needs a
+  sign-in. That works for a visitor who came in through a secret link as
+  well: they sign in, say yes and send with their account while the link
+  lets them see the page.
+- "Ook op de live site" (on the live site too), off by default: without it
+  only the previews of your site get the button.
 
-Nothing in the admin sets them yet, so feedback stays off for every site.
+When your site is public, or one of its previews is public by an access of
+its own, and it takes feedback without an account, the tab warns that you
+are collecting from the public, also while only the previews take feedback:
+a preview follows the site's access. Expect spam: the site takes nothing new
+once the installation's limit of open items is reached (500 by default), and
+your organisation names the collection in its own privacy statement too.
 
-A site that takes feedback without an account while it, or one of its
-previews, is public collects from the public: expect spam. The site takes
-nothing new once the installation's limit of open items is reached (500 by
-default), and your organisation names the collection in its own privacy
-statement too.
+When feedback is on but no page carries the button, the tab says so with the
+settings, and in the list while that is empty. That is a site without
+previews whose live site does not take feedback (turn on "Ook op de live
+site", or publish a preview with the CLI or from your repository), or a site
+that takes feedback on its live site but has no version there yet and no
+previews (publish one first).
 
 ### What Toon adds to your pages
 
-Where the button is on (your previews, and with feedback on the live site
-your live site), Toon adds one script tag to each HTML page as it serves it, right
+Where the button is on (your previews, and with "Ook op de live site" your
+live site), Toon adds one script tag to each HTML page as it serves it, right
 after the doctype:
 
 ```html
@@ -1356,8 +1370,9 @@ What to keep in mind:
   after the page view. On a site that takes feedback with accounts, run only
   scripts you trust, and keep the shielding on.
 - The query parameter `key` and the fragment `#toon-feedback=` belong to
-  Toon. On a page that carries the feedback button the widget takes that
-  fragment off the address and marks the place it names.
+  Toon. The site team's links to an item open your page with that fragment,
+  and on a page that carries the feedback button the widget takes it off the
+  address and marks the place.
 
 ### No caching for your HTML
 
@@ -1410,6 +1425,8 @@ through a status region, a panel that becomes a sheet at the bottom of the
 screen below 600 pixels, with Tab kept inside it, and support for forced
 colours, a dark colour scheme and reduced motion. It has not been audited,
 nor tried with a screen reader, in Safari or Firefox, or on a touch device.
+Toon's own checks run axe-core on the open widget in Chromium
+(`e2e/tests/feedback.spec.ts`).
 
 ### How visitors hide it
 
@@ -1419,3 +1436,15 @@ you close the browser) hides it on the whole site, live and previews, until
 the browser closes and for twelve hours at most, and first shows the link
 that brings it back. That choice sets a cookie that holds the site and when
 the hiding ends, sealed by Toon, and nothing about the visitor.
+
+### Reading and answering it
+
+In an item on the "Feedback" tab, "Bekijk op de pagina" (view on the page)
+opens the page it is about and, where that page carries the feedback button,
+marks the place. With feedback off, or for an item from the live site while
+"Ook op de live site" (on the live site too) is off, a line beside the
+button says that the page opens without marking it. For an item from a
+preview that is gone or has expired, the item says instead that the place
+can no longer be viewed. A reply written there reaches a submitter who sent
+with their account, under "Mijn feedback" (my feedback) in the button, with
+your name.

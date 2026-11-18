@@ -71,7 +71,7 @@ class ContentViewer(IDMixin, Base):
     # traceable at all), even when the IdP sends no email claim.
     email: Mapped[str | None] = mapped_column(String, nullable=True)
     # An unverified email is not proof the viewer controls that address; the
-    # forward lookup (api/admin.py) only matches on a verified one.
+    # forward lookup (api/admin/) only matches on a verified one.
     email_verified: Mapped[bool] = mapped_column(nullable=False, default=False)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 

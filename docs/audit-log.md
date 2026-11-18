@@ -122,12 +122,13 @@ who attempted it, and more personal data adds little for investigation.
 | `invitee_add`, `invitee_remove` | `allowed` |
 | `key_create`, `key_revoke` | `allowed` |
 | `site_repository_set`, `site_repository_remove`, `site_repository_site_id_required` | `allowed` |
+| `site_feedback`, `feedback_status`, `feedback_reply`, `feedback_delete` | `allowed` |
 | `member_activate`, `member_deactivate`, `member_platform_role` | `allowed` |
 | `admin_access` | `refused` |
 
 `site_repository_set` and `site_repository_remove` are about the repository
 linked to a site so that it may publish from there with a CI ID token
-(`api/admin.py`, "Linked repository"); `refs` carries group, site, provider,
+(`api/admin/`, "Linked repository"); `refs` carries group, site, provider,
 host, `repository` (`owner/repo`), `repository_id`, `ids_confirmed`,
 `site_id_required` and `live_branch`, and on unlinking only group and site.
 `site_id_required` is what the link stores afterwards: `true` for a new link
@@ -168,6 +169,29 @@ their site needs browser storage.
 nightly cleanup keeps for this site (set on the site's Versions tab):
 `refs.live_versions_kept` is the new number, `0` for keeping all, or `null`
 when the site went back to the platform default `TOON_LIVE_VERSIONS_KEPT`.
+
+`site_feedback` is about the feedback settings on the site's Feedback tab:
+"Feedback toestaan" (allow feedback), "Wie mag feedback geven" (who may give
+feedback) and "Ook op de live site" (on the live site too). `refs` carries
+group, site and the new state of all three: `enabled` (`true` or `false`),
+`identity` (`account`, `name` or `anonymous`) and `live` (`true` or `false`).
+They are set in one PUT and so belong in one row, as with visibility.
+
+`feedback_status` is written when a site editor or admin marks a feedback item
+seen or resolved, or opens it again. `refs` carries group, site, `item` (the id
+of the item), and `from` and `to`: the status before and after, each `new`,
+`seen` or `resolved`. Setting the status an item already has writes no row.
+
+`feedback_reply` is written when a site editor or admin replies to a feedback
+item. `refs` carries group, site and `item`.
+
+`feedback_delete` is written when a site admin deletes a feedback item, which
+takes its replies and its screenshot along. `refs` carries group, site and
+`item`.
+
+None of these rows ever carries the comment, the quote, a reply, a name or
+an email address: what was said stays with the item, and goes when the item
+goes.
 
 What happens through the feedback widget on the content host writes no row:
 giving feedback, a submitter replying to or deleting their own item, saying

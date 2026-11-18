@@ -13,6 +13,8 @@ export const siteEn: Record<keyof typeof siteNl, string> = {
   'site.tabs.label': 'Site sections',
   'site.tabs.overview': 'Overview',
   'site.tabs.previews': 'Previews',
+  'site.tabs.feedback': 'Feedback',
+  'site.tabs.feedback.open': 'Feedback ({count})',
   'site.tabs.versions': 'Versions',
   'site.tabs.access': 'Access',
   'site.tabs.members': 'Members',
@@ -60,6 +62,8 @@ export const siteEn: Record<keyof typeof siteNl, string> = {
   'site.previews.accessFailed.detail': 'Saving did not work.',
   'site.previews.removeFailed': 'Preview {ref} not deleted',
   'site.previews.removeFailed.detail': 'Deleting did not work.',
+  'site.previews.feedback.one': '1 open feedback item',
+  'site.previews.feedback.many': '{count} open feedback items',
 
   // -- Versions tab ---------------------------------------------------------
   'site.versions.loading': 'Loading versions',

@@ -9,6 +9,8 @@ import {
 const PAGE_HEADING = '#main-content h1';
 /** The content below a tab bar: where focus goes when only the tab changed. */
 const TAB_PANEL = '#main-content [data-tab-panel]';
+/** The heading of a page inside a tab (`meta.panelHeading`), once it is there. */
+const PANEL_HEADING = `${TAB_PANEL} h2`;
 
 /** Set by `stayOnNextMove`, consumed by the next navigation. */
 let stayOnce = false;
@@ -61,27 +63,33 @@ function whenPresent(selector: string, found: (element: HTMLElement) => void): (
  * 4.1.3): without this, focus stays on the link that was clicked, which has
  * just left the page, and a screen reader says nothing about where it landed.
  * After each navigation but the first load, focus moves to the new page's
- * heading (to the tab panel when only the tab changed) and the title of the
+ * heading (to the tab panel when only the tab changed, and to the heading in
+ * it for a page inside a tab that names something) and the title of the
  * page goes into the returned message, which belongs in a `role="status"`
  * region.
  */
 export function useRouteAnnouncer(router: Router) {
   const message = ref('');
   let stopWaiting: () => void = () => undefined;
+  let frame = 0;
 
   function arrive(element: HTMLElement): void {
     // A heading or panel is no control: it takes focus only from a script.
     element.setAttribute('tabindex', '-1');
     element.focus();
+    // A heading in an nldd-title that has not drawn its slot yet is not
+    // rendered, and takes no focus: once more when it has, a frame later.
+    if (document.activeElement !== element) frame = requestAnimationFrame(() => element.focus());
     message.value = document.title;
   }
 
   const removeHook = router.afterEach((to, from, failure) => {
     stopWaiting();
+    cancelAnimationFrame(frame);
     const stay = stayOnce;
     stayOnce = false;
     if (failure || from === START_LOCATION || stay) return;
-    const selector = isTabChange(to, from) ? TAB_PANEL : PAGE_HEADING;
+    const selector = to.meta.panelHeading ? PANEL_HEADING : isTabChange(to, from) ? TAB_PANEL : PAGE_HEADING;
     // The page is only rendered once the route change has been flushed.
     void nextTick(() => {
       stopWaiting = whenPresent(selector, arrive);
@@ -91,6 +99,7 @@ export function useRouteAnnouncer(router: Router) {
   onBeforeUnmount(() => {
     removeHook();
     stopWaiting();
+    cancelAnimationFrame(frame);
   });
 
   return message;

@@ -52,7 +52,7 @@ const title = useAutosavedText({
   saved: savedTitle,
   target: () => ({ group: props.group, site: props.site }),
   save: async ({ group, site }, text) => (await toon.setSiteTitle(group, site, text)).title,
-  // The cap of the API (TEXT_MAX_LENGTH in api/admin.py).
+  // The cap of the API (TEXT_MAX_LENGTH in api/admin/__init__.py).
   maxLength: 200,
   required: 'site.settings.title.required',
   tooLong: 'site.settings.title.tooLong',

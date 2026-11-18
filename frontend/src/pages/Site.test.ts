@@ -5,6 +5,8 @@ import { createMemoryHistory, createRouter, RouterView, type Router } from 'vue-
 
 import { makeMockBackend, MOCK_CONTENT_BASE, type MockBackend } from '../../tests/mock-api';
 import TabDeploy from '@/components/site/TabDeploy.vue';
+import FeedbackItemPage from '@/components/site/FeedbackItemPage.vue';
+import TabFeedback from '@/components/site/TabFeedback.vue';
 import TabOverview from '@/components/site/TabOverview.vue';
 import TabPreviews from '@/components/site/TabPreviews.vue';
 import TabAccess from '@/components/site/TabAccess.vue';
@@ -53,6 +55,13 @@ function makeRouter(): Router {
         children: [
           { path: '', name: 'site-overview', component: TabOverview },
           { path: 'previews', name: 'site-previews', component: TabPreviews },
+          { path: 'feedback', name: 'site-feedback', component: TabFeedback },
+          {
+            path: 'feedback/:item',
+            name: 'site-feedback-item',
+            component: FeedbackItemPage,
+            meta: { tab: 'site-feedback', ownTitle: true, panelHeading: true },
+          },
           { path: 'versions', name: 'site-versions', component: TabVersions },
           { path: 'access', name: 'site-access', component: TabAccess },
           { path: 'deploy', name: 'site-deploy', component: TabDeploy },
@@ -73,7 +82,7 @@ async function makeWrapper(path: string) {
 }
 
 describe('Site: structure', () => {
-  it('shows title, visibility and the seven tabs with clean hrefs', async () => {
+  it('shows title, visibility and the eight tabs with clean hrefs', async () => {
     const { wrapper } = await makeWrapper('/team-aurora/website');
 
     expect(wrapper.find('h1').text()).toBe('Team Aurora website');
@@ -83,6 +92,7 @@ describe('Site: structure', () => {
     expect(tabs.map((t) => t.attributes('text'))).toEqual([
       'Overzicht',
       'Previews',
+      'Feedback (2)',
       'Versies',
       'Toegang',
       'Leden',
@@ -99,6 +109,30 @@ describe('Site: structure', () => {
     expect(wrapper.find('[data-testid="tab-overview"]').attributes('href')).toBe(
       '/team-aurora/website',
     );
+    expect(wrapper.find('[data-testid="tab-feedback"]').attributes('href')).toBe(
+      '/team-aurora/website/feedback',
+    );
+  });
+
+  it('names the Feedback tab without a count while nothing is open', async () => {
+    for (const item of backend.data.feedback) item.status = 'resolved';
+
+    const { wrapper } = await makeWrapper('/team-aurora/website');
+
+    expect(wrapper.find('[data-testid="tab-feedback"]').attributes('text')).toBe('Feedback');
+  });
+
+  it('counts down the Feedback tab when an item is resolved in it', async () => {
+    const { wrapper } = await makeWrapper('/team-aurora/website/feedback');
+    expect(wrapper.find('[data-testid="tab-feedback"]').attributes('text')).toBe('Feedback (2)');
+
+    wrapper.find('[data-testid="feedback-fb-1"]').element.dispatchEvent(new Event('click'));
+    await untilIdle();
+    await wrapper.find('[data-testid="feedback-mark-resolved"]').trigger('click');
+    await untilIdle();
+
+    expect(backend.data.feedback.find((item) => item.id === 'fb-1')!.status).toBe('resolved');
+    expect(wrapper.find('[data-testid="tab-feedback"]').attributes('text')).toBe('Feedback (1)');
   });
 
   it('falls back to the slug for the heading when the site has no title', async () => {
@@ -339,6 +373,35 @@ describe('Site: breadcrumb path', () => {
     await untilIdle();
 
     expect(document.title).toBe('Team Aurora website - Versies - Toon');
+  });
+
+  it('marks the Feedback tab current on the page of one item, which names itself in the title', async () => {
+    const id = '6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b';
+    backend.data.feedback.find((item) => item.id === 'fb-2')!.id = id;
+    const { wrapper } = await makeWrapper(`/team-aurora/website/feedback/${id}`);
+
+    expect(wrapper.find('[data-testid="tab-feedback"]').attributes('current')).toBeDefined();
+    expect(wrapper.find('[data-testid="tab-versions"]').attributes('current')).toBeUndefined();
+    expect(wrapper.find('[data-tab-panel] h2').text()).toBe('Feedback op Team Aurora');
+    expect(document.title).toBe('Feedback op Team Aurora - Team Aurora website - Toon');
+  });
+
+  it('counts down the Feedback tab when an item is resolved on its page', async () => {
+    const id = '6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b';
+    backend.data.feedback.find((item) => item.id === 'fb-2')!.id = id;
+    const { wrapper } = await makeWrapper(`/team-aurora/website/feedback/${id}`);
+    expect(wrapper.find('[data-testid="tab-feedback"]').attributes('text')).toBe('Feedback (2)');
+
+    await wrapper.find('[data-testid="feedback-mark-resolved"]').trigger('click');
+    await untilIdle();
+
+    expect(wrapper.find('[data-testid="tab-feedback"]').attributes('text')).toBe('Feedback (1)');
+  });
+
+  it('keeps the count of the Feedback tab out of the browser tab title', async () => {
+    await makeWrapper('/team-aurora/website/feedback');
+
+    expect(document.title).toBe('Team Aurora website - Feedback - Toon');
   });
 
   // The group slug is whatever the visitor's URL decoded to, and the trail is

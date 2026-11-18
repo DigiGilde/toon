@@ -90,7 +90,7 @@ _PREVIEW_PATH_RE = re.compile(r"^/-/api/v1/sites/[^/]+/[^/]+/previews/[^/]+$")
 # token as well.
 CLI_SESSION_PATH = "/-/api/v1/cli/session"
 CLI_WHOAMI_PATH = "/-/api/v1/cli/whoami"
-# Creating a group or a site and linking a repository (api/admin.py) also
+# Creating a group or a site and linking a repository (api/admin/) also
 # take the CLI token; nothing else in the admin API does.
 GROUP_CREATE_PATH = "/-/api/v1/groups"
 _SITE_CREATE_PATH_RE = re.compile(r"^/-/api/v1/groups/[^/]+/sites$")

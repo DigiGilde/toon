@@ -57,6 +57,12 @@ from toon.main import create_app
 # Status codes where HTTP forbids a body: precisely there no schema belongs.
 WITHOUT_BODY = {"204", "304"}
 
+# The screenshot of a feedback item answers with the image itself, which is
+# what an <img> in the admin interface needs: wrapped in JSON it would take
+# base64 and a decoder. Its 200 has no JSON model and names the three image
+# types with a binary schema instead (TestBinaryResponse holds it to that).
+BINARY_RESPONSES = frozenset({("get", "/-/api/v1/sites/{group_slug}/{site_slug}/feedback/{item_id}/screenshot")})
+
 
 @pytest.fixture(scope="module")
 def app(tmp_path_factory) -> FastAPI:
@@ -137,6 +143,8 @@ class TestEveryEndpointIsDescribed:
         """A bare `-> dict` yields an empty schema; only a 204 may go without."""
         error = []
         for route in _routes(app):
+            if any((method_.lower(), route.path) in BINARY_RESPONSES for method_ in route.methods):
+                continue
             if route.status_code in (204, 304):
                 if route.response_model is not None:
                     error.append(f"{sorted(route.methods)} {route.path}: 204 with a response model")
@@ -168,6 +176,8 @@ class TestEveryEndpointIsDescribed:
         no body (204)."""
         error = []
         for method_, path, operation in _operations(schema):
+            if (method_, path) in BINARY_RESPONSES:
+                continue
             succeeded = {
                 code: response
                 for code, response in operation.get("responses", {}).items()
@@ -327,6 +337,21 @@ class TestDeployContract:
         path = "/-/api/v1/sites/{group_slug}/{site_slug}/previews/{ref}"
         response = schema["paths"][path]["delete"]["responses"]["204"]
         assert "content" not in response
+        assert response["description"]
+
+
+class TestBinaryResponse:
+    """The one operation BINARY_RESPONSES exempts still documents what it
+    sends: the image types it can answer with, each as binary, and nothing
+    that promises JSON."""
+
+    def test_the_screenshot_is_the_image_itself(self, schema) -> None:
+        [(method_, path)] = BINARY_RESPONSES
+        response = schema["paths"][path][method_]["responses"]["200"]
+        assert response["content"] == {
+            media_type: {"schema": {"type": "string", "format": "binary"}}
+            for media_type in ("image/png", "image/jpeg", "image/webp")
+        }
         assert response["description"]
 
 

@@ -52,7 +52,7 @@ async def get_or_create_member(
     """
     is_bootstrap = bool(bootstrap_sub) and session.sub == bootstrap_sub
     # Only an address the IdP vouched for is stored: adding a member with a
-    # role resolves an email to a member (api/admin.py), and an unverified
+    # role resolves an email to a member (api/admin/), and an unverified
     # claim is whatever someone typed into their IdP profile.
     verified_email = (session.email or "").lower() if session.email_verified else ""
     # The display name has no verified counterpart in OIDC, so there is nothing

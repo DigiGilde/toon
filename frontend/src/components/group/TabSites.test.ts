@@ -23,6 +23,10 @@ function site(slug: string, title: string): Site {
     lastPublishedAt: null,
     previewCount: 0,
     previousSlugs: [],
+    feedbackEnabled: false,
+    feedbackIdentity: 'account',
+    feedbackLive: false,
+    openFeedbackCount: 0,
   };
 }
 

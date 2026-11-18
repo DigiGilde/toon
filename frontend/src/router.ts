@@ -126,6 +126,19 @@ export const routes = [
         component: () => import('./components/site/TabPreviews.vue'),
       },
       {
+        path: 'feedback',
+        name: 'site-feedback',
+        component: () => import('./components/site/TabFeedback.vue'),
+      },
+      // One item of the Feedback tab on a page of its own. It belongs to that
+      // tab, names itself in the title, and the focus goes to its heading.
+      {
+        path: 'feedback/:item',
+        name: 'site-feedback-item',
+        component: () => import('./components/site/FeedbackItemPage.vue'),
+        meta: { tab: 'site-feedback', ownTitle: true, panelHeading: true },
+      },
+      {
         path: 'versions',
         name: 'site-versions',
         component: () => import('./components/site/TabVersions.vue'),

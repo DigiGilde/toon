@@ -117,12 +117,13 @@ def test_identity_allows_follows_the_ordered_levels():
 
 
 def test_a_feedback_item_takes_fifty_replies_from_its_giver_and_250_in_all():
-    """The widget API holds one item to these, and its contract names them."""
+    """The widget and the admin API hold one item to these, and the widget
+    API's contract names them."""
     assert (FEEDBACK_MAX_GIVER_REPLIES, FEEDBACK_MAX_REPLIES) == (50, 250)
 
 
 def test_the_item_lock_names_the_item_in_its_canonical_form():
-    """Every reply to one item has to hash the very same text, whatever case
-    the id came in."""
+    """Both reply routes have to hash the very same text for one item, and
+    the admin route holds the id as the UUID its path parsed."""
     item = uuid.UUID("0B9F4C3E-1D2A-4E5F-8A9B-0C1D2E3F4A5B")
     assert feedback_item_lock_key(item) == "toon-feedback-item:0b9f4c3e-1d2a-4e5f-8a9b-0c1d2e3f4a5b"

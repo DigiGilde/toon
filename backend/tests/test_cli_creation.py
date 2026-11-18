@@ -1,6 +1,6 @@
 """Creating a group or a site and linking a repository with the CLI token
 (`toon group create`, `toon site create`, `toon site link`), and the edge of
-that: those three routes of api/admin.py take a bearer, no other admin
+that: those three routes of api/admin/ take a bearer, no other admin
 route does.
 
 The app under test wires the admin router, the CLI router and

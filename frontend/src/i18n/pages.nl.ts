@@ -59,6 +59,9 @@ export const pagesNl = {
   'page.about.features.site.term': 'Ook een hele site.',
   'page.about.features.site.body':
     'Werk je in een repository, dan publiceer je vanuit GitHub of code.overheid.nl, met een preview per pull request.',
+  'page.about.features.feedback.term': 'Feedback ophalen.',
+  'page.about.features.feedback.body':
+    'Zet de feedbackknop aan, dan wijzen bezoekers van je preview of site een punt, een gebied of een tekst aan en laten ze een opmerking achter. Je team leest, beantwoordt en handelt die af op het tabblad Feedback.',
   'page.about.features.cli.term': 'Vanaf je eigen computer.',
   'page.about.features.cli.body':
     'Met de Toon-CLI publiceer je vanaf je laptop, nadat je die eenmalig aan je account hebt gekoppeld.',
@@ -70,7 +73,7 @@ export const pagesNl = {
   'page.privacy.title':
     'Privacy',
   'page.privacy.intro':
-    'Deze verklaring beschrijft hoe deze installatie van Toon omgaat met persoonsgegevens en welke rechten je hebt, volgens de Algemene verordening gegevensbescherming (AVG). Toon verwerkt persoonsgegevens om toegang tot gepubliceerde sites te regelen: een e-mailadres bij inloggen via je organisatie, en eventueel een e-mailadres van een genodigde bij toegang op uitnodiging. Op sites die feedback verzamelen, verwerkt Toon ook wat bezoekers met de feedbackknop sturen: hun opmerking, eventueel een schermafbeelding en hun naam, en met een account ook hun e-mailadres. Die feedback is bedoeld voor het team van de site.',
+    'Deze verklaring beschrijft hoe deze installatie van Toon omgaat met persoonsgegevens en welke rechten je hebt, volgens de Algemene verordening gegevensbescherming (AVG). Toon verwerkt persoonsgegevens om toegang tot gepubliceerde sites te regelen: een e-mailadres bij inloggen via je organisatie, en eventueel een e-mailadres van een genodigde bij toegang op uitnodiging. Op sites die feedback verzamelen, verwerkt Toon ook wat bezoekers met de feedbackknop sturen: hun opmerking, eventueel een schermafbeelding en hun naam, en met een account ook hun e-mailadres. Zo kan het team van de site die feedback lezen en beantwoorden.',
   'page.privacy.standard':
     'Dit is de standaardverklaring van de software Toon. De organisatie die deze installatie beheert, vult haar aan met wat alleen die organisatie kan zeggen, zoals de grondslag en de Functionaris Gegevensbescherming.',
   'page.privacy.controller.heading':
@@ -102,7 +105,7 @@ export const pagesNl = {
   'page.privacy.purpose.body':
     'Deze gegevens worden verwerkt om gepubliceerde sites alleen te laten zien aan wie ze mag zien, en om het platform veilig te houden en misbruik te kunnen onderzoeken. Welke grondslag uit artikel 6 van de AVG geldt, hangt af van de organisatie die deze installatie beheert.',
   'page.privacy.purpose.feedback':
-    'Feedback wordt verwerkt zodat het team van een site opmerkingen over die site kan lezen, beantwoorden en afhandelen. Of een site feedback aanneemt, en van wie, is een instelling van die site.',
+    'Feedback wordt verwerkt zodat het team van een site opmerkingen over die site kan lezen, beantwoorden en afhandelen. Of een site feedback aanneemt, en van wie, kiest de beheerder van die site.',
   'page.privacy.processors.heading':
     'Verwerkers en hosting',
   'page.privacy.processors.body':
@@ -116,13 +119,13 @@ export const pagesNl = {
   'page.privacy.retention.session':
     'Log je op een site in met je organisatie, om afgeschermde content te bekijken of om feedback te geven met je account, dan bewaart Toon je SSO-id en e-mailadres tot 180 dagen na je laatste keer inloggen. Dat is nodig om een regel in het auditlog bij een persoon te kunnen brengen, bijvoorbeeld bij het onderzoek naar een lek. Tijdens het onderzoek naar een beveiligingsincident bewaart Toon ze langer, tot het onderzoek ze niet meer nodig heeft.',
   'page.privacy.retention.feedback':
-    'Feedback verdwijnt met de site of de groep, als de indiener die verwijdert, en anders vanzelf: de schermafbeelding 30 dagen nadat de feedback is afgehandeld, de feedback zelf 90 dagen na het afhandelen, en feedback die open blijft na 365 dagen. Dat zijn de standaardtermijnen. De organisatie die deze installatie beheert, kan ze anders instellen.',
+    'Feedback verdwijnt met de site of de groep, als een beheerder van de site of de indiener die verwijdert, en anders vanzelf: de schermafbeelding 30 dagen nadat de feedback is afgehandeld, de feedback zelf 90 dagen na het afhandelen, en feedback die open blijft na 365 dagen. Dat zijn de standaardtermijnen. De organisatie die deze installatie beheert, kan ze anders instellen.',
   'page.privacy.visibility.heading':
     'Wie kan wat zien',
   'page.privacy.visibility.body':
     'Het auditlog is alleen in te zien door een platformbeheerder. In de regels staan jouw naam en e-mailadres niet, maar een pseudoniem: een versleutelde weergave van je SSO-id. Een uitzondering is de vorige naam van een groep of de vorige titel van een site: die tekst staat er leesbaar in. Een platformbeheerder kan opzoeken welk pseudoniem bij een persoon hoort, en omgekeerd wie achter een pseudoniem zit. Dat kan alleen met een opgegeven reden, die zelf wordt vastgelegd, en er geldt een maximum aantal opzoekingen per dag. De beheerder van een site ziet dit alles niet.',
   'page.privacy.visibility.feedback':
-    'Feedback is bedoeld voor iedereen met een rol op de site: het siteteam. Het e-mailadres van wie feedback stuurde met een account, is alleen voor redacteuren en beheerders van de site. Stuurde je feedback met je account, dan vind je je nieuwste feedback terug in de feedbackknop van de site, onder Mijn feedback, en kun je die daar verwijderen. Mijn feedback staat in de knop zolang je op die site feedback geeft met je account. Kom je later terug, dan kies je eerst Met je account versturen of Feedback geven met je account, log je in en zeg je opnieuw ja. Dat beëindig je daarna weer met Stoppen met feedback via je account. Oudere feedback, of feedback op een site waar de knop niet meer staat, kun je opvragen of laten verwijderen met een verzoek, zoals hieronder bij je rechten staat. Feedback met alleen een naam of zonder naam kun je later niet terugvinden of zelf verwijderen.',
+    'Feedback ziet iedereen met een rol op de site: het siteteam. Het e-mailadres van wie feedback stuurde met een account, zien alleen redacteuren en beheerders van de site. Stuurde je feedback met je account, dan vind je je nieuwste feedback terug in de feedbackknop van de site, onder Mijn feedback, en kun je die daar verwijderen. Mijn feedback staat in de knop zolang je op die site feedback geeft met je account. Kom je later terug, dan kies je eerst Met je account versturen of Feedback geven met je account, log je in en zeg je opnieuw ja. Dat beëindig je daarna weer met Stoppen met feedback via je account. Oudere feedback, of feedback op een site waar de knop niet meer staat, kun je opvragen of laten verwijderen met een verzoek, zoals hieronder bij je rechten staat. Feedback met alleen een naam of zonder naam kun je later niet terugvinden of zelf verwijderen. Reageert het siteteam op feedback die met een account is gestuurd, dan ziet de indiener bij die reactie de naam van wie reageerde, nooit een e-mailadres. Bij de reactie staat altijd de naam die die persoon nu heeft. Verandert die naam, dan staat de nieuwe naam erbij, en is het account verwijderd, dan staat er geen naam meer bij.',
   'page.privacy.rights.heading':
     'Je rechten',
   'page.privacy.rights.body':

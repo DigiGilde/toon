@@ -54,6 +54,7 @@ TAG_VERSIONS = "Versions"
 TAG_PREVIEWS = "Previews"
 TAG_INVITEES = "Invitees"
 TAG_KEYS = "Secret links"
+TAG_FEEDBACK = "Feedback"
 TAG_AUDIT = "Audit log"
 TAG_CI = "Publishing from CI"
 TAG_CLI = "CLI login"
@@ -145,6 +146,13 @@ OPENAPI_TAGS: list[dict[str, str]] = [
         "description": "Individual addresses that may view a site with the 'invitees' exception.",
     },
     {"name": TAG_KEYS, "description": "Secret links through which a site can be viewed without signing in."},
+    {
+        "name": TAG_FEEDBACK,
+        "description": (
+            "Feedback that visitors give with the feedback button on the pages of a site: reading it, marking it, "
+            "answering it, and the feedback settings of the site."
+        ),
+    },
     {
         "name": TAG_CI,
         "description": (
@@ -403,6 +411,7 @@ PATH_PARAMETERS = {
     "invitee_id": "ID of the invitee, from the invitee list of the site.",
     "member_id": "ID of the platform member.",
     "version_id": "ID of the version.",
+    "item_id": "ID of the feedback item, from the feedback list of the site.",
 }
 
 

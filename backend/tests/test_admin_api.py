@@ -1,4 +1,4 @@
-"""Tests for api/admin.py: the session API for the SPA (spec §7, §8).
+"""Tests for api/admin/__init__.py: the session API for the SPA (spec §7, §8).
 
 Authorization per endpoint (non-member 403, inactive 403, platform actions for
 admins only), CSRF double-submit on mutations, origin guarding on the

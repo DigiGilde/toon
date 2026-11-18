@@ -20,13 +20,21 @@ import { createMemoryHistory, createRouter, RouterView } from 'vue-router';
 
 import { makeMockBackend, MOCK_CONTENT_BASE } from './mock-api';
 import TabDeploy from '../src/components/site/TabDeploy.vue';
+import FeedbackItemPage from '../src/components/site/FeedbackItemPage.vue';
+import TabFeedback from '../src/components/site/TabFeedback.vue';
 import TabOverview from '../src/components/site/TabOverview.vue';
 import TabPreviews from '../src/components/site/TabPreviews.vue';
 import TabAccess from '../src/components/site/TabAccess.vue';
 import TabMembers from '../src/components/site/TabMembers.vue';
 import TabSettings from '../src/components/site/TabSettings.vue';
 import TabVersions from '../src/components/site/TabVersions.vue';
-import { fireDetailEvent, provideSiteGroupFromApi, untilIdle } from '../src/components/site/testHelpers';
+import {
+  feedbackRouter,
+  feedbackRouterAt,
+  fireDetailEvent,
+  provideSiteGroupFromApi,
+  untilIdle,
+} from '../src/components/site/testHelpers';
 import { _resetCurrentMemberCache } from '../src/composables/currentMember';
 import Site from '../src/pages/Site.vue';
 
@@ -125,7 +133,7 @@ async function expectNoViolations(component: Component): Promise<void> {
     attachTo: document.body,
     // Stubbed teleports keep the edit sheets inside the checked fragment, so
     // axe sees the forms in them too.
-    global: { stubs: { teleport: true }, provide },
+    global: { stubs: { teleport: true }, provide, plugins: [feedbackRouter()] },
   });
   await untilIdle();
   await expectNoViolationsIn(wrapper.element);
@@ -200,6 +208,116 @@ describe('axe: tabs of the site detail page', () => {
     await expectNoViolationsIn(wrapper.element);
     wrapper.unmount();
   });
+  it('has no violations on the Feedback tab', () => expectNoViolations(TabFeedback));
+
+  it('has no violations on the Feedback tab with an item open in the sheet', async () => {
+    const provide = await provideSiteGroupFromApi();
+    const wrapper = mount(TabFeedback, {
+      props: { group: 'team-aurora', site: 'website', contentBase: MOCK_CONTENT_BASE },
+      attachTo: document.body,
+      global: { stubs: { teleport: true }, provide, plugins: [feedbackRouter()] },
+    });
+    await untilIdle();
+    await wrapper.find('[data-testid="feedback-fb-1"]').trigger('click');
+    await untilIdle();
+    expect(wrapper.find('[data-testid="feedback-reply-form"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="feedback-screenshot"] nldd-image').exists()).toBe(true);
+    await expectNoViolationsIn(wrapper.element);
+    wrapper.unmount();
+  });
+
+  it('has no violations on the Feedback tab with an item on an earlier version open', async () => {
+    const backend = makeMockBackend();
+    backend.data.feedback.find((item) => item.id === 'fb-2')!.versionId = 'versie-0';
+    vi.stubGlobal('fetch', backend.fetch);
+    const provide = await provideSiteGroupFromApi();
+    const wrapper = mount(TabFeedback, {
+      props: { group: 'team-aurora', site: 'website', contentBase: MOCK_CONTENT_BASE },
+      attachTo: document.body,
+      global: { stubs: { teleport: true }, provide, plugins: [feedbackRouter()] },
+    });
+    await untilIdle();
+    expect(wrapper.find('[data-testid="feedback-earlier-fb-2"]').exists()).toBe(true);
+    await wrapper.find('[data-testid="feedback-fb-2"]').trigger('click');
+    await untilIdle();
+    expect(wrapper.find('[data-testid="feedback-meta-version-link"]').exists()).toBe(true);
+    await expectNoViolationsIn(wrapper.element);
+    wrapper.unmount();
+  });
+
+  it('has no violations on the page of one feedback item', async () => {
+    const backend = makeMockBackend();
+    const id = '6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b';
+    const item = backend.data.feedback.find((candidate) => candidate.id === 'fb-2')!;
+    item.id = id;
+    item.versionId = 'versie-0';
+    vi.stubGlobal('fetch', backend.fetch);
+    const provide = await provideSiteGroupFromApi();
+    const router = await feedbackRouterAt(`/team-aurora/website/feedback/${id}?target=live`);
+    const wrapper = mount(FeedbackItemPage, {
+      props: { group: 'team-aurora', site: 'website', contentBase: MOCK_CONTENT_BASE },
+      attachTo: document.body,
+      global: { stubs: { teleport: true }, provide, plugins: [router] },
+    });
+    await untilIdle();
+    expect(wrapper.find('h2#heading-feedback-item').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="feedback-reply-form"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="feedback-meta-version-link"]').exists()).toBe(true);
+    await expectNoViolationsIn(wrapper.element);
+    wrapper.unmount();
+  });
+
+  it('has no violations on the Feedback tab for a reader, with the thread of an item open', async () => {
+    const backend = makeMockBackend();
+    backend.data.siteRoles.push({
+      groupSlug: 'team-aurora',
+      siteSlug: 'website',
+      identifier: 'sanne@voorbeeld.nl',
+      role: 'reader',
+    });
+    backend.data.loggedInMemberId = 'lid-6';
+    vi.stubGlobal('fetch', backend.fetch);
+    const provide = await provideSiteGroupFromApi();
+    const wrapper = mount(TabFeedback, {
+      props: { group: 'team-aurora', site: 'website', contentBase: MOCK_CONTENT_BASE },
+      attachTo: document.body,
+      global: { stubs: { teleport: true }, provide, plugins: [feedbackRouter()] },
+    });
+    await untilIdle();
+    await wrapper.find('[data-testid="feedback-fb-2"]').trigger('click');
+    await untilIdle();
+    expect(wrapper.find('[data-testid="feedback-summary"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="feedback-thread"]').exists()).toBe(true);
+    await expectNoViolationsIn(wrapper.element);
+    wrapper.unmount();
+  });
+
+  it('has no violations on the Feedback tab with feedback off and nothing in it', async () => {
+    const backend = makeMockBackend();
+    backend.data.sites[0]!.feedbackEnabled = false;
+    backend.data.feedback = [];
+    vi.stubGlobal('fetch', backend.fetch);
+    await expectNoViolations(TabFeedback);
+  });
+
+  it('has no violations on the Feedback tab with its settings warning about feedback from the public', async () => {
+    const backend = makeMockBackend();
+    backend.data.sites[0]!.feedbackLive = true;
+    backend.data.sites[0]!.feedbackIdentity = 'anonymous';
+    vi.stubGlobal('fetch', backend.fetch);
+    const provide = await provideSiteGroupFromApi();
+    const wrapper = mount(TabFeedback, {
+      props: { group: 'team-aurora', site: 'website', contentBase: MOCK_CONTENT_BASE },
+      attachTo: document.body,
+      global: { stubs: { teleport: true }, provide, plugins: [feedbackRouter()] },
+    });
+    await untilIdle();
+    expect(wrapper.find('[data-testid="feedback-identity"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="feedback-public-warning"]').exists()).toBe(true);
+    await expectNoViolationsIn(wrapper.element);
+    wrapper.unmount();
+  });
+
   it('has no violations on the Members tab', () => expectNoViolations(TabMembers));
   it('has no violations on the Deploy tab', () => expectNoViolations(TabDeploy));
   it('has no violations on the Settings tab', () => expectNoViolations(TabSettings));
@@ -399,7 +517,7 @@ describe('axe: tabs of the site detail page', () => {
     wrapper.unmount();
   });
 
-  it('has no violations on the site page with the Settings tab (seven tabs)', async () => {
+  it('has no violations on the site page with the Settings tab (eight tabs)', async () => {
     const Empty = defineComponent({ render: () => h('div') });
     const router = createRouter({
       history: createMemoryHistory(),

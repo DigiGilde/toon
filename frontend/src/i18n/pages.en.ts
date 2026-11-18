@@ -59,6 +59,9 @@ export const pagesEn: Record<keyof typeof pagesNl, string> = {
   'page.about.features.site.term': 'A whole site as well.',
   'page.about.features.site.body':
     'If you work in a repository, you publish from GitHub or code.overheid.nl, with a preview per pull request.',
+  'page.about.features.feedback.term': 'Gather feedback.',
+  'page.about.features.feedback.body':
+    'Turn on the feedback button and visitors of your preview or site point at a spot, an area or a text and leave a remark. Your team reads, answers and resolves it on the Feedback tab.',
   'page.about.features.cli.term': 'From your own computer.',
   'page.about.features.cli.body':
     'With the Toon CLI you publish from your laptop, once you have linked it to your account.',
@@ -70,7 +73,7 @@ export const pagesEn: Record<keyof typeof pagesNl, string> = {
   'page.privacy.title':
     'Privacy',
   'page.privacy.intro':
-    'This statement describes how this installation of Toon handles personal data and which rights you have, under the General Data Protection Regulation (GDPR, in Dutch the AVG). Toon processes personal data to arrange access to published sites: an e-mail address when you sign in through your organisation, and possibly the e-mail address of an invited person when access is by invitation. On sites that collect feedback, Toon also processes what visitors send with the feedback button: their remark, possibly a screenshot and their name, and with an account their e-mail address too. That feedback is meant for the team of the site.',
+    'This statement describes how this installation of Toon handles personal data and which rights you have, under the General Data Protection Regulation (GDPR, in Dutch the AVG). Toon processes personal data to arrange access to published sites: an e-mail address when you sign in through your organisation, and possibly the e-mail address of an invited person when access is by invitation. On sites that collect feedback, Toon also processes what visitors send with the feedback button: their remark, possibly a screenshot and their name, and with an account their e-mail address too. That way the team of the site can read and answer the feedback.',
   'page.privacy.standard':
     'This is the standard statement of the Toon software. The organisation that runs this installation completes it with what only that organisation can say, such as its legal basis and its Data Protection Officer.',
   'page.privacy.controller.heading':
@@ -102,7 +105,7 @@ export const pagesEn: Record<keyof typeof pagesNl, string> = {
   'page.privacy.purpose.body':
     'This data is processed to show published sites only to those who may see them, and to keep the platform secure and misuse investigable. Which legal basis of article 6 of the GDPR applies depends on the organisation that runs this installation.',
   'page.privacy.purpose.feedback':
-    'Feedback is processed so the team of a site can read, answer and resolve remarks about that site. Whether a site takes feedback, and from whom, is a setting of that site.',
+    'Feedback is processed so the team of a site can read, answer and resolve remarks about that site. Whether a site takes feedback, and from whom, is chosen by the administrator of that site.',
   'page.privacy.processors.heading':
     'Processors and hosting',
   'page.privacy.processors.body':
@@ -116,13 +119,13 @@ export const pagesEn: Record<keyof typeof pagesNl, string> = {
   'page.privacy.retention.session':
     'If you sign in on a site with your organisation, to view restricted content or to give feedback with your account, Toon keeps your SSO ID and e-mail address until 180 days after the last time you signed in. That is needed to trace an entry in the audit log back to a person, for instance during the investigation into a leak. During the investigation of a security incident Toon keeps them longer, until the investigation no longer needs them.',
   'page.privacy.retention.feedback':
-    'Feedback goes with its site or group, when its submitter deletes it, and otherwise by itself: the screenshot 30 days after the feedback was resolved, the feedback itself 90 days after resolving, and feedback that stays open after 365 days. Those are the default periods. The organisation that runs this installation can set them differently.',
+    'Feedback goes with its site or group, when an administrator of the site or its submitter deletes it, and otherwise by itself: the screenshot 30 days after the feedback was resolved, the feedback itself 90 days after resolving, and feedback that stays open after 365 days. Those are the default periods. The organisation that runs this installation can set them differently.',
   'page.privacy.visibility.heading':
     'Who can see what',
   'page.privacy.visibility.body':
     'The audit log can only be viewed by a platform administrator. The entries hold neither your name nor your e-mail address, but a pseudonym: an encrypted representation of your SSO ID. The exception is the previous name of a group or the previous title of a site: that text is readable in the entry. A platform administrator can look up which pseudonym belongs to a person, and the other way round who is behind a pseudonym. That is only possible with a stated reason, which is itself recorded, and there is a maximum number of lookups per day. The administrator of a site sees none of this.',
   'page.privacy.visibility.feedback':
-    'Feedback is for everyone with a role on the site: the site team. The e-mail address of whoever sent feedback with an account is for editors and administrators of the site only. If you sent feedback with your account, you find your latest feedback again in the feedback button of the site, under My feedback, and can delete it there. My feedback is in the button while you give feedback on that site with your account. When you come back later, you first choose Send with your account or Give feedback with your account, sign in and say yes again. You end that again afterwards with Stop giving feedback with your account. For older feedback, or feedback on a site that no longer shows the button, send a request to see or delete it, as described under your rights below. Feedback sent with only a name or without a name cannot be found again later, or deleted by its submitter.',
+    'Feedback is seen by everyone with a role on the site: the site team. The e-mail address of whoever sent feedback with an account is seen only by editors and administrators of the site. If you sent feedback with your account, you find your latest feedback again in the feedback button of the site, under My feedback, and can delete it there. My feedback is in the button while you give feedback on that site with your account. When you come back later, you first choose Send with your account or Give feedback with your account, sign in and say yes again. You end that again afterwards with Stop giving feedback with your account. For older feedback, or feedback on a site that no longer shows the button, send a request to see or delete it, as described under your rights below. Feedback sent with only a name or without a name cannot be found again later, or deleted by its submitter. When the site team replies to feedback sent with an account, the submitter sees with that reply the name of whoever replied, never an e-mail address. The reply always shows the name that person has now. If their name changes, the reply shows the new one, and once their account is deleted, it shows no name.',
   'page.privacy.rights.heading':
     'Your rights',
   'page.privacy.rights.body':

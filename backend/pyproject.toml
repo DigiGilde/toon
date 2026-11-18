@@ -67,7 +67,7 @@ asyncio_mode = "auto"
 
 # Without greenlet in this list coverage.py misses everything SQLAlchemy's
 # async adapter runs inside a greenlet, which is most of the body of an
-# async route: api/admin.py measured 58% without it and 82% with it, on
+# async route: api/admin/ measured 58% without it and 82% with it, on
 # the same tests. A threshold on the lower number would be a threshold on
 # a wrong measurement.
 [tool.coverage.run]

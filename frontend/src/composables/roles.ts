@@ -6,10 +6,11 @@
 import type { Me, Role } from '@/api/types';
 
 const CAN_CREATE_SITE: readonly Role[] = ['editor', 'admin'];
+const EDITOR_OR_ADMIN: readonly Role[] = ['editor', 'admin'];
 
 /**
  * Whether `me` may create a site in this group right now: a group role of
- * editor or admin. Mirrors `create_site` in backend/src/toon/api/admin.py,
+ * editor or admin. Mirrors `create_site` in backend/src/toon/api/admin/__init__.py,
  * which calls `_group_with_role(..., Role.EDITOR)` without a platform-admin
  * bypass, so a platform admin with no group role of their own is not eligible
  * either.
@@ -20,7 +21,7 @@ export function mayCreateSiteIn(me: Me | null | undefined, groupSlug: string): b
 
 /**
  * Whether `me` is admin of this group. Mirrors `delete_group` in
- * backend/src/toon/api/admin.py: group role admin, no platform-admin bypass.
+ * backend/src/toon/api/admin/__init__.py: group role admin, no platform-admin bypass.
  */
 export function isGroupAdmin(me: Me | null | undefined, groupSlug: string): boolean {
   return me?.groupRoles.some((r) => r.groupSlug === groupSlug && r.role === 'admin') ?? false;
@@ -33,6 +34,21 @@ export function isGroupAdmin(me: Me | null | undefined, groupSlug: string): bool
  */
 export function isGroupMember(me: Me | null | undefined, groupSlug: string): boolean {
   return me?.groupRoles.some((r) => r.groupSlug === groupSlug) ?? false;
+}
+
+/**
+ * Whether `me` is editor or admin of this site: the widest of the group role
+ * and the site role is one of those. Mirrors `effective_site_role` in the
+ * backend, without a platform-admin bypass.
+ */
+export function isSiteEditor(me: Me | null | undefined, groupSlug: string, siteSlug: string): boolean {
+  return (
+    (me?.groupRoles.some((r) => r.groupSlug === groupSlug && EDITOR_OR_ADMIN.includes(r.role)) ||
+      me?.siteRoles.some(
+        (r) => r.groupSlug === groupSlug && r.siteSlug === siteSlug && EDITOR_OR_ADMIN.includes(r.effectiveRole),
+      )) ??
+    false
+  );
 }
 
 /**
