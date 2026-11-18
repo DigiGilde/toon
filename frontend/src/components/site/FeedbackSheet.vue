@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /**
  * One feedback item beside the list, in a sheet: FeedbackItemView with a
- * title, a way to the page of the item and a close button around it. The
+ * title and a close button around it, and a way to the page of the item in
+ * its toolbar. The
  * sheet keeps the state of the item (feedbackItem.ts) for as long as the tab
  * is open, so a reply typed and not sent outlasts the sheet closing.
  */
@@ -83,8 +84,8 @@ function pageHrefOf(item: FeedbackItem): string {
   return feedbackItemHref(props.group, props.site, item.id, props.filters);
 }
 
-// The NLDD Vue types give nldd-icon-button's click a CustomEvent, but it is
-// the native MouseEvent of the anchor in its shadow root.
+// The NLDD Vue types give nldd-button's click a CustomEvent, but it is the
+// native MouseEvent of the anchor in its shadow root.
 function openPage(event: Event): void {
   follow(event as MouseEvent, pageHrefOf(shown.value!));
 }
@@ -110,31 +111,17 @@ function openPage(event: Event): void {
         <nldd-container v-if="shown" padding="24" gap="16">
           <nldd-title size="display-4">
             <h2>{{ title }}</h2>
-            <!-- Horizontal, not auto: auto makes the group a size container,
-                 which measures zero in the shrink-wrapping end slot. -->
-            <nldd-button-group slot="end" orientation="horizontal" size="sm">
-              <!-- A real link: a click with a modifier opens the page in a new
-                   tab and leaves the sheet as it is. -->
-              <nldd-icon-button
-                icon="arrow-down-left-arrow-up-right"
-                :text="t('feedback.sheet.openAsPage')"
-                :href="pageHrefOf(shown)"
-                appearance="neutral-transparent"
-                size="sm"
-                data-testid="feedback-open-page"
-                @click="openPage"
-              ></nldd-icon-button>
-              <!-- Close belongs at the top right, not up against the primary
-                   button (NLDD guideline: give the way out physical distance). -->
-              <nldd-button
-                appearance="neutral-transparent"
-                size="sm"
-                :text="t('feedback.sheet.close')"
-                type="button"
-                data-testid="feedback-sheet-close"
-                @click="emit('close')"
-              ></nldd-button>
-            </nldd-button-group>
+            <!-- Close belongs at the top right, not up against the primary
+                 button (NLDD guideline: give the way out physical distance). -->
+            <nldd-button
+              slot="end"
+              appearance="neutral-transparent"
+              size="sm"
+              :text="t('feedback.sheet.close')"
+              type="button"
+              data-testid="feedback-sheet-close"
+              @click="emit('close')"
+            ></nldd-button>
           </nldd-title>
 
           <FeedbackItemView
@@ -146,7 +133,22 @@ function openPage(event: Event): void {
             :can-admin="canAdmin"
             :enabled="enabled"
             :live="live"
-          />
+          >
+            <template #actions>
+              <nldd-toolbar-item slot="end" priority="3">
+                <!-- A real link: a click with a modifier opens the page in a new
+                     tab and leaves the sheet as it is. -->
+                <nldd-button
+                  :href="pageHrefOf(shown)"
+                  appearance="secondary"
+                  :text="t('feedback.sheet.openAsPage')"
+                  data-testid="feedback-open-page"
+                  @click="openPage"
+                ></nldd-button>
+                <nldd-menu-item slot="overflow" :href="pageHrefOf(shown)" :text="t('feedback.sheet.openAsPage')"></nldd-menu-item>
+              </nldd-toolbar-item>
+            </template>
+          </FeedbackItemView>
         </nldd-container>
       </nldd-page>
     </nldd-sheet>

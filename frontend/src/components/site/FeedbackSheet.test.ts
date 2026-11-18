@@ -90,6 +90,22 @@ async function send(wrapper: ReturnType<typeof makeWrapper>): Promise<void> {
   await wrapper.find('[data-testid="feedback-reply-form"]').trigger('submit');
 }
 
+/** The items of the toolbar under the title: slot, the test id of the control, and priority. */
+function toolbarItems(wrapper: ReturnType<typeof makeWrapper>): (string | null)[][] {
+  return wrapper
+    .findAll('[data-testid="feedback-actions"] > nldd-toolbar-item')
+    .map((item) => [
+      item.attributes('slot') ?? null,
+      item.element.firstElementChild!.getAttribute('data-testid'),
+      item.attributes('priority') ?? null,
+    ]);
+}
+
+/** What the status buttons say. */
+function statusTexts(wrapper: ReturnType<typeof makeWrapper>): (string | undefined)[] {
+  return wrapper.findAll('[data-testid^="feedback-mark-"]').map((button) => button.attributes('text'));
+}
+
 /** Takes away the preview fb-1 was given on. */
 function previewGone(): void {
   backend.data.previews = [];
@@ -114,25 +130,43 @@ describe('FeedbackSheet: closed', () => {
 
 describe('FeedbackSheet: the page of the item', () => {
   it('links to the page of the item, carrying the filters of the list', async () => {
-    const wrapper = makeWrapper({ item: await itemOf('fb-1'), filters: { status: 'all', where: 'preview:pr-42' } });
+    const wrapper = await opened('fb-1', { filters: { status: 'all', where: 'preview:pr-42' } });
 
+    const href = '/team-aurora/website/feedback/fb-1?status=all&target=preview&ref=pr-42';
     const link = wrapper.find('[data-testid="feedback-open-page"]');
-    expect(link.element.tagName).toBe('NLDD-ICON-BUTTON');
-    expect(link.attributes('icon')).toBe('arrow-down-left-arrow-up-right');
-    // The label is the accessible name and the tooltip of the icon.
+    expect(link.element.tagName).toBe('NLDD-BUTTON');
+    // The look of the other buttons in the toolbar.
+    expect(link.attributes('appearance')).toBe('secondary');
+    expect(link.attributes('start-icon')).toBeUndefined();
+    expect(link.attributes('end-icon')).toBeUndefined();
     expect(link.attributes('text')).toBe('Openen als pagina');
-    expect(link.attributes('href')).toBe('/team-aurora/website/feedback/fb-1?status=all&target=preview&ref=pr-42');
+    expect(link.attributes('href')).toBe(href);
     expect(link.attributes('target')).toBeUndefined();
+    // The same way in the menu of the toolbar, for a row too narrow for it.
+    const overflow = link.element.nextElementSibling!;
+    expect(overflow.tagName).toBe('NLDD-MENU-ITEM');
+    expect(overflow.getAttribute('slot')).toBe('overflow');
+    expect(overflow.getAttribute('text')).toBe('Openen als pagina');
+    expect(overflow.getAttribute('href')).toBe(href);
   });
 
-  it('sits in the title bar, before the close button at the far end', async () => {
-    const wrapper = makeWrapper({ item: await itemOf('fb-1') });
+  it('sits at the end of the toolbar right under the title, which keeps only the close button at its end', async () => {
+    const wrapper = await opened('fb-1');
 
-    const group = wrapper.find('nldd-title > nldd-button-group[slot="end"]');
-    expect(group.exists()).toBe(true);
-    expect(group.findAll(':scope > *').map((button) => button.attributes('data-testid'))).toEqual([
-      'feedback-open-page',
-      'feedback-sheet-close',
+    const title = wrapper.find('nldd-title');
+    expect(title.findAll('[slot="end"]').map((end) => end.attributes('data-testid'))).toEqual(['feedback-sheet-close']);
+    const item = title.element.nextElementSibling!;
+    expect(item.getAttribute('data-testid')).toBe('feedback-item');
+    expect(item.firstElementChild!.getAttribute('data-testid')).toBe('feedback-actions');
+    // The size of the close button; on a narrow row "mark as seen" moves into
+    // the menu first, then delete, and resolving last.
+    expect(item.firstElementChild!.getAttribute('size')).toBe('sm');
+    expect(toolbarItems(wrapper)).toEqual([
+      ['start', 'feedback-mark-seen', '1'],
+      ['start', 'feedback-mark-resolved', '5'],
+      ['end', 'feedback-view', '4'],
+      ['end', 'feedback-open-page', '3'],
+      ['end', 'feedback-delete', '2'],
     ]);
   });
 
@@ -142,11 +176,13 @@ describe('FeedbackSheet: the page of the item', () => {
     await untilIdle();
     const link = wrapper.find('[data-testid="feedback-open-page"]').element;
 
-    const newTab = new MouseEvent('click', { button: 0, ctrlKey: true, cancelable: true });
-    link.dispatchEvent(newTab);
-    await untilIdle();
-    expect(newTab.defaultPrevented).toBe(false);
-    expect(router.currentRoute.value.path).toBe('/team-aurora/website/feedback');
+    for (const init of [{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { altKey: true }, { button: 1 }]) {
+      const newTab = new MouseEvent('click', { button: 0, cancelable: true, ...init });
+      link.dispatchEvent(newTab);
+      await untilIdle();
+      expect(newTab.defaultPrevented).toBe(false);
+      expect(router.currentRoute.value.path).toBe('/team-aurora/website/feedback');
+    }
 
     link.dispatchEvent(new MouseEvent('click', { button: 0, cancelable: true }));
     await untilIdle();
@@ -188,10 +224,14 @@ describe('FeedbackSheet: what was sent', () => {
     const wrapper = await opened('fb-1');
 
     const view = wrapper.find('[data-testid="feedback-view"]');
-    expect(view.attributes('text')).toBe('Bekijk op de pagina');
+    expect(view.attributes('text')).toBe('Bekijken op de site');
     expect(view.attributes('href')).toBe(
       'https://sites.toon.test/team-aurora/website/_preview/pr-42/docs/#toon-feedback=fb-1',
     );
+    const overflow = view.element.nextElementSibling!;
+    expect(overflow.getAttribute('slot')).toBe('overflow');
+    expect(overflow.getAttribute('href')).toBe(view.attributes('href'));
+    expect(overflow.getAttribute('target')).toBe('_blank');
     expect(view.attributes('target')).toBe('_blank');
   });
 
@@ -435,25 +475,49 @@ describe('FeedbackSheet: by role', () => {
     const wrapper = await opened('fb-1');
 
     expect(wrapper.find('[data-testid="feedback-reply-form"]').exists()).toBe(true);
-    const actions = wrapper.findAll('[data-testid="feedback-status-actions"] nldd-button');
-    expect(actions.map((action) => action.attributes('text'))).toEqual([
-      'Markeer als gezien',
-      'Markeer als afgehandeld',
-    ]);
-    expect(wrapper.find('[data-testid="feedback-delete"]').attributes('text')).toBe('Verwijderen');
+    expect(statusTexts(wrapper)).toEqual(['Markeer als gezien', 'Markeer als afgehandeld']);
+    // Each button has its place in the menu of the toolbar too.
+    expect(
+      wrapper
+        .findAll('[data-testid="feedback-actions"] > nldd-toolbar-item > nldd-menu-item[slot="overflow"]')
+        .map((item) => item.attributes('text')),
+    ).toEqual(['Markeer als gezien', 'Markeer als afgehandeld', 'Bekijken op de site', 'Openen als pagina', 'Verwijderen']);
+    // Delete is the last button of the toolbar, in the look of the others; red
+    // only in the menu and in the confirmation.
+    const remove = wrapper.find('[data-testid="feedback-delete"]');
+    expect(remove.element.tagName).toBe('NLDD-BUTTON');
+    expect(remove.attributes('appearance')).toBe('secondary');
+    expect(remove.attributes('text')).toBe('Verwijderen');
+    expect(toolbarItems(wrapper).at(-1)).toEqual(['end', 'feedback-delete', '2']);
+    const overflow = remove.element.nextElementSibling!;
+    expect(overflow.getAttribute('slot')).toBe('overflow');
+    expect(overflow.hasAttribute('destructive')).toBe(true);
+    expect(overflow.getAttribute('text')).toBe('Verwijderen');
     expect(wrapper.find('[data-testid="feedback-read-only"]').exists()).toBe(false);
+    // At the bottom only the reply form is left.
+    expect(wrapper.find('[data-testid="feedback-item"]').element.lastElementChild!.getAttribute('data-testid')).toBe(
+      'feedback-reply-form',
+    );
   });
 
   it('offers only what moves a seen item or a resolved one on', async () => {
     const seen = await opened('fb-2');
-    expect(seen.findAll('[data-testid="feedback-status-actions"] nldd-button').map((b) => b.attributes('text'))).toEqual([
-      'Markeer als afgehandeld',
-    ]);
+    expect(statusTexts(seen)).toEqual(['Markeer als afgehandeld']);
 
     const resolved = await opened('fb-3');
-    expect(
-      resolved.findAll('[data-testid="feedback-status-actions"] nldd-button').map((b) => b.attributes('text')),
-    ).toEqual(['Heropenen']);
+    expect(statusTexts(resolved)).toEqual(['Heropenen']);
+    // Reopening stays in the row as long as resolving does.
+    expect(toolbarItems(resolved)[0]).toEqual(['start', 'feedback-mark-new', '5']);
+  });
+
+  it('moves the status on from the menu of the toolbar as from its button', async () => {
+    const wrapper = await opened('fb-2');
+
+    const overflow = wrapper.find('[data-testid="feedback-mark-resolved"]').element.nextElementSibling!;
+    overflow.dispatchEvent(new CustomEvent('select'));
+    await untilIdle();
+
+    expect(statusTexts(wrapper)).toEqual(['Heropenen']);
   });
 
   it('gives an editor everything but delete', async () => {
@@ -461,6 +525,12 @@ describe('FeedbackSheet: by role', () => {
 
     expect(wrapper.find('[data-testid="feedback-reply-form"]').exists()).toBe(true);
     expect(wrapper.find('[data-testid="feedback-delete"]').exists()).toBe(false);
+    expect(toolbarItems(wrapper)).toEqual([
+      ['start', 'feedback-mark-seen', '1'],
+      ['start', 'feedback-mark-resolved', '5'],
+      ['end', 'feedback-view', '4'],
+      ['end', 'feedback-open-page', '3'],
+    ]);
   });
 
   it('tells a reader who can reply or change the status, and offers neither', async () => {
@@ -470,8 +540,12 @@ describe('FeedbackSheet: by role', () => {
       'Alleen redacteuren en beheerders kunnen reageren of de status wijzigen.',
     );
     expect(wrapper.find('[data-testid="feedback-reply-form"]').exists()).toBe(false);
-    expect(wrapper.find('[data-testid="feedback-status-actions"]').exists()).toBe(false);
     expect(wrapper.find('[data-testid="feedback-delete"]').exists()).toBe(false);
+    // Only the ways to look at the item, both at the end.
+    expect(toolbarItems(wrapper)).toEqual([
+      ['end', 'feedback-view', '4'],
+      ['end', 'feedback-open-page', '3'],
+    ]);
   });
 });
 
@@ -758,11 +832,25 @@ describe('FeedbackSheet: deleting', () => {
     expect(dialog.attributes('text')).toBe('Deze feedback verwijderen?');
     expect(dialog.attributes('supporting-text')).toContain('met de reacties en de schermafbeelding');
     expect(wrapper.find('[data-testid="confirm-cancel"]').attributes('text')).toBe('Behouden');
+    // The red is here, on the button that deletes.
+    expect(wrapper.find('[data-testid="confirm-continue"]').attributes('appearance')).toBe('destructive');
 
     await wrapper.find('[data-testid="confirm-continue"]').trigger('click');
     await untilIdle();
 
     expect(backend.data.feedback.map((item) => item.id)).not.toContain('fb-3');
+    expect(wrapper.emitted('removed')).toEqual([['fb-3']]);
+  });
+
+  it('asks the same from the menu of the toolbar, where delete goes on a narrow row', async () => {
+    const wrapper = await opened('fb-3');
+
+    wrapper.find('[data-testid="feedback-delete"]').element.nextElementSibling!.dispatchEvent(new CustomEvent('select'));
+    await untilIdle();
+    expect(wrapper.find('nldd-modal-dialog').attributes('text')).toBe('Deze feedback verwijderen?');
+
+    await wrapper.find('[data-testid="confirm-continue"]').trigger('click');
+    await untilIdle();
     expect(wrapper.emitted('removed')).toEqual([['fb-3']]);
   });
 
@@ -1267,7 +1355,8 @@ describe('FeedbackSheet: in English', () => {
     const wrapper = await opened('fb-1');
 
     expect(wrapper.find('h2').text()).toBe('Feedback on Documentatie');
-    expect(wrapper.find('[data-testid="feedback-view"]').attributes('text')).toBe('View on the page');
+    expect(wrapper.find('[data-testid="feedback-view"]').attributes('text')).toBe('Show on the site');
+    expect(wrapper.find('[data-testid="feedback-open-page"]').attributes('text')).toBe('Open as page');
     expect(wrapper.find('[data-testid="feedback-mark-seen"]').attributes('text')).toBe('Mark as seen');
     expect(meta(wrapper, 'viewport').find('nldd-text-cell').attributes('text')).toBe('**Window size**');
     expect(metaValue(wrapper, 'viewport')).toBe('1280 by 800 pixels');

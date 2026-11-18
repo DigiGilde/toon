@@ -52,6 +52,13 @@ function recordRequests(): string[] {
   return paths;
 }
 
+/** The items of the toolbar, by slot and by the test id of their control. */
+function toolbarItems(wrapper: Awaited<ReturnType<typeof openPage>>['wrapper']): (string | null)[][] {
+  return wrapper
+    .findAll('[data-testid="feedback-actions"] > nldd-toolbar-item')
+    .map((item) => [item.attributes('slot') ?? null, item.element.firstElementChild!.getAttribute('data-testid')]);
+}
+
 function backLink(wrapper: Awaited<ReturnType<typeof openPage>>['wrapper']) {
   return wrapper.find('[data-testid="feedback-page-back"]');
 }
@@ -66,6 +73,23 @@ describe('FeedbackItemPage: the item', () => {
     expect(wrapper.find('[data-testid="feedback-screenshot"] nldd-image').exists()).toBe(true);
     expect(wrapper.find('[data-testid="feedback-reply-form"]').exists()).toBe(true);
     expect(wrapper.find('[data-testid="feedback-delete"]').exists()).toBe(true);
+  });
+
+  it('puts the actions in a toolbar under the heading, without the way to this very page', async () => {
+    const { wrapper } = await openPage();
+
+    const heading = wrapper.find('h2#heading-feedback-item').element;
+    const item = wrapper.find('[data-testid="feedback-item"]').element;
+    expect(heading.compareDocumentPosition(item) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const toolbar = item.firstElementChild!;
+    expect(toolbar.getAttribute('data-testid')).toBe('feedback-actions');
+    expect(toolbarItems(wrapper)).toEqual([
+      ['start', 'feedback-mark-seen'],
+      ['start', 'feedback-mark-resolved'],
+      ['end', 'feedback-view'],
+      ['end', 'feedback-delete'],
+    ]);
+    expect(wrapper.find('[data-testid="feedback-open-page"]').exists()).toBe(false);
   });
 
   it('names the item and the site in the title of the browser tab', async () => {
@@ -125,6 +149,7 @@ describe('FeedbackItemPage: the item', () => {
     expect(wrapper.find('[data-testid="feedback-read-only"]').exists()).toBe(true);
     expect(wrapper.find('[data-testid="feedback-reply-form"]').exists()).toBe(false);
     expect(wrapper.find('[data-testid="feedback-delete"]').exists()).toBe(false);
+    expect(toolbarItems(wrapper)).toEqual([['end', 'feedback-view']]);
   });
 
   it('says the place of an item on a preview that is gone can no longer be viewed', async () => {
@@ -132,6 +157,19 @@ describe('FeedbackItemPage: the item', () => {
     const { wrapper } = await openPage();
 
     expect(wrapper.find('[data-testid="feedback-view-gone"]').exists()).toBe(true);
+    // The status buttons and Delete are still there for an admin.
+    expect(wrapper.find('[data-testid="feedback-actions"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="feedback-view"]').exists()).toBe(false);
+  });
+
+  it('leaves out the toolbar of a reader when the preview is gone, as nothing is left in it', async () => {
+    backend.data.previews = [];
+    backend.data.siteRoles.push({ groupSlug: 'team-aurora', siteSlug: 'website', identifier: 'sanne@voorbeeld.nl', role: 'reader' });
+    backend.data.loggedInMemberId = 'lid-6';
+    const { wrapper } = await openPage();
+
+    expect(wrapper.find('[data-testid="feedback-view-gone"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="feedback-actions"]').exists()).toBe(false);
   });
 
   it('leaves the way to the page in place when the previews cannot be read', async () => {

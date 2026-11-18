@@ -375,24 +375,37 @@ async function statusFilter(page: Page): Promise<Array<{ label: string; cut: boo
   });
 }
 
-/** Opens an item of the Feedback tab and deletes it, as an admin of the site does. */
+/**
+ * Opens an item of the Feedback tab and deletes it, as an admin of the site
+ * does. Both callers work at 320 px, where Delete has moved from the toolbar
+ * into its menu.
+ */
 async function deleteFromTab(page: Page, row: Locator): Promise<void> {
   await row.click();
-  await page.getByTestId('feedback-delete').click();
+  const actions = page.getByTestId('feedback-actions');
+  await expect(actions).toBeVisible();
+  await expect(page.getByTestId('feedback-delete')).toBeHidden();
+  await actions.getByRole('button', { name: 'Meer', exact: true }).click();
+  await actions.getByRole('menuitem', { name: 'Verwijderen' }).click();
   // Every confirmation dialog of the page is in the DOM: only the open one shows.
   await page.getByTestId('confirm-continue').filter({ visible: true }).click();
   await expect(row).toHaveCount(0);
 }
 
 /**
- * Opens the page of an item from the Feedback tab, as the team does: "View
- * on the page" opens it in a new tab, at its top.
+ * Opens the page of an item from the Feedback tab, as the team does: "Show
+ * on the site" opens it in a new tab, at its top. The team works at 320 px by
+ * then, where the link sits in the menu of the toolbar.
  */
 async function viewOnPage(id: string): Promise<Page> {
   await teamPage.goto(`${ADMIN_URL}/${GROUP}/${SITE}/feedback`);
   await teamPage.getByTestId(`feedback-${id}`).click();
+  const actions = teamPage.getByTestId('feedback-actions');
+  await expect(actions).toBeVisible();
+  await expect(teamPage.getByTestId('feedback-view')).toBeHidden();
+  await actions.getByRole('button', { name: 'Meer', exact: true }).click();
   const opened = teamContext.waitForEvent('page');
-  await teamPage.getByTestId('feedback-view').click();
+  await actions.getByRole('menuitem', { name: 'Bekijken op de site' }).click();
   const page = await opened;
   await page.waitForLoadState();
   return page;
@@ -2200,7 +2213,7 @@ test.describe.serial('site feedback', () => {
     await page.close();
   });
 
-  test('"View on the page" brings a point low on a listing three windows high into view, and says it is marked', async () => {
+  test('"Show on the site" brings a point low on a listing three windows high into view, and says it is marked', async () => {
     // A visitor points at nine tenths of the listing's height.
     const page = await visitorContext.newPage();
     await page.goto(`${PREVIEW_URL}${LISTING_PAGE}`);
@@ -2237,7 +2250,7 @@ test.describe.serial('site feedback', () => {
     await opened.close();
   });
 
-  test('"View on the page" brings a quote near the end of a long listing into view, and says it is marked', async () => {
+  test('"Show on the site" brings a quote near the end of a long listing into view, and says it is marked', async () => {
     // A visitor selects a line near the end of the listing, by a triple
     // click, which takes the whole line.
     const page = await visitorContext.newPage();
@@ -2574,10 +2587,12 @@ test.describe.serial('site feedback', () => {
   test('an item from a preview that is gone says its place can no longer be viewed', async () => {
     const { id } = await feedbackWithComment(adminPage, GROUP, SITE, COMMENT_TEAM);
     const row = teamPage.getByTestId(`feedback-${id}`);
-    // While its preview opens, the item offers a look at its place.
+    // While its preview opens, the item offers a look at its place: at 320 px
+    // in the menu of the toolbar.
     await teamPage.goto(`${ADMIN_URL}/${GROUP}/${SITE}/feedback`);
     await row.click();
-    await expect(teamPage.getByTestId('feedback-view')).toBeVisible();
+    await expect(teamPage.getByTestId('feedback-actions')).toBeVisible();
+    await expect(teamPage.getByTestId('feedback-view')).toHaveCount(1);
     await expect(teamPage.getByTestId('feedback-view-gone')).toHaveCount(0);
 
     // Its address would only open the neutral 404 now: a line says so instead.
