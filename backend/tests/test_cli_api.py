@@ -1,4 +1,4 @@
-"""Tests for api/cli.py and the CLI side of api/admin.py: the device
+"""Tests for api/cli.py and the CLI side of api/admin/__init__.py: the device
 authorization grant (RFC 8628) end to end, over HTTP.
 
 The app under test wires the CLI router, the admin router (for the member's

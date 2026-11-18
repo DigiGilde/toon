@@ -30,6 +30,10 @@ import { t } from '@/i18n';
         {{ t('page.about.features.site.body') }}
       </li>
       <li>
+        <strong>{{ t('page.about.features.feedback.term') }}</strong>
+        {{ t('page.about.features.feedback.body') }}
+      </li>
+      <li>
         <strong>{{ t('page.about.features.cli.term') }}</strong>
         {{ t('page.about.features.cli.body') }}
       </li>

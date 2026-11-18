@@ -61,7 +61,7 @@ MAX_CLAIM_LENGTH = 200
 def ci_actor_identifier(provider: CiProvider | str, host: str, repository: str | int) -> str:
     """What a CI actor is pseudonymised from: provider, host and the numeric
     repository id (or, for a refused token without ids, `owner/repo` in
-    lowercase). api/admin.py recomputes it to resolve a pseudonym."""
+    lowercase). api/admin/ recomputes it to resolve a pseudonym."""
     return f"{provider}:{host}:{repository}"
 
 

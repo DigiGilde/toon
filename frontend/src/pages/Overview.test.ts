@@ -60,6 +60,10 @@ const filledData: OverviewData = {
           lastPublishedAt: '2026-07-17T14:32:00.000Z',
           previewCount: 1,
           previousSlugs: [],
+          feedbackEnabled: false,
+          feedbackIdentity: 'account',
+          feedbackLive: false,
+          openFeedbackCount: 0,
         },
       ],
     },
@@ -380,6 +384,10 @@ describe('Overview', () => {
       lastPublishedAt: null,
       previewCount: 0,
       previousSlugs: [],
+      feedbackEnabled: false,
+      feedbackIdentity: 'account',
+      feedbackLive: false,
+      openFeedbackCount: 0,
     };
     const newGroup: Group = { slug: 'team', name: 'Team', defaultAccess: { base: 'public', keys: false, invitees: false }, previousSlugs: [] };
 
@@ -549,7 +557,7 @@ describe('Overview', () => {
       await flushPromises();
 
       // No role gates this item: the backend lets every active member create
-      // a group (create_group in api/admin.py).
+      // a group (create_group in api/admin/__init__.py).
       await selectCreateGroup();
       expect(wrapper!.findComponent(NewGroupSheet).props('open')).toBe(true);
 
@@ -1042,6 +1050,7 @@ describe('Overview: publish button in an empty group', () => {
         id: 'x', groupSlug: 'nieuw', slug: 'handboek', title: 'Handboek', access,
         externalSources: false, sandbox: true, liveVersionsKept: null, liveVersionId: null,
         createdBy: 'dev', hasLiveVersion: false, lastPublishedAt: null, previewCount: 0, previousSlugs: [],
+        feedbackEnabled: false, feedbackIdentity: 'account', feedbackLive: false, openFeedbackCount: 0,
       };
       vi.mocked(toonApi.createSite).mockImplementation(async () => {
         // The refetched roles arrive in the middle of the submit.

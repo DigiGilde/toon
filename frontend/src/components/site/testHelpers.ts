@@ -4,6 +4,7 @@
  */
 import { flushPromises } from '@vue/test-utils';
 import { computed, ref } from 'vue';
+import { createMemoryHistory, createRouter, type Router } from 'vue-router';
 
 import * as toon from '@/api/toon';
 import { SITE_GROUP, type SiteGroup } from '@/composables/siteGroup';
@@ -214,4 +215,35 @@ export async function provideSiteGroupFromApi(
       site: computed(() => detail.value.sites.find((p) => p.slug === site)!),
     },
   };
+}
+
+/**
+ * A router at `path` with the routes of the Feedback tab and its item page,
+ * for a tab that keeps its filters in the address. The components are empty:
+ * the test mounts the one it is about itself.
+ */
+export function feedbackRouter(path = '/team-aurora/website/feedback'): Router {
+  const empty = {};
+  // The router goes to where the history stands once the app installs it.
+  const history = createMemoryHistory();
+  history.replace(path);
+  return createRouter({
+    history,
+    routes: [
+      { path: '/:group/:site/previews', name: 'site-previews', component: empty },
+      { path: '/:group/:site/feedback', name: 'site-feedback', component: empty },
+      { path: '/:group/:site/feedback/:item', name: 'site-feedback-item', component: empty },
+    ],
+  });
+}
+
+/**
+ * The same router, gone through `paths` in turn before anything is mounted:
+ * the route is there from the start, as a router-view has it, and each path
+ * after the first is an entry in the history to go back to.
+ */
+export async function feedbackRouterAt(...paths: string[]): Promise<Router> {
+  const router = feedbackRouter(paths[0]);
+  for (const path of paths) await router.push(path);
+  return router;
 }

@@ -1,5 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, h, onMounted, ref } from 'vue';
 import { createMemoryHistory, createRouter, RouterView, type Router } from 'vue-router';
 
@@ -8,6 +8,7 @@ import { stayOnNextMove, useRouteAnnouncer } from './routeAnnouncer';
 let wrapper: ReturnType<typeof mount> | null = null;
 
 afterEach(() => {
+  vi.restoreAllMocks();
   wrapper?.unmount();
   wrapper = null;
   document.body.innerHTML = '';
@@ -31,6 +32,15 @@ const SlowPage = defineComponent({
 
 const Tab = (name: string) => defineComponent({ render: () => h('p', name) });
 
+/** A page inside a tab whose heading names its item, once that has loaded. */
+const SlowItem = defineComponent({
+  setup() {
+    const loaded = ref(false);
+    onMounted(() => setTimeout(() => (loaded.value = true), 40));
+    return () => h('section', loaded.value ? [h('h2', 'Feedback op Contact')] : [h('p', 'Laden')]);
+  },
+});
+
 const SitePage = defineComponent({
   render: () =>
     h('div', [
@@ -53,6 +63,7 @@ function makeRouter(): Router {
         children: [
           { path: '', component: Tab('overzicht') },
           { path: 'versions', component: Tab('versies') },
+          { path: 'feedback/:item', component: SlowItem, meta: { panelHeading: true } },
         ],
       },
     ],
@@ -159,6 +170,63 @@ describe('useRouteAnnouncer', () => {
     const panel = document.querySelector('[data-tab-panel]');
     expect(document.activeElement).toBe(panel);
     expect(status()).toBe('Een site - Versies - Toon');
+  });
+
+  it('moves focus to the heading of a page inside a tab once it names its item', async () => {
+    const router = makeRouter();
+    await mountShell(router, '/team/website/versions');
+    document.title = 'Feedback op Contact - Een site - Toon';
+
+    await router.push('/team/website/feedback/fb-1');
+    await flushPromises();
+    // Not to the panel meanwhile: the heading is where it lands.
+    expect(document.activeElement).toBe(document.body);
+
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    await flushPromises();
+
+    const heading = document.querySelector('[data-tab-panel] h2');
+    expect(document.activeElement).toBe(heading);
+    expect(heading!.getAttribute('tabindex')).toBe('-1');
+    expect(status()).toBe('Feedback op Contact - Een site - Toon');
+  });
+
+  it('tries once more a frame later when the heading takes no focus yet', async () => {
+    // As a heading slotted into an nldd-title before that has drawn its slot.
+    const focus = HTMLElement.prototype.focus;
+    let refused = 0;
+    vi.spyOn(HTMLElement.prototype, 'focus').mockImplementation(function (this: HTMLElement, options) {
+      if (this.tagName === 'H2' && refused === 0) {
+        refused += 1;
+        return;
+      }
+      focus.call(this, options);
+    });
+    const router = makeRouter();
+    await mountShell(router, '/team/website/versions');
+
+    await router.push('/team/website/feedback/fb-1');
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    await flushPromises();
+
+    expect(refused).toBe(1);
+    expect(document.activeElement).toBe(document.querySelector('[data-tab-panel] h2'));
+  });
+
+  it('drops that second try when the visitor navigates on first', async () => {
+    vi.spyOn(HTMLElement.prototype, 'focus').mockImplementation(() => undefined);
+    const request = vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(42);
+    const cancel = vi.spyOn(window, 'cancelAnimationFrame');
+    const router = makeRouter();
+    await mountShell(router);
+
+    await router.push('/groups');
+    await flushPromises();
+    expect(request).toHaveBeenCalledTimes(1);
+
+    await router.push('/');
+    await flushPromises();
+    expect(cancel).toHaveBeenCalledWith(42);
   });
 
   it('treats another site as another page: focus goes to the heading', async () => {

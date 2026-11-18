@@ -104,7 +104,7 @@ describe('boot', () => {
     const platform = fakePlatform();
     platform.currentScript.mockReturnValue(script());
     document.body.append(Object.assign(document.createElement('p'), { textContent: 'De typfout is hersteld.' }));
-    // A link to a text: a quote, no page coordinates.
+    // What the admin's "View on the page" sends for a text: a quote, no page coordinates.
     const highlight = encodeConfig({ k: 'text', s: 'body > p:nth-of-type(1)', q: 'tpyfout' });
     window.history.replaceState(null, '', `/team/site/docs/${FRAGMENT_PREFIX}${highlight}`);
     const widget = boot(platform)!;

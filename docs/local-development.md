@@ -149,8 +149,13 @@ What ends up there:
   own override that is stricter: base `site_team` without exceptions. An
   override is always the whole access, never a base from the preview with
   exceptions from the site.
-- **Feedback.** `jaarverslag` takes feedback on its previews only, from
-  anyone who can view them, also without a name.
+- **Feedback.** `jaarverslag` takes feedback on its previews and its live
+  site, from anyone who can view them ("Ook zonder naam", without a name).
+  Its items on `pr-42`, `pr-77` and the live site cover every kind,
+  status and author kind, with
+  replies and a screenshot. The item with an account is Dev
+  Beheerder's own, so after the consent page the widget's "Mijn feedback"
+  shows it with the dev login. The output prints the Feedback tab URL.
 
 The secret link of `kerncijfers` is shown once, at the bottom of the
 output, and cannot be reconstructed afterwards. Instead of a deploy
@@ -172,9 +177,10 @@ back.
 ## Trying site feedback
 
 The seed switches feedback on for `rijksoverheid/jaarverslag`, on its
-previews only. Open one of them in a browser, for instance
+previews and its live site. Open one of them in a browser, for instance
 `http://toon.localhost:8080/rijksoverheid/jaarverslag/_preview/pr-42/`: the
-button sits at the bottom right of the page. The widget only goes into a
+button sits at the bottom right of the page. The settings are on the site's
+"Feedback" tab on `http://beheer.toon.localhost:8080`. The widget only goes into a
 navigation the browser marks with `Sec-Fetch-Dest: document`, so `curl` gets
 the page without it, unless you send that header yourself:
 
@@ -182,11 +188,13 @@ the page without it, unless you send that header yourself:
 curl -s -H 'Sec-Fetch-Dest: document' http://toon.localhost:8080/rijksoverheid/jaarverslag/_preview/pr-42/ | grep -o '<script src="/-/feedback/[^"]*"'
 ```
 
-The seed lets anyone give feedback, also without a name, so the menu lets
-you send straight away. "Met je account versturen" (send with your account) takes you through
+The seed sets "Wie mag feedback geven" (who may give feedback) to "Ook
+zonder naam" (also without a name), so the menu lets you send straight
+away. "Met je account versturen" (send with your account) takes you through
 the login, which the mock OIDC server does at once, to Toon's consent page.
 Its form shows after a second and takes a tick in its box before "Ja, met
-mijn account" (yes, with my account) does anything.
+mijn account" (yes, with my account) does anything. What comes in shows on
+the "Feedback" tab.
 
 Pages get no widget when `TOON_BASE_URL` is not set: its link to the privacy
 statement has to be an absolute address. `dev/compose.yml` sets it.
@@ -446,7 +454,7 @@ CI tooling under `scripts/` (its own uv project, tests in
 On the backend the measurement needs `concurrency = ["thread",
 "greenlet"]`: SQLAlchemy's async adapter runs most of an async route body
 inside a greenlet, and without that setting coverage.py does not see it
-(`api/admin.py` measured 58% against 82% on the same tests).
+(`api/admin/` measured 58% against 82% on the same tests).
 
 `just dev` runs the app without nginx in front of it on `localhost:8000`.
 Without `TOON_CONTENT_BASE_URL` there is one host with both worlds (the app

@@ -110,10 +110,12 @@ describe('privacy statement', () => {
         'dan onthoudt een cookie alleen dat, en niet langer dan 12 uur.',
         'een platformbeheerder zou de tijden naast elkaar kunnen leggen',
         'zodat het team van een site opmerkingen over die site kan lezen, beantwoorden en afhandelen',
-        'Of een site feedback aanneemt, en van wie, is een instelling van die site.',
+        'Of een site feedback aanneemt, en van wie, kiest de beheerder van die site.',
         'de schermafbeelding 30 dagen nadat de feedback is afgehandeld',
         'om afgeschermde content te bekijken of om feedback te geven met je account',
-        'is alleen voor redacteuren en beheerders van de site',
+        'zien alleen redacteuren en beheerders van de site',
+        'Reageert het siteteam op feedback die met een account is gestuurd, dan ziet de indiener bij die reactie de naam van wie reageerde, nooit een e-mailadres.',
+        'Bij de reactie staat altijd de naam die die persoon nu heeft. Verandert die naam, dan staat de nieuwe naam erbij, en is het account verwijderd, dan staat er geen naam meer bij.',
         'Feedback met alleen een naam of zonder naam kun je later niet terugvinden of zelf verwijderen.',
         'ook op een openbare site, bijvoorbeeld om feedback te geven met je account',
         'Mijn feedback staat in de knop zolang je op die site feedback geeft met je account. Kom je later terug, dan kies je eerst Met je account versturen of Feedback geven met je account, log je in en zeg je opnieuw ja. Dat beëindig je daarna weer met Stoppen met feedback via je account.',
@@ -136,10 +138,12 @@ describe('privacy statement', () => {
         'a cookie remembers only that, and for 12 hours at most.',
         'a platform administrator could put the times side by side',
         'so the team of a site can read, answer and resolve remarks about that site',
-        'Whether a site takes feedback, and from whom, is a setting of that site.',
+        'Whether a site takes feedback, and from whom, is chosen by the administrator of that site.',
         'the screenshot 30 days after the feedback was resolved',
         'to view restricted content or to give feedback with your account',
-        'is for editors and administrators of the site only',
+        'is seen only by editors and administrators of the site',
+        'When the site team replies to feedback sent with an account, the submitter sees with that reply the name of whoever replied, never an e-mail address.',
+        'The reply always shows the name that person has now. If their name changes, the reply shows the new one, and once their account is deleted, it shows no name.',
         'Feedback sent with only a name or without a name cannot be found again later, or deleted by its submitter.',
         'a public one included, for instance to give feedback with your account',
         'My feedback is in the button while you give feedback on that site with your account. When you come back later, you first choose Send with your account or Give feedback with your account, sign in and say yes again. You end that again afterwards with Stop giving feedback with your account.',
@@ -163,20 +167,17 @@ describe('privacy statement', () => {
     // and not the size of the screen.
     expect(wrapper.text()).not.toMatch(/gegevens over je browser|data about your browser/);
     expect(wrapper.text()).not.toMatch(/grootte van je scherm|size of your screen/);
-    // Nothing shows the site team the feedback or lets a site administrator
-    // choose.
-    expect(wrapper.text()).not.toMatch(/kiest de beheerder|chosen by the administrator|Reageert het siteteam|site team replies/);
     wrapper.unmount();
   });
 
   it.each([
     [
       'nl',
-      'Op sites die feedback verzamelen, verwerkt Toon ook wat bezoekers met de feedbackknop sturen: hun opmerking, eventueel een schermafbeelding en hun naam, en met een account ook hun e-mailadres. Die feedback is bedoeld voor het team van de site.',
+      'Op sites die feedback verzamelen, verwerkt Toon ook wat bezoekers met de feedbackknop sturen: hun opmerking, eventueel een schermafbeelding en hun naam, en met een account ook hun e-mailadres. Zo kan het team van de site die feedback lezen en beantwoorden.',
     ],
     [
       'en',
-      'On sites that collect feedback, Toon also processes what visitors send with the feedback button: their remark, possibly a screenshot and their name, and with an account their e-mail address too. That feedback is meant for the team of the site.',
+      'On sites that collect feedback, Toon also processes what visitors send with the feedback button: their remark, possibly a screenshot and their name, and with an account their e-mail address too. That way the team of the site can read and answer the feedback.',
     ],
   ] as const)('says in its opening, in %s, that it covers what the feedback button sends', async (locale, sentence) => {
     serve(OPERATOR);

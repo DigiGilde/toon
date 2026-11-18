@@ -71,6 +71,10 @@ ADMIN_ACTIONS: Final = frozenset(
         "member_activate",
         "member_deactivate",
         "member_platform_role",
+        "site_feedback",
+        "feedback_status",
+        "feedback_reply",
+        "feedback_delete",
     }
 )
 

@@ -3,7 +3,7 @@ groups and sites, one table per kind, kept by triggers on `groups` and
 `sites`.
 
 Against the real PostgreSQL test container, through the ORM the app uses.
-The constraint a refusal names is what api/admin.py turns into a 409, so the
+The constraint a refusal names is what api/admin/ turns into a 409, so the
 tests name it too: `uq_*` for the current slug of another group or site,
 `pk_*` for a slug another one gave up and still holds.
 """
@@ -364,7 +364,7 @@ class TestTwoClaimsAtOnce:
 
 
 class TestViolatedConstraint:
-    """How api/admin.py tells one collision from another: by the constraint's
+    """How api/admin/ tells one collision from another: by the constraint's
     name on the driver's error, which asyncpg reports apart from the message."""
 
     async def test_a_unique_violation_names_its_constraint(self, factory):

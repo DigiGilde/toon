@@ -47,6 +47,10 @@ function site(slug: string, live: boolean): Site {
     lastPublishedAt: live ? '2026-07-17T14:32:00.000Z' : null,
     previewCount: 0,
     previousSlugs: [],
+    feedbackEnabled: false,
+    feedbackIdentity: 'account',
+    feedbackLive: false,
+    openFeedbackCount: 0,
   };
 }
 

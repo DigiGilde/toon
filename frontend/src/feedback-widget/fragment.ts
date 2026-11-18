@@ -1,7 +1,7 @@
 /**
  * The highlight form of a stored place: `{k, s, x, y, w, h, px, py, pw, ph,
- * q}`, sent by the server as `#toon-feedback=<base64url JSON>` in a link to
- * the page and as the anchor of an item under "My feedback".
+ * q}`, sent by the server as `#toon-feedback=<base64url JSON>` (the admin's
+ * "View on the page") and as the anchor of an item under "My feedback".
  * Only used to find the place again; nothing from it is ever rendered as text.
  */
 import { MAX_COORDINATE, MAX_SELECTOR } from './anchor';

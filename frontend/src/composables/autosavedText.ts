@@ -5,7 +5,7 @@
  * site title writes the previous text into the audit log, where it stays.
  *
  * The text is checked the way the API checks it (`_validate_text` in
- * api/admin.py): trimmed, not empty, at most `maxLength` code points. A text
+ * api/admin/__init__.py): trimmed, not empty, at most `maxLength` code points. A text
  * that is too long is judged while typing; an empty one only when a save is
  * due, so clearing the field to type anew is not met with a verdict at once.
  * Neither is sent. A text equal to the saved one is not sent either.

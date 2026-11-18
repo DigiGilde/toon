@@ -3,12 +3,14 @@ import { ref } from 'vue';
 
 import * as toon from '@/api/toon';
 import { errorText } from '@/api/client';
+import { useInAppLink } from '@/composables/inAppLink';
 import { useLoader } from '@/composables/loader';
 import type { Access, AccessBase, Preview } from '@/api/types';
 import { ACCESS_BASE_VALUES } from '@/api/types';
 import { accessBaseLabel, accessLabel, contentUrl, formatTimestamp } from '@/format';
 import { t } from '@/i18n';
 import ErrorBanner from '@/components/ErrorBanner.vue';
+import { feedbackListHref, ONE_PREVIEW } from '@/components/site/feedbackRoute';
 import Notices from '@/components/site/Notices.vue';
 import RowActions, { type RowAction, type RowChoice } from '@/components/RowActions.vue';
 import SectionHeading from '@/components/SectionHeading.vue';
@@ -20,6 +22,7 @@ const props = defineProps<{ group: string; site: string; contentBase: string }>(
 
 const previews = ref<Preview[]>([]);
 const notices = ref<InstanceType<typeof Notices> | null>(null);
+const follow = useInAppLink();
 
 const { loading, error } = useLoader(
   () => toon.previews(props.group, props.site),
@@ -32,6 +35,17 @@ const { loading, error } = useLoader(
 /** The API returns `url` as a content path; the link belongs on the content host. */
 function previewUrl(preview: Preview): string {
   return contentUrl(props.contentBase, preview.url);
+}
+
+/** The Feedback tab, narrowed to what was given on this preview. */
+function feedbackHref(preview: Preview): string {
+  return feedbackListHref(props.group, props.site, { status: 'open', where: `${ONE_PREVIEW}${preview.ref}` });
+}
+
+function feedbackText(preview: Preview): string {
+  return preview.openFeedbackCount === 1
+    ? t('site.previews.feedback.one')
+    : t('site.previews.feedback.many', { count: preview.openFeedbackCount });
 }
 
 async function setOverride(preview: Preview, access: Access | null): Promise<void> {
@@ -176,18 +190,28 @@ async function remove(preview: Preview): Promise<void> {
           :data-testid="`preview-${preview.ref}`"
         >
           <nldd-icon-cell icon="git-pull-request" size="20"></nldd-icon-cell>
+          <nldd-spacer-cell size="12"></nldd-spacer-cell>
           <nldd-title-cell
-            :text="preview.ref"
             size="display-5"
             min-width="120px"
             :overline="t('site.previews.accessOverline', { access: accessText(preview) })"
           >
-            <nldd-link slot="supporting-text" :href="previewUrl(preview)" target="_blank">{{
-              previewUrl(preview)
+            <nldd-link :href="previewUrl(preview)" target="_blank" size="inherit">{{
+              preview.ref
             }}</nldd-link>
+            <!-- Only while there is open feedback: a zero would be one more
+                 line on every preview, with nothing behind it to do. -->
+            <nldd-link
+              v-if="preview.openFeedbackCount > 0"
+              slot="supporting-text"
+              :href="feedbackHref(preview)"
+              :data-testid="`preview-feedback-${preview.ref}`"
+              @click="follow($event, feedbackHref(preview))"
+              >{{ feedbackText(preview) }}</nldd-link
+            >
           </nldd-title-cell>
-          <!-- The URL wraps over two lines in a narrow window and would
-               otherwise touch the dates beside it. -->
+          <!-- A long ref or the feedback link wraps in a narrow window and
+               would otherwise touch the dates beside it. -->
           <nldd-spacer-cell size="16"></nldd-spacer-cell>
           <nldd-text-cell
             width="fit-content"

@@ -130,9 +130,17 @@ watchEffect(() => {
 interface TabDefinition {
   name: string;
   label: string;
+  /** The name in the browser tab title, where the label carries more than the name (a count). */
+  title?: string;
   path: string;
   /** Fixed, never derived from the label: a test id may not change with the language. */
   testid: string;
+}
+
+/** "Feedback (3)" while there is open feedback, so the tab bar says where the work is. */
+function feedbackLabel(): string {
+  const open = site.value?.openFeedbackCount ?? 0;
+  return open > 0 ? t('site.tabs.feedback.open', { count: open }) : t('site.tabs.feedback');
 }
 
 const TABS = computed<readonly TabDefinition[]>(() => [
@@ -142,6 +150,13 @@ const TABS = computed<readonly TabDefinition[]>(() => [
     label: t('site.tabs.previews'),
     path: 'previews',
     testid: 'tab-previews',
+  },
+  {
+    name: 'site-feedback',
+    label: feedbackLabel(),
+    title: t('site.tabs.feedback'),
+    path: 'feedback',
+    testid: 'tab-feedback',
   },
   {
     name: 'site-versions',
@@ -160,12 +175,16 @@ const TABS = computed<readonly TabDefinition[]>(() => [
   },
 ]);
 
-const currentTab = computed(() => TABS.value.find((tab) => tab.name === route.name));
+/** The tab of the route, also for a page that belongs to a tab (`meta.tab`). */
+const currentTab = computed(() => TABS.value.find((tab) => tab.name === route.name || tab.name === route.meta.tab));
 
 // The site name is the distinguishing part, so it comes first; the tab is
 // dropped on the overview, where it would only repeat the page itself.
 function showTitle(): void {
-  setDocumentTitle(site.value?.title || siteSlug.value, currentTab.value?.path ? currentTab.value.label : null);
+  // A page inside a tab that names something of its own sets the title itself.
+  if (route.meta.ownTitle) return;
+  const tab = currentTab.value;
+  setDocumentTitle(site.value?.title || siteSlug.value, tab?.path ? (tab.title ?? tab.label) : null);
 }
 
 watchEffect(showTitle);
@@ -221,7 +240,7 @@ function afterRemoval(): void {
           :key="tab.name"
           :text="tab.label"
           :href="tabPath(tab)"
-          :current="route.name === tab.name || undefined"
+          :current="currentTab === tab || undefined"
           :data-testid="tab.testid"
           @click.prevent="goToTab(tab)"
         ></nldd-tab-bar-item>

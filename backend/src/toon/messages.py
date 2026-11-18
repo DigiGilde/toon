@@ -375,7 +375,7 @@ NL: Final[dict[str, str]] = {
         "Publiceer de map '{directory}' zelf, of stuur het veld basispad mee met de waarde "
         "'{directory}'"
     ),
-    # -- Site feedback: the widget API ----------------------------------------
+    # -- Site feedback: the widget API, then the admin ------------------------
     "FEEDBACK_UNAVAILABLE": "Dit lukt nu niet vanaf deze pagina. Laad de pagina opnieuw en probeer het nog eens.",
     "FEEDBACK_ACCOUNT_REQUIRED": (
         "Dit kan alleen als je met je account feedback geeft. Log in en probeer het opnieuw."
@@ -400,6 +400,8 @@ NL: Final[dict[str, str]] = {
     "FEEDBACK_TIMEOUT": (
         "Het versturen duurde te lang. Probeer het opnieuw, eventueel zonder schermafbeelding."
     ),
+    "FEEDBACK_NOT_FOUND": "Onbekende feedback.",
+    "FEEDBACK_REF_WITHOUT_PREVIEW": "Het filter ref werkt alleen samen met target=preview.",
     # -- Examples in the OpenAPI document, one per status code ----------------
     "example.401": "Er is geen actieve sessie.",
     "example.403": "Je hebt hier geen toegang.",
@@ -723,7 +725,7 @@ EN: Final[dict[str, str]] = {
         "directory '{directory}' itself, or send along the base path field with the value "
         "'{directory}'"
     ),
-    # -- Site feedback: the widget API ----------------------------------------
+    # -- Site feedback: the widget API, then the admin ------------------------
     "FEEDBACK_UNAVAILABLE": "This does not work from this page right now. Reload the page and try again.",
     "FEEDBACK_ACCOUNT_REQUIRED": (
         "This only works when you give feedback with your account. Sign in and try again."
@@ -744,6 +746,8 @@ EN: Final[dict[str, str]] = {
     "FEEDBACK_THREAD_FULL": "This feedback cannot take any more replies.",
     "FEEDBACK_BUSY": "Toon cannot take your feedback right now. Try again in a minute.",
     "FEEDBACK_TIMEOUT": "Sending took too long. Try again, without the screenshot if need be.",
+    "FEEDBACK_NOT_FOUND": "Unknown feedback.",
+    "FEEDBACK_REF_WITHOUT_PREVIEW": "The filter ref only works together with target=preview.",
     # -- Examples in the OpenAPI document, one per status code ----------------
     "example.401": "There is no active session.",
     "example.403": "You have no access here.",

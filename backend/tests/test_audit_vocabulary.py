@@ -38,7 +38,7 @@ def test_every_ci_refusal_reason_is_documented() -> None:
 def test_the_admin_api_writes_no_action_outside_the_vocabulary() -> None:
     """The admin endpoints pass their action as a literal; one typo there would
     open a third vocabulary nobody knows about."""
-    admin = (SRC / "api" / "admin.py").read_text(encoding="utf-8")
+    admin = "".join(path.read_text(encoding="utf-8") for path in sorted((SRC / "api" / "admin").rglob("*.py")))
     written = set(re.findall(r'await _audit\(\s*request,\s*\w+,\s*"([a-z_]+)"', admin))
     written |= set(re.findall(r'MemberStatus\.\w+,\s*"([a-z_]+)"', admin))
 

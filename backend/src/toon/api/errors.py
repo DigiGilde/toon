@@ -254,7 +254,7 @@ async def _audit_refusal(request: Request, error: ApiError) -> None:
     if not _is_audited_refusal(request, error.status):
         return
     # A route that authenticated its member some other way than the session
-    # cookie (a CLI token, api/admin.py:require_creator) leaves it here.
+    # cookie (a CLI token, api/admin/__init__.py:require_creator) leaves it here.
     actor = getattr(request.state, "audit_actor", None)
     if actor is None:
         session = session_from_request(request)

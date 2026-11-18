@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { makeMockBackend, MOCK_CONTENT_BASE, type MockBackend } from '../../../tests/mock-api';
 import TabPreviews from './TabPreviews.vue';
-import { serverErrorFetch, untilIdle } from './testHelpers';
+import { feedbackRouter, serverErrorFetch, untilIdle } from './testHelpers';
 
 let backend: MockBackend;
 
@@ -16,9 +16,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function makeWrapper() {
+function makeWrapper(router = feedbackRouter('/team-aurora/website/previews')) {
   return mount(TabPreviews, {
     props: { group: 'team-aurora', site: 'website', contentBase: MOCK_CONTENT_BASE },
+    global: { plugins: [router] },
   });
 }
 
@@ -31,17 +32,19 @@ async function runAction(wrapper: ReturnType<typeof makeWrapper>, testid: string
 }
 
 describe('TabPreviews: states', () => {
-  it('shows ref, URL, last updated and expiry date (filled)', async () => {
+  it('shows the ref as the link to the preview, last updated and expiry date (filled)', async () => {
     const wrapper = makeWrapper();
     await untilIdle();
 
     const row = wrapper.find('[data-testid="preview-pr-42"]');
     expect(row.exists()).toBe(true);
-    expect(row.html()).toContain('pr-42');
+    const link = row.find('nldd-title-cell > nldd-link:not([slot])');
+    expect(link.text()).toBe('pr-42');
     // The API returns a content path; the link belongs absolute on the content host.
-    expect(row.find('nldd-link').attributes('href')).toBe(
+    expect(link.attributes('href')).toBe(
       'https://sites.toon.test/team-aurora/website/_preview/pr-42/',
     );
+    expect(link.attributes('target')).toBe('_blank');
     expect(row.html()).toContain('Bijgewerkt');
     expect(row.html()).toContain('Vervalt');
   });
@@ -239,5 +242,83 @@ describe('TabPreviews: actions', () => {
     expect(wrapper.find('nldd-notification[variant="critical"]').attributes('supporting-text')).toBe(
       'Opslaan is niet gelukt.',
     );
+  });
+});
+
+describe('TabPreviews: open feedback', () => {
+  /** Open items on pr-42 beyond the one the mock has, and a resolved one, which does not count. */
+  function addFeedback(open: number): void {
+    const model = backend.data.feedback.find((item) => item.id === 'fb-1')!;
+    for (let n = 0; n < open; n += 1) backend.data.feedback.push({ ...model, id: `open-${n}`, status: 'seen' });
+  }
+
+  function link(wrapper: ReturnType<typeof makeWrapper>) {
+    return wrapper.find('[data-testid="preview-feedback-pr-42"]');
+  }
+
+  it('links a preview with one open item to the list of that preview', async () => {
+    const wrapper = makeWrapper();
+    await untilIdle();
+
+    expect(link(wrapper).text()).toBe('1 open feedbackitem');
+    expect(link(wrapper).attributes('href')).toBe('/team-aurora/website/feedback?target=preview&ref=pr-42');
+    // In this tab: the list is a page of the admin interface, not of the site.
+    expect(link(wrapper).attributes('target')).toBeUndefined();
+  });
+
+  it('counts more than one', async () => {
+    addFeedback(2);
+    const wrapper = makeWrapper();
+    await untilIdle();
+
+    expect(link(wrapper).text()).toBe('3 open feedbackitems');
+  });
+
+  it('says nothing about feedback on a preview without open items', async () => {
+    backend.data.feedback = backend.data.feedback.filter((item) => item.status === 'resolved');
+    const wrapper = makeWrapper();
+    await untilIdle();
+
+    expect(wrapper.find('[data-testid="preview-pr-42"]').exists()).toBe(true);
+    expect(link(wrapper).exists()).toBe(false);
+  });
+
+  it('goes to the list inside the app on a plain click, onto the history', async () => {
+    const router = feedbackRouter('/team-aurora/website/previews');
+    const wrapper = makeWrapper(router);
+    await untilIdle();
+
+    const click = new MouseEvent('click', { button: 0, cancelable: true });
+    link(wrapper).element.dispatchEvent(click);
+    await untilIdle();
+
+    expect(click.defaultPrevented).toBe(true);
+    expect(router.currentRoute.value.fullPath).toBe('/team-aurora/website/feedback?target=preview&ref=pr-42');
+    router.back();
+    await untilIdle();
+    expect(router.currentRoute.value.fullPath).toBe('/team-aurora/website/previews');
+  });
+
+  it('leaves a click that asks for a new tab to the browser', async () => {
+    const router = feedbackRouter('/team-aurora/website/previews');
+    const wrapper = makeWrapper(router);
+    await untilIdle();
+
+    const click = new MouseEvent('click', { button: 0, metaKey: true, cancelable: true });
+    link(wrapper).element.dispatchEvent(click);
+    await untilIdle();
+
+    expect(click.defaultPrevented).toBe(false);
+    expect(router.currentRoute.value.fullPath).toBe('/team-aurora/website/previews');
+  });
+
+  it('keeps the count of a preview whose access changed', async () => {
+    const wrapper = makeWrapper();
+    await untilIdle();
+
+    wrapper.find('[data-testid="override-pr-42-site"]').element.dispatchEvent(new CustomEvent('select'));
+    await untilIdle();
+
+    expect(link(wrapper).text()).toBe('1 open feedbackitem');
   });
 });

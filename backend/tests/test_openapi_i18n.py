@@ -22,7 +22,7 @@ from toon.api.openapi_nl import NL
 # Texts that read the same in both languages: names and loanwords Dutch uses
 # as they are. Anything else that comes out of the Dutch schema unchanged is
 # English that slipped into the catalogue as its own translation.
-SAME_IN_BOTH = frozenset({"Sites", "Deploys", "Previews"})
+SAME_IN_BOTH = frozenset({"Sites", "Deploys", "Previews", "Feedback"})
 
 # Em dash and en dash, written as code points so this file holds neither.
 DASHES = frozenset({chr(0x2014), chr(0x2013)})

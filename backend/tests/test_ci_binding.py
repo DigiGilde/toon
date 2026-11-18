@@ -367,7 +367,7 @@ async def test_a_released_old_address_never_gets_the_build_of_the_site_that_gave
         await db.execute(update(Site).where(Site.id == binding.y.id).values(slug="verhuisd"))
         await db.commit()
     async with binding.factory() as db:
-        # What `release` on PUT /sites/{group}/{site}/slug does (api/admin.py).
+        # What `release` on PUT /sites/{group}/{site}/slug does (api/admin/).
         await db.execute(delete(SiteSlug).where(SiteSlug.site_id == binding.y.id, SiteSlug.slug == "website"))
         await db.execute(update(Site).where(Site.id == binding.x.id).values(slug="website"))
         await db.commit()

@@ -155,9 +155,9 @@ FEEDBACK_BODY_DEADLINE_S = 60
 
 
 def feedback_item_lock_key(item_id: uuid.UUID) -> str:
-    """What a reply route hashes for the transaction-scoped advisory lock on
-    an item, taken before it counts its replies: concurrent replies count one
-    after the other, so neither cap is overshot."""
+    """What both reply routes hash for the transaction-scoped advisory lock on
+    an item, taken before they count its replies: concurrent replies count
+    one after the other, so neither cap is overshot."""
     return f"toon-feedback-item:{item_id}"
 
 

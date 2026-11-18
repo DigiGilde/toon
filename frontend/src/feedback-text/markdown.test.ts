@@ -644,7 +644,11 @@ describe('the sources', () => {
     return source;
   }
 
-  const files = [join(HERE, 'markdown.ts'), join(HERE, 'styles.ts')];
+  const files = [
+    join(HERE, 'markdown.ts'),
+    join(HERE, 'styles.ts'),
+    join(HERE, '..', 'components', 'FeedbackMarkdown.vue'),
+  ];
 
   it.each([
     ['innerHTML', /\binnerHTML\b/],
@@ -666,7 +670,7 @@ describe('the sources', () => {
     expect(offending).toEqual([]);
   });
 
-  it('reads both files', () => {
+  it('reads all three files', () => {
     for (const file of files) expect(code(file).length).toBeGreaterThan(100);
   });
 });

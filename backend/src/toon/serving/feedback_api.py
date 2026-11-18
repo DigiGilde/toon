@@ -616,7 +616,8 @@ async def reply_to_item(request: Request, item_id: str) -> Response:
 async def _takes_a_giver_reply(db: AsyncSession, item_id: uuid.UUID) -> bool:
     """Whether the item takes one more reply from its giver: fewer than
     FEEDBACK_MAX_GIVER_REPLIES of theirs and FEEDBACK_MAX_REPLIES in all.
-    Counted under the item's lock, held until the transaction ends."""
+    Counted under the item's lock, which the admin's replies take too, held
+    until the transaction ends."""
     await db.execute(select(func.pg_advisory_xact_lock(func.hashtext(feedback_item_lock_key(item_id)))))
     total, from_giver = (
         await db.execute(

@@ -99,6 +99,8 @@ from toon.constants import (
     SLUG_RE,
     SLUG_REDIRECT_DAYS,
     AccessBase,
+    FeedbackIdentity,
+    FeedbackStatus,
     Role,
 )
 from toon.db import request_db, violated_constraint
@@ -107,6 +109,7 @@ from toon.ingest.service import IngestError, IngestService
 from toon.ingest.store import version_ref
 from toon.models.audit import ActorKind, AuditLogEntry, AuditPurgeHold, ContentViewer
 from toon.models.ci import CiProvider, SiteRepository
+from toon.models.feedback import FeedbackItem as FeedbackItemRow
 from toon.models.identity import (
     Group,
     GroupMember,
@@ -127,6 +130,7 @@ from toon.models.publication import (
 )
 from toon.models.slugs import GroupSlug, SiteSlug
 from toon.ratelimit import InMemoryCounter
+from toon.serving.feedback_input import giver_text
 from toon.slug_window import redirect_ends_at, still_redirects
 
 # Message keys in toon/messages.py; the code the SPA branches on is what
@@ -968,6 +972,24 @@ class SiteOut(ApiModel):
         json_schema_extra=_timestamp_schema(),
     )
     preview_count: int = Field(description="Number of previews that currently exist for this site.", examples=[2])
+    feedback_enabled: bool = Field(
+        description=(
+            "Whether Toon adds the feedback button to the pages of this site: on its previews, and with "
+            "`feedbackLive` also on the live site. `false` by default."
+        )
+    )
+    feedback_identity: FeedbackIdentity = Field(
+        description=(
+            "Who may give feedback: `account` (the default) only with an SSO account, `name` also with a typed "
+            "name, `anonymous` also without a name."
+        )
+    )
+    feedback_live: bool = Field(
+        description="Whether feedback is collected on the live site as well, not only on previews. `false` by default."
+    )
+    open_feedback_count: int = Field(
+        description="Number of feedback items on this site with status `new` or `seen`.", examples=[3]
+    )
 
 
 class VersionOut(ApiModel):
@@ -1085,6 +1107,9 @@ class PreviewOut(ApiModel):
     url: str = Field(
         description="Path of the preview on the content origin from `contentBaseUrl`.",
         examples=["/aurora/docs/_preview/pr-42/"],
+    )
+    open_feedback_count: int = Field(
+        description="Number of feedback items given on this preview with status `new` or `seen`.", examples=[3]
     )
 
 
@@ -1833,6 +1858,7 @@ def _site_json(
     group_slug: str,
     last_published_at: datetime | None,
     preview_count: int,
+    open_feedback_count: int,
     previous_slugs: list[PreviousSlugOut],
 ) -> SiteOut:
     return SiteOut(
@@ -1850,6 +1876,10 @@ def _site_json(
         has_live_version=site.live_version_id is not None,
         last_published_at=iso_utc(last_published_at),
         preview_count=preview_count,
+        feedback_enabled=site.feedback_enabled,
+        feedback_identity=site.feedback_identity,
+        feedback_live=site.feedback_live,
+        open_feedback_count=open_feedback_count,
     )
 
 
@@ -1871,7 +1901,7 @@ def _version_json(
     )
 
 
-def _preview_json(preview: Preview, group_slug: str, site_slug: str) -> PreviewOut:
+def _preview_json(preview: Preview, group_slug: str, site_slug: str, open_feedback_count: int) -> PreviewOut:
     return PreviewOut(
         site_slug=site_slug,
         group_slug=group_slug,
@@ -1889,6 +1919,7 @@ def _preview_json(preview: Preview, group_slug: str, site_slug: str) -> PreviewO
         last_updated_at=iso_utc(preview.last_updated_at),
         expires_at=iso_utc(preview.expires_at),
         url=f"/{group_slug}/{site_slug}/_preview/{preview.ref}/",
+        open_feedback_count=open_feedback_count,
     )
 
 
@@ -2218,14 +2249,16 @@ async def _groups_json(db: AsyncSession, groups: list[Group]) -> list[GroupOut]:
     return [_group_json(group, previous.get(group.id, [])) for group in groups]
 
 
-def _validate_text(value: str, field: str, *, max_length: int | None = None) -> str:
+def _validate_text(value: str, field: str, *, max_length: int | None = None, prose: bool = False) -> str:
     normalised = value.strip()
     if not normalised:
         raise ApiError(422, "FIELD_EMPTY", params={"field": field})
     # Before the scan below: a huge text is refused without being read again.
     if max_length is not None and len(normalised) > max_length:
         raise ApiError(422, "FIELD_TOO_LONG", params={"field": field, "max": max_length})
-    if _has_forbidden_characters(normalised):
+    # Prose takes the rule for what a feedback giver writes: line breaks,
+    # tabs and the two joiners pass there.
+    if giver_text(normalised, multiline=True) is None if prose else _has_forbidden_characters(normalised):
         raise ApiError(422, "FIELD_CONTROL_CHARACTERS", params={"field": field})
     return normalised
 
@@ -2261,12 +2294,15 @@ async def _audit_strict(request: Request, member: Member, action: str, refs: dic
 
 async def _site_activity(
     db: AsyncSession, sites: list[Site]
-) -> tuple[dict[uuid.UUID, datetime], dict[uuid.UUID, int], dict[uuid.UUID, list[PreviousSlugOut]]]:
-    """Per site, when a version was last deployed, how many previews are open
-    and which old addresses still redirect."""
+) -> tuple[
+    dict[uuid.UUID, datetime], dict[uuid.UUID, int], dict[uuid.UUID, int], dict[uuid.UUID, list[PreviousSlugOut]]
+]:
+    """Per site, when a version was last deployed, how many previews are open,
+    how much feedback is open and which old addresses still redirect."""
     ids = [site.id for site in sites]
     last: dict[uuid.UUID, datetime] = {}
     counts: dict[uuid.UUID, int] = {}
+    open_feedback: dict[uuid.UUID, int] = {}
     previous: dict[uuid.UUID, list[PreviousSlugOut]] = {}
     if ids:
         previous = await _previous_slugs(db, SiteSlug.site_id, ids)
@@ -2288,13 +2324,47 @@ async def _site_activity(
                 )
             ).all()
         )
-    return last, counts, previous
+        open_feedback = dict(
+            (
+                await db.execute(
+                    select(FeedbackItemRow.site_id, func.count())
+                    .where(FeedbackItemRow.site_id.in_(ids), FeedbackItemRow.status.in_(_FEEDBACK_OPEN))
+                    .group_by(FeedbackItemRow.site_id)
+                )
+            ).all()
+        )
+    return last, counts, open_feedback, previous
+
+
+async def _open_feedback_per_preview(db: AsyncSession, site: Site) -> dict[str, int]:
+    """Per preview ref, how much feedback given on it is open, in one count
+    for every preview of the site."""
+    return dict(
+        (
+            await db.execute(
+                select(FeedbackItemRow.preview_ref, func.count())
+                .where(
+                    FeedbackItemRow.site_id == site.id,
+                    FeedbackItemRow.target == VersionTarget.PREVIEW,
+                    FeedbackItemRow.status.in_(_FEEDBACK_OPEN),
+                )
+                .group_by(FeedbackItemRow.preview_ref)
+            )
+        ).all()
+    )
 
 
 async def _sites_json(db: AsyncSession, group: Group, sites: list[Site]) -> list[SiteOut]:
-    last, counts, previous = await _site_activity(db, sites)
+    last, counts, open_feedback, previous = await _site_activity(db, sites)
     return [
-        _site_json(site, group.slug, last.get(site.id), counts.get(site.id, 0), previous.get(site.id, []))
+        _site_json(
+            site,
+            group.slug,
+            last.get(site.id),
+            counts.get(site.id, 0),
+            open_feedback.get(site.id, 0),
+            previous.get(site.id, []),
+        )
         for site in sites
     ]
 
@@ -2839,8 +2909,8 @@ _AUDIT_ORDER = (AuditLogEntry.occurred_at.desc(), AuditLogEntry.id.desc())
 _HEX = "0123456789abcdef"
 
 
-def _audit_cursor(entry: AuditLogEntry) -> str:
-    raw = f"{iso_utc(entry.occurred_at)}|{entry.id}"
+def _page_cursor(moment: datetime, identifier: uuid.UUID) -> str:
+    raw = f"{iso_utc(moment)}|{identifier}"
     return base64.urlsafe_b64encode(raw.encode("utf-8")).decode("ascii")
 
 
@@ -2863,6 +2933,11 @@ def _audit_pseudonym(value: str) -> str:
             422, "ACTOR_PSEUDONYM_INVALID", params={"length": AUDIT_PSEUDONYM_LENGTH}
         )
     return normalised
+
+
+# -- Feedback ---------------------------------------------------------------
+
+_FEEDBACK_OPEN = (FeedbackStatus.NEW, FeedbackStatus.SEEN)
 
 
 def _ingest_service(request: Request) -> IngestService:
@@ -3114,6 +3189,9 @@ _APPROVAL_RULE = (
 
 
 def make_admin_router() -> APIRouter:
+    # Not at the top: the feedback package imports from this module.
+    from toon.api.admin.feedback import add_feedback_routes
+
     router = APIRouter(prefix="/-/api/v1", dependencies=[Depends(require_admin_origin)])
 
     # -- Session --
@@ -3199,14 +3277,21 @@ def make_admin_router() -> APIRouter:
     async def overview(member: ActiveMember, db: Db) -> Overview:
         groups, sites_per_group = await _groups_for_member(db, member)
         groups_json = await _groups_json(db, groups)
-        last, counts, previous = await _site_activity(
+        last, counts, open_feedback, previous = await _site_activity(
             db, [site for sites in sites_per_group.values() for site in sites]
         )
         rows = [
             GroupRow(
                 group=group_json,
                 sites=[
-                    _site_json(site, group.slug, last.get(site.id), counts.get(site.id, 0), previous.get(site.id, []))
+                    _site_json(
+                        site,
+                        group.slug,
+                        last.get(site.id),
+                        counts.get(site.id, 0),
+                        open_feedback.get(site.id, 0),
+                        previous.get(site.id, []),
+                    )
                     for site in sites_per_group[group.id]
                 ],
             )
@@ -3557,7 +3642,7 @@ def make_admin_router() -> APIRouter:
             "site_create",
             {"group": group_slug, "site": slug, **_access_refs(base, keys, invitees), **creator.audit_refs()},
         )
-        return _site_json(site, group.slug, None, 0, [])
+        return _site_json(site, group.slug, None, 0, 0, [])
 
     @router.delete(
         "/sites/{group_slug}/{site_slug}",
@@ -5005,7 +5090,7 @@ def make_admin_router() -> APIRouter:
         await _audit_strict(request, member, vocabulary.AUDIT_READ, {"filters": used, "returned": len(entries)})
         return AuditPage(
             entries=[_audit_entry_json(entry) for entry in entries],
-            next_cursor=_audit_cursor(entries[-1]) if len(rows) > filters.limit else None,
+            next_cursor=_page_cursor(entries[-1].occurred_at, entries[-1].id) if len(rows) > filters.limit else None,
         )
 
     @router.post(
@@ -5682,7 +5767,8 @@ def make_admin_router() -> APIRouter:
         response_description="The previews of the site, sorted by ref.",
         description=(
             "The previews that currently exist for this site, sorted by ref, with their URL on the content "
-            "origin and the time at which the cleanup job discards them.\n\n"
+            "origin, the time at which the cleanup job discards them and how much feedback given on each is "
+            "open.\n\n"
             "**Who can call this:** effective site role `reader` or higher."
         ),
         responses=_errors(_ERROR_SITE_ROLE, _ERROR_SITE),
@@ -5692,7 +5778,10 @@ def make_admin_router() -> APIRouter:
         rows = await db.scalars(
             select(Preview).where(Preview.site_id == site.id).order_by(Preview.ref)
         )
-        return [_preview_json(preview, group_slug, site_slug) for preview in rows]
+        open_feedback = await _open_feedback_per_preview(db, site)
+        return [
+            _preview_json(preview, group_slug, site_slug, open_feedback.get(preview.ref, 0)) for preview in rows
+        ]
 
     @router.put(
         "/sites/{group_slug}/{site_slug}/previews/{ref}/access",
@@ -5751,7 +5840,10 @@ def make_admin_router() -> APIRouter:
                 "invitees": body.access.invitees if body.access else None,
             },
         )
-        return _preview_json(preview, group_slug, site_slug)
+        open_feedback = await _open_feedback_per_preview(db, site)
+        return _preview_json(preview, group_slug, site_slug, open_feedback.get(ref, 0))
+
+    add_feedback_routes(router)
 
     # NB: POST .../deploys and DELETE .../previews/{ref} live in api/deploys.py
     # (bearer as well as session); see the module docstring.

@@ -66,6 +66,18 @@ and on the usual Linux setups).
   and a run must not touch a contributor's own.
 - `tests/shared-origin.spec.ts`: a page of another site cannot read a
   restricted site from the browser cache (#152).
+- `tests/feedback.spec.ts`: site feedback across both origins on a
+  shielded preview with the real widget, from giving it (every kind, a
+  screenshot, consent with an account, "Mijn feedback", hiding the button,
+  links to a place) to handling it on the admin Feedback tab, with the
+  keyboard, small windows and an axe audit of the open widget.
+- `tests/feedback-markdown.spec.ts`: Markdown and HTML in feedback, in the
+  widget and on the Feedback tab.
+- `tests/feedback-boundaries.spec.ts`: what the widget relies on, in the
+  browser: a `fetch()` or a frame gets no widget and no token, a hide form
+  posted from another site without a valid token is the neutral 404 and
+  sets no cookie.
+- `helpers/feedback.ts`: what the feedback scenarios share.
 
 Scenarios that need the content origin login handoff (spec §4a, task
 6.3) detect whether it is present in the stack and otherwise skip with a

@@ -54,6 +54,8 @@ describe('router: every configured route resolves and mounts its component', () 
     ['/team-aurora/website/done', 'site-done'],
     ['/team-aurora/website', 'site-overview'],
     ['/team-aurora/website/previews', 'site-previews'],
+    ['/team-aurora/website/feedback', 'site-feedback'],
+    ['/team-aurora/website/feedback/6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b', 'site-feedback-item'],
     ['/team-aurora/website/versions', 'site-versions'],
     ['/team-aurora/website/access', 'site-access'],
     ['/team-aurora/website/members', 'site-members'],

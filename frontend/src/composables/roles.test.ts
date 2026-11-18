@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { Me } from '@/api/types';
 
-import { isGroupAdmin, isGroupMember, isSiteAdmin, mayCreateSiteIn } from './roles';
+import { isGroupAdmin, isGroupMember, isSiteAdmin, isSiteEditor, mayCreateSiteIn } from './roles';
 
 function me(groupRoles: Me['groupRoles'], siteRoles: Me['siteRoles'] = []): Me {
   return {
@@ -122,5 +122,49 @@ describe('isSiteAdmin', () => {
   it('refuses a lower effective role, and an admin role on another site', () => {
     expect(isSiteAdmin(me([], [site('editor', 'editor')]), 'team-aurora', 'website')).toBe(false);
     expect(isSiteAdmin(me([], [site('admin', 'admin', 'andere')]), 'team-aurora', 'website')).toBe(false);
+  });
+});
+
+describe('isSiteEditor', () => {
+  type R = 'reader' | 'editor' | 'admin';
+  const site = (role: R, effectiveRole: R, siteSlug = 'website') => ({
+    groupSlug: 'team-aurora',
+    siteSlug,
+    role,
+    effectiveRole,
+  });
+
+  it('refuses without a member', () => {
+    expect(isSiteEditor(null, 'team-aurora', 'website')).toBe(false);
+    expect(isSiteEditor(undefined, 'team-aurora', 'website')).toBe(false);
+  });
+
+  it('refuses a reader of the group without a wider role on the site', () => {
+    expect(isSiteEditor(me([{ groupSlug: 'team-aurora', role: 'reader' }]), 'team-aurora', 'website')).toBe(false);
+    expect(
+      isSiteEditor(me([{ groupSlug: 'team-aurora', role: 'reader' }], [site('reader', 'reader')]), 'team-aurora', 'website'),
+    ).toBe(false);
+  });
+
+  it('refuses an editor of another group, and an editor role on another site', () => {
+    expect(isSiteEditor(me([{ groupSlug: 'andere-groep', role: 'editor' }]), 'team-aurora', 'website')).toBe(false);
+    expect(isSiteEditor(me([], [site('editor', 'editor', 'andere')]), 'team-aurora', 'website')).toBe(false);
+  });
+
+  it('refuses a platform admin without a role on the group or the site', () => {
+    expect(isSiteEditor({ ...me([]), platformRole: 'admin' }, 'team-aurora', 'website')).toBe(false);
+  });
+
+  it('accepts an editor or an admin of the group', () => {
+    expect(isSiteEditor(me([{ groupSlug: 'team-aurora', role: 'editor' }]), 'team-aurora', 'website')).toBe(true);
+    expect(isSiteEditor(me([{ groupSlug: 'team-aurora', role: 'admin' }]), 'team-aurora', 'website')).toBe(true);
+  });
+
+  it('accepts a site role that makes the widest role editor or admin', () => {
+    expect(isSiteEditor(me([], [site('editor', 'editor')]), 'team-aurora', 'website')).toBe(true);
+    expect(isSiteEditor(me([], [site('admin', 'admin')]), 'team-aurora', 'website')).toBe(true);
+    expect(
+      isSiteEditor(me([{ groupSlug: 'team-aurora', role: 'reader' }], [site('editor', 'editor')]), 'team-aurora', 'website'),
+    ).toBe(true);
   });
 });

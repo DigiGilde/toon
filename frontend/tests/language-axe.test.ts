@@ -24,6 +24,7 @@ import { makeMockBackend, type MockBackend } from './mock-api';
 import TabMembers from '../src/components/group/TabMembers.vue';
 import TabSites from '../src/components/group/TabSites.vue';
 import TabSettings from '../src/components/group/TabSettings.vue';
+import SiteTabFeedback from '../src/components/site/TabFeedback.vue';
 import SiteTabSettings from '../src/components/site/TabSettings.vue';
 import { fireDetailEvent } from '../src/components/site/testHelpers';
 import { _resetBreadcrumbs } from '../src/composables/breadcrumbs';
@@ -126,6 +127,7 @@ const SITE_ROUTES = [
     component: Site as Component,
     children: [
       { path: 'settings', name: 'site-settings', component: SiteTabSettings as Component },
+      { path: 'feedback', name: 'site-feedback', component: SiteTabFeedback as Component },
     ],
   },
 ];
@@ -152,7 +154,7 @@ describe('axe: the admin in English', () => {
     wrapper.unmount();
   });
 
-  it('the site Settings tab, with its seven tabs, has no violations in English', async () => {
+  it('the site Settings tab, with its eight tabs, has no violations in English', async () => {
     _setLocaleForTest('en');
     const wrapper = await mountPage('/team-aurora/website/settings', SITE_ROUTES);
 
@@ -161,6 +163,22 @@ describe('axe: the admin in English', () => {
     const titleField = wrapper.find('[data-testid="site-title-form"] nldd-form-field').element;
     expect((titleField as HTMLElement & { label?: string }).label).toBe('Title');
     expect(wrapper.find('[data-testid="delete-site"]').attributes('text')).toBe('Delete site');
+    await expectNoViolations(wrapper.element);
+    wrapper.unmount();
+  });
+
+  it('the site Feedback tab, with an item open, has no violations in English', async () => {
+    _setLocaleForTest('en');
+    const wrapper = await mountPage('/team-aurora/website/feedback', SITE_ROUTES, { teleport: true });
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="tab-feedback"]').attributes('text')).toBe('Feedback (2)');
+    expect(wrapper.find('#heading-feedback-inbox').text()).toBe('Feedback received');
+    await wrapper.find('[data-testid="feedback-fb-1"]').trigger('click');
+    await flushPromises();
+    await flushPromises();
+    expect(wrapper.find('[data-testid="feedback-sheet"] h2').text()).toBe('Feedback on Documentatie');
+    expect(wrapper.find('[data-testid="feedback-mark-seen"]').attributes('text')).toBe('Mark as seen');
     await expectNoViolations(wrapper.element);
     wrapper.unmount();
   });

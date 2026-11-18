@@ -103,6 +103,33 @@ describe('Privacy: the previous name or title in the audit log', () => {
   });
 });
 
+describe('About: what you can do with it', () => {
+  /** The terms of the list of features, in order. */
+  function featureTerms(): string[] {
+    wrapper = mount(About, { attachTo: document.body, global: { plugins: [router] } });
+    return wrapper.findAll('li strong').map((term) => term.text());
+  }
+
+  it('names gathering feedback between a whole site and the CLI, in Dutch', () => {
+    const terms = featureTerms();
+
+    expect(terms.slice(-3)).toEqual(['Ook een hele site.', 'Feedback ophalen.', 'Vanaf je eigen computer.']);
+    expect(wrapper!.findAll('li')[terms.indexOf('Feedback ophalen.')].text()).toBe(
+      'Feedback ophalen. Zet de feedbackknop aan, dan wijzen bezoekers van je preview of site een punt, een gebied of een tekst aan en laten ze een opmerking achter. Je team leest, beantwoordt en handelt die af op het tabblad Feedback.',
+    );
+  });
+
+  it('names it in English too', () => {
+    _setLocaleForTest('en');
+    const terms = featureTerms();
+
+    expect(terms.slice(-3)).toEqual(['A whole site as well.', 'Gather feedback.', 'From your own computer.']);
+    expect(wrapper!.findAll('li')[terms.indexOf('Gather feedback.')].text()).toBe(
+      'Gather feedback. Turn on the feedback button and visitors of your preview or site point at a spot, an area or a text and leave a remark. Your team reads, answers and resolves it on the Feedback tab.',
+    );
+  });
+});
+
 describe('PlatformPage: breadcrumbs', () => {
   it('supplies the breadcrumbs to the app shell instead of showing them at the top', async () => {
     wrapper = mount(Privacy, { attachTo: document.body, global: { plugins: [router] } });

@@ -9,9 +9,11 @@ throwaway content root.
 
 from __future__ import annotations
 
+import gzip
 import importlib.util
 import json
 import sys
+import uuid
 from collections.abc import AsyncIterator
 from html.parser import HTMLParser
 from pathlib import Path
@@ -24,11 +26,21 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from toon.auth.members import PREVIEW_GROUP
 from toon.config import Settings
-from toon.constants import AccessBase, FeedbackIdentity, Role
+from toon.constants import (
+    AccessBase,
+    FeedbackIdentity,
+    FeedbackKind,
+    FeedbackReplyAuthor,
+    FeedbackStatus,
+    Role,
+)
 from toon.db import make_engine, make_session_factory
+from toon.ingest import precompress
 from toon.ingest.store import ContentStore, version_ref
+from toon.models.feedback import FeedbackItem, FeedbackReply, FeedbackScreenshot
 from toon.models.identity import Group, GroupMember, Member, MemberStatus, PlatformRole, SiteMember
-from toon.models.publication import AccessKey, Invitee, Preview, Site, Version
+from toon.models.publication import AccessKey, Invitee, Preview, Site, Version, VersionTarget
+from toon.serving.feedback_images import acceptable_screenshot
 from toon.serving.resolution import locate
 
 DEV_DIR = Path(__file__).resolve().parents[2] / "dev"
@@ -95,6 +107,14 @@ def _version_dirs(root: Path) -> set[str]:
 
 async def _count(db: AsyncSession, model) -> int:
     return await db.scalar(select(func.count()).select_from(model))
+
+
+def _page_html(root: Path, site_id: uuid.UUID, version_id: uuid.UUID, page_path: str) -> str:
+    """A seeded page as the content volume holds it, plain or only gzipped."""
+    stored = locate(ContentStore(root), version_ref(site_id, version_id), page_path or "index.html")
+    if stored.plain is not None:
+        return stored.plain.read_text()
+    return gzip.decompress(stored.encoded[precompress.GZIP].read_bytes()).decode()
 
 
 class TestSeed:
@@ -250,13 +270,17 @@ class TestSeed:
                 await _count(db, Preview),
                 await _count(db, AccessKey),
                 await _count(db, Invitee),
+                await _count(db, FeedbackItem),
+                await _count(db, FeedbackReply),
+                await _count(db, FeedbackScreenshot),
             )
-        assert counts == (6, 2, 5, 2, 2, 3)
-        assert (second.members, second.groups, second.sites, second.versions) == (
+        assert counts == (6, 2, 5, 2, 2, 3, 8, 3, 1)
+        assert (second.members, second.groups, second.sites, second.versions, second.feedback) == (
             first.members,
             first.groups,
             first.sites,
             first.versions,
+            first.feedback,
         )
         # The wipe takes the files of the previous run with it, so no version
         # directory survives that no row points at any more.
@@ -364,10 +388,12 @@ class TestMain:
 
 
 class TestFeedback:
-    async def test_one_site_takes_feedback_on_its_previews_without_a_name_needed(
+    """Enough feedback for the Feedback tab and the widget to show something
+    locally, and in the shapes the widget API itself stores."""
+
+    async def test_one_site_takes_feedback_on_its_previews_and_live_site_without_a_name_needed(
         self, seed_module, settings: Settings, session_factory
     ) -> None:
-        """So the feedback button shows on the seeded previews locally."""
         await seed_module.seed(settings)
         async with session_factory() as db:
             taking = (
@@ -377,7 +403,142 @@ class TestFeedback:
                     )
                 )
             ).all()
-        assert [tuple(row) for row in taking] == [("jaarverslag", FeedbackIdentity.ANONYMOUS, False)]
+        assert [tuple(row) for row in taking] == [
+            (seed_module.FEEDBACK_SITE, FeedbackIdentity.ANONYMOUS, True)
+        ]
+
+    async def test_the_items_cover_every_kind_status_and_author_on_both_previews_and_live(
+        self, seed_module, settings: Settings, session_factory
+    ) -> None:
+        result = await seed_module.seed(settings)
+        async with session_factory() as db:
+            items = list(await db.scalars(select(FeedbackItem)))
+            site_id = await db.scalar(select(Site.id).where(Site.slug == seed_module.FEEDBACK_SITE))
+        assert result.feedback == len(items) == 8
+        assert {item.kind for item in items} == set(FeedbackKind)
+        assert {item.status for item in items} == set(FeedbackStatus)
+        assert {item.author_kind for item in items} == set(FeedbackIdentity)
+        assert {item.site_id for item in items} == {site_id}
+        assert {(item.target, item.preview_ref) for item in items} == {
+            (VersionTarget.PREVIEW, seed_module.PREVIEW_OPEN),
+            (VersionTarget.PREVIEW, seed_module.PREVIEW_RESTRICTED),
+            (VersionTarget.LIVE, None),
+        }
+
+    async def test_one_item_was_given_on_the_live_site_as_the_widget_api_stores_it(
+        self, seed_module, settings: Settings, session_factory
+    ) -> None:
+        await seed_module.seed(settings)
+        async with session_factory() as db:
+            site = await db.scalar(select(Site).where(Site.slug == seed_module.FEEDBACK_SITE))
+            live = list(await db.scalars(select(FeedbackItem).where(FeedbackItem.target == VersionTarget.LIVE)))
+        assert len(live) == 1
+        assert live[0].preview_ref is None
+        assert site.live_version_id is not None
+        assert live[0].version_id == site.live_version_id
+        assert live[0].status is FeedbackStatus.NEW
+
+    async def test_each_item_hangs_on_the_version_its_preview_shows_but_one_whose_version_is_gone(
+        self, seed_module, settings: Settings, session_factory
+    ) -> None:
+        await seed_module.seed(settings)
+        async with session_factory() as db:
+            shown = {preview.ref: preview.version_id for preview in await db.scalars(select(Preview))}
+            shown[None] = await db.scalar(select(Site.live_version_id).where(Site.slug == seed_module.FEEDBACK_SITE))
+            items = list(await db.scalars(select(FeedbackItem)))
+        # One was given on a version of its preview that is gone since.
+        assert [item.version_id for item in items if item.version_id != shown[item.preview_ref]] == [None]
+
+    async def test_the_quotes_stand_on_the_seeded_pages(
+        self, seed_module, settings: Settings, session_factory
+    ) -> None:
+        """With the context around it, so the widget finds the place again."""
+        await seed_module.seed(settings)
+        async with session_factory() as db:
+            texts = list(
+                await db.scalars(select(FeedbackItem).where(FeedbackItem.kind == FeedbackKind.TEXT))
+            )
+        assert texts
+        for item in texts:
+            quote = item.anchor["selectors"][0]
+            assert quote["exact"] == item.quote
+            html = _page_html(settings.content_root, item.site_id, item.version_id, item.page_path)
+            assert f"{quote['prefix']}{quote['exact']}{quote['suffix']}" in html
+
+    async def test_the_site_team_handled_all_but_the_new_items(
+        self, seed_module, settings: Settings, session_factory
+    ) -> None:
+        await seed_module.seed(settings)
+        async with session_factory() as db:
+            editor = await db.scalar(select(Member).where(Member.sso_subject == "dev-redacteur"))
+            items = list(await db.scalars(select(FeedbackItem)))
+        for item in items:
+            if item.status is FeedbackStatus.NEW:
+                assert (item.status_changed_at, item.status_changed_by) == (None, None)
+            else:
+                assert item.status_changed_by == editor.id
+                assert item.created_at < item.status_changed_at
+            resolved = item.status is FeedbackStatus.RESOLVED
+            assert item.resolved_at == (item.status_changed_at if resolved else None)
+
+    async def test_replies_come_from_the_site_team_and_from_the_submitter_with_an_account(
+        self, seed_module, settings: Settings, session_factory
+    ) -> None:
+        await seed_module.seed(settings)
+        async with session_factory() as db:
+            editor = await db.scalar(select(Member).where(Member.sso_subject == "dev-redacteur"))
+            rows = (
+                await db.execute(
+                    select(FeedbackReply, FeedbackItem).join(FeedbackItem, FeedbackItem.id == FeedbackReply.item_id)
+                )
+            ).all()
+        assert {reply.author_kind for reply, _ in rows} == set(FeedbackReplyAuthor)
+        for reply, item in rows:
+            assert item.created_at < reply.created_at
+            if reply.author_kind is FeedbackReplyAuthor.MEMBER:
+                assert reply.member_id == editor.id
+            else:
+                # Only a submitter with an account can reply, from "My feedback".
+                assert item.author_kind is FeedbackIdentity.ACCOUNT
+
+    async def test_the_item_with_an_account_is_the_bootstrap_members_own(
+        self, seed_module, settings: Settings, session_factory
+    ) -> None:
+        """The dev login always signs in as that member, so "My feedback" in
+        the widget has something to show locally."""
+        await seed_module.seed(settings)
+        async with session_factory() as db:
+            admin = await db.scalar(select(Member).where(Member.sso_subject == settings.bootstrap_admin_sub))
+            account = list(
+                await db.scalars(select(FeedbackItem).where(FeedbackItem.author_kind == FeedbackIdentity.ACCOUNT))
+            )
+        assert [(item.author_sub, item.author_name, item.author_email) for item in account] == [
+            (admin.sso_subject, admin.name, seed_module.ADMIN_EMAIL)
+        ]
+
+    async def test_the_screenshot_is_one_the_widget_api_would_keep(
+        self, seed_module, settings: Settings, session_factory
+    ) -> None:
+        await seed_module.seed(settings)
+        async with session_factory() as db:
+            rows = (
+                await db.execute(
+                    select(FeedbackScreenshot, FeedbackItem.kind).join(
+                        FeedbackItem, FeedbackItem.id == FeedbackScreenshot.item_id
+                    )
+                )
+            ).all()
+        assert len(rows) == 1
+        screenshot, kind = rows[0]
+        assert kind is FeedbackKind.POINT
+        info = acceptable_screenshot(screenshot.data)
+        assert info is not None
+        assert (info.media_type, info.width, info.height) == (
+            screenshot.media_type,
+            screenshot.width,
+            screenshot.height,
+        )
+        assert screenshot.size_bytes == len(screenshot.data)
 
 
 class TestReport:
@@ -400,6 +561,12 @@ class TestReport:
         assert "key=" not in preview
         assert result.secret_link_key not in preview
         assert "toon login" in preview
+
+    async def test_the_report_points_at_the_feedback_tab(self, seed_module, settings: Settings) -> None:
+        result = await seed_module.seed(settings)
+        report = seed_module._report(settings, result)
+        assert f"/{seed_module.GROUP_PUBLIC}/{seed_module.FEEDBACK_SITE}/feedback" in report
+        assert "8 feedbackitems" in report
 
 
 class _Forms(HTMLParser):

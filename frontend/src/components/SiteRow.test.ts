@@ -25,6 +25,10 @@ const site: Site = {
   lastPublishedAt: '2026-07-17T14:32:00.000Z',
   previewCount: 2,
   previousSlugs: [],
+  feedbackEnabled: false,
+  feedbackIdentity: 'account',
+  feedbackLive: false,
+  openFeedbackCount: 0,
 };
 
 describe('SiteRow', () => {

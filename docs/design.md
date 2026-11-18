@@ -19,8 +19,8 @@ Toon publishes static sites for government organisations: public, behind SSO
 Rijk, for invitees on an email address, or through a secret link. Every pull
 request can get a preview of its own. A site is a tree of files that Toon does
 not interpret; what Toon owns is who may see it, which version is live and who
-may change that. The one exception is site feedback (§16): on a site that
-takes feedback, Toon adds a script of its own to the HTML pages it serves,
+may change that. The one exception is site feedback (§16): on a site whose
+admin turns it on, Toon adds a script of its own to the HTML pages it serves,
 and the stored files stay as they were.
 
 One application answers on two hosts (§4a), serves content and the admin
@@ -97,7 +97,7 @@ Two reading concessions follow from that, not a bypass: a platform administrator
 sees that a site exists (they can read every group, its sites included), so they get a 403
 rather than the 404 a stranger gets.
 
-Code: `api/authorization.py`, `api/admin.py` (`_group_with_role` with
+Code: `api/authorization.py`, `api/admin/__init__.py` (`_group_with_role` with
 `platform_admin=True`, `_site_with_role`). Guarded by: `test_admin_api.py`.
 
 ### 3.5 Adding somebody is picking a role
@@ -115,7 +115,7 @@ would break the cascade when a group itself is deleted. There is deliberately no
 equivalent on `site_members`: a site without a site admin is not orphaned,
 because the group admin is the floor (§3.2).
 
-Code: `models/identity.py`, `api/admin.py`, migration `0001_base`
+Code: `models/identity.py`, `api/admin/`, migration `0001_base`
 (`guard_last_group_admin`). Guarded by: `test_admin_api.py`,
 `test_migrations.py`.
 
@@ -145,6 +145,9 @@ platform administrator may do without a group role (§3.4).
 | Change the site title | effective site `admin` |
 | Change the site address (slug) | effective site `admin` plus any role in the group |
 | Delete a site | effective site `admin` |
+| Read the feedback of a site and its screenshots (§16.11) | effective site `reader`, and `editor` for the email address of a submitter |
+| Mark feedback seen, resolved or new again, reply to it | effective site `editor` |
+| Delete a feedback item, change the feedback settings | effective site `admin` |
 | Read the audit log, resolve a pseudonym, reveal an IP | platform administrator |
 | Read how full the content volume is (`GET /platform/storage`) | platform administrator |
 
@@ -155,7 +158,7 @@ without a role in its group changes its title but not its address: a 409 on a
 taken slug would tell them about the other sites of the group. Any role in the
 group is enough, since a reader there sees those sites already.
 
-Code: `api/admin.py`, `api/deploys.py`, `api/authorization.py`. Guarded by:
+Code: `api/admin/`, `api/deploys.py`, `api/authorization.py`. Guarded by:
 `test_admin_api.py`, `test_deploy_api.py`, `test_audit_api.py`,
 `test_names_and_titles.py`.
 
@@ -510,7 +513,7 @@ A hash covers a `<style>` element, not a `style=""` attribute, so these pages
 carry none.
 
 Code: `serving/response.py` (`_CONTENT_DIRECTIVES`, `EXTERNAL_SOURCES`,
-`SANDBOX`, `content_csp`, `platform_csp`), `api/admin.py` (`PUT .../external-sources`,
+`SANDBOX`, `content_csp`, `platform_csp`), `api/admin/__init__.py` (`PUT .../external-sources`,
 `PUT .../sandbox`), `serving/feedback_consent.py` (`CONSENT_PAGE_HEADERS`).
 Guarded by: `test_serving.py`, `test_security_headers.py`,
 `test_admin_api.py`, `test_feedback_consent.py`, `test_feedback_api.py`.
@@ -691,7 +694,7 @@ total, used and free bytes, the reserve and the largest deploy, and nothing
 about groups or sites, because the platform administrator manages people and
 groups (§3.4) and does not look into sites.
 
-Code: `platform/health.py`, `ingest/storage_health.py`, `main.py`, `api/admin.py`
+Code: `platform/health.py`, `ingest/storage_health.py`, `main.py`, `api/admin/`
 (`platform_storage`). Guarded by: `test_health.py`, `test_storage_health.py`,
 `test_admin_api.py`, `test_host_separation.py`.
 
@@ -1002,9 +1005,10 @@ token (§8). The feedback widget API on the content host authenticates with a
 scheme of its own, `Authorization: Toon-Feedback <token>`, which that
 middleware leaves alone (§16.8).
 
-Code: `api/origin_guard.py`, `api/admin.py` (`require_csrf`), `api/deploys.py`
+Code: `api/origin_guard.py`, `api/admin/__init__.py` (`require_csrf`), `api/deploys.py`
 (`BearerOutsideDeploysMiddleware`). Guarded by: `test_origin_guard.py`,
-`test_admin_api.py`, `test_deploy_api.py`, `test_cli_api.py`.
+`test_admin_api.py`, `test_deploy_api.py`, `test_cli_api.py`,
+`test_feedback_admin_api.py`.
 
 ### 7.9 Audit
 
@@ -1060,8 +1064,8 @@ are fixed verbatim by this section, because CI workflows and the action depend
 on their spelling.
 
 Beside them the session API for the SPA: groups, sites, access, invitees, keys,
-repository link, members at both levels, versions, rollback, previews, platform
-members and the audit log. The same role rules (§3.6) apply.
+repository link, members at both levels, versions, rollback, previews, feedback
+(§16.11), platform members and the audit log. The same role rules (§3.6) apply.
 
 **CI trust through OIDC.** There are no deploy tokens. CI authenticates with the
 ID token its forge mints (`Authorization: Bearer <JWT>` from GitHub or Forgejo
@@ -1187,7 +1191,7 @@ same default as problem+json (`api/openapi_i18n.py`).
 The workflow examples, the curl fallback and the `publish` action
 (`actions/publish/`) are in `docs/publishing.md`.
 
-Code: `api/deploys.py`, `api/cli.py`, `api/admin.py`, `api/errors.py`,
+Code: `api/deploys.py`, `api/cli.py`, `api/admin/`, `api/errors.py`,
 `api/docs.py`, `ci/tokens.py`, `ci/trust.py`, `ci/providers.py`,
 `cli/service.py`, `ingest/service.py`, `previews/cleanup_job.py`. Guarded by:
 `test_deploy_api.py`, `test_cli_api.py`, `test_cli_service.py`,
@@ -1395,8 +1399,9 @@ Code: `alembic/versions/`, `models/`. Guarded by:
   audit log and the migrations. For site feedback (§16): the injection with each of its
   conditions (`test_feedback_inject.py`), the tokens and the
   consent pages with every refusal, the widget API with every code, the
-  quotas under concurrency, the purge, and a matrix over HTTP that holds every
-  policy and visitor to the gate (`test_feedback_matrix.py`).
+  quotas under concurrency, the admin API with its roles, the purge, and a
+  matrix over HTTP that holds every policy and visitor to the gate
+  (`test_feedback_matrix.py`).
 - **Frontend**: vitest (`npm test` in `frontend/`), including a check on the
   built `index.html` for inline scripts against the CSP of §9. The feedback
   widget is covered the same way, with a guard that imports every module under
@@ -1409,7 +1414,11 @@ Code: `alembic/versions/`, `models/`. Guarded by:
   an older version through `_version`, creating a secret link and using it
   anonymously, the invitee flow including the return to the requested page after
   login, changing a site's address and following the old one with and without
-  a secret link, and deleting a site (`e2e/`).
+  a secret link, and deleting a site (`e2e/`). Site feedback on a shielded
+  preview with the real widget: feedback on a page, on a point with a
+  screenshot and on a text, consent and "Mijn feedback", hiding the button,
+  the Feedback tab and an axe check of the open widget
+  (`e2e/tests/feedback.spec.ts`).
 - **Lint**: `just lint` runs `ruff check` over `src` and `tests`.
 - **Security**: the living checklist in `docs/security.md` carries the items of
   this document with their status. DPIA and a pentest are conditions for
@@ -1454,17 +1463,18 @@ guessing:
 
 ## 16. Site feedback
 
-A site can let visitors give feedback on its pages: a remark about a point or
-an area on a page, a selected text or the page as a whole, with a screenshot if
-the visitor wants one. For that Toon adds a widget of its own to the site's
-HTML pages on the content host and keeps what comes in with the site. The
-stored files of a site do not change: the widget goes into the answer, not
-into the version.
+A site admin can let visitors give feedback on the pages of a site: a remark
+about a point or an area on a page, a selected text or the page as a whole, with a
+screenshot if the visitor wants one. For that Toon adds a widget of its own to
+the site's HTML pages on the content host, keeps what comes in with the site,
+and lets the site team handle it on the site's Feedback tab. The stored files of a site do not change: the widget goes
+into the answer, not into the version.
 
 ### 16.1 Settings and roles
 
-Three columns on `sites` hold the setting, which nothing in the admin sets
-yet:
+Three columns on `sites` hold the setting. An effective site `admin` sets all
+three in one `PUT /sites/{group}/{site}/feedback-settings`, with a session and
+CSRF, audited as `site_feedback`:
 
 - `feedback_enabled`, false by default: whether the widget goes into the
   site's pages at all.
@@ -1480,13 +1490,20 @@ who may look at a preview, never whether it collects feedback. Switching
 feedback off takes the widget out of the next page view, and every widget call
 for the site is refused from that moment (§16.5). What was given stays.
 
+The settings sit at the top of the Feedback tab. A change saves at once and
+the switches wait while it is on its way. A save that fails puts the switches
+back and says so.
+
 Every allow of the gate carries the site's id and its feedback setting, read
 from the site row the gate loads anyway, so a public page view stays one
-query, also with the widget in it.
+query, also with the widget in it. The roles are in §3.6. The email address
+of a submitter is for editors and admins only (§16.11).
 
 Code: `models/publication.py`, `constants.py`, `access/decision.py`,
-`access/gate.py`. Guarded by: `test_constants.py`, `test_access_gate.py`,
-`test_migrations.py`.
+`access/gate.py`, `api/admin/feedback/routes.py`,
+`frontend/src/components/site/FeedbackSettings.vue`. Guarded by:
+`test_constants.py`, `test_access_gate.py`, `test_feedback_admin_api.py`,
+`test_migrations.py`, `frontend/src/components/site/FeedbackSettings.test.ts`.
 
 ### 16.2 Which pages get the widget
 
@@ -1716,7 +1733,7 @@ Code: `frontend/src/feedback-widget/`, `frontend/src/i18n/widget.nl.ts`,
 `frontend/src/feedback-widget/`, `frontend/tests/feedback-widget-modules.test.ts`,
 `frontend/tests/feedback-widget-bundle.test.ts`,
 `test_feedback_widget_bundle.py`, `test_feedback_api.py`,
-`test_app_integration.py`.
+`test_app_integration.py`, `e2e/tests/feedback.spec.ts`.
 
 ### 16.5 The page token
 
@@ -1798,7 +1815,7 @@ Code: `serving/feedback_seal.py`, `serving/feedback_token.py`,
 Guarded by: `test_feedback_seal.py`, `test_feedback_token.py`,
 `test_feedback_inject.py`, `test_feedback_api.py`, `test_feedback_matrix.py`,
 `test_feedback_refusals.py`, `test_sessions.py`,
-`test_session_revalidation.py`.
+`test_session_revalidation.py`, `e2e/tests/feedback.spec.ts`.
 
 ### 16.6 Consent for feedback with an account
 
@@ -1904,7 +1921,7 @@ Code: `serving/feedback_consent.py`, `serving/feedback_token.py`,
 `serving/feedback_inject.py`, `auth/sessions.py`, `auth/revalidation.py`, `platform/pages.py`, `i18n.py`.
 Guarded by: `test_feedback_consent.py`, `test_feedback_token.py`,
 `test_feedback_inject.py`, `test_access_gate.py`, `test_sessions.py`, `test_session_revalidation.py`,
-`test_i18n.py`.
+`test_i18n.py`, `e2e/tests/feedback.spec.ts`.
 
 ### 16.7 Hiding the button
 
@@ -1947,7 +1964,9 @@ keeps writing fresh marks keeps it away for as long as it does. The impact
 stays the same: the button stays away for that visitor on that site.
 
 `GET /-/feedback/show?returnTo=` clears the cookie at the site's path and at
-`/` on a top-level navigation and goes back. The cookie names no person: it holds the site and the moment the
+`/` on a top-level navigation and goes back. The admin SPA has no such link:
+its Feedback tab is for the site team, not for the visitors who hide the
+button. The cookie names no person: it holds the site and the moment the
 hiding ends.
 
 Accepted: any page that can get a page token of a site can hide the button on
@@ -1994,7 +2013,7 @@ replies, oldest first, and `replyCount`. `more` is true when older items were
 left out, and the widget then says so. An item given on a preview that is gone or past its `expires_at`
 carries `page.url` null, since the gate answers that preview with the
 neutral 404. A reply of the team names the member by the name the member has
-now, and none once the member is deleted, never an email address. A token
+now (§16.11), and none once the member is deleted, never an email address. A token
 without a consented session gets 403 `FEEDBACK_ACCOUNT_REQUIRED` for those
 three routes, also one that carries a session for the gate alone (§16.5).
 Deleting an item takes its replies and its screenshot along. No route serves
@@ -2206,8 +2225,8 @@ settings.
   the platform-wide cap first come, first served. Ten full sites leave no
   room on any other, and one author can fill a site within one window of the
   write counters (25 creates with a 2 MiB screenshot). The room comes back
-  when items are deleted or their screenshots purged (§16.12). Meanwhile the
-  widget offers to send without the screenshot.
+  when a site admin deletes items or their screenshots are purged (§16.12).
+  Meanwhile the widget offers to send without the screenshot.
 - **Under a lock.** Both are checked in the transaction of the create, under a
   transaction-scoped advisory lock on the site and, for a create with a
   screenshot, a second one for every screenshot on the platform, always taken
@@ -2277,10 +2296,11 @@ settings.
   minimum receive rate, so a client with enough bandwidth and addresses can
   hold the budget full and get every create a 503 while it keeps that up.
 - **Replies.** An item takes at most 50 replies from its submitter and 250 in
-  all (`FEEDBACK_MAX_GIVER_REPLIES` and `FEEDBACK_MAX_REPLIES`), counted under
-  an advisory lock on the item. Past them a reply is 409
-  `FEEDBACK_THREAD_FULL`. The visitor's own items are bounded by count
-  (§16.8): 20 items with 10 replies each.
+  all (`FEEDBACK_MAX_GIVER_REPLIES` and `FEEDBACK_MAX_REPLIES`), counted by the
+  widget API and the admin API under one advisory lock on the item. Past them
+  a reply is 409 `FEEDBACK_THREAD_FULL`. The visitor's own items are bounded
+  by count (§16.8): 20 items with 10 replies each. The admin's detail carries
+  the at most 250 replies of one item.
 - **The rate limiter** has a class of its own for every path under
   `/-/feedback/` (§10).
 - **Refused tokens.** The page tokens the widget API and the hide route
@@ -2291,36 +2311,135 @@ settings.
   nothing itself.
 
 Code: `serving/feedback_api.py`, `serving/feedback_body.py`,
-`serving/feedback_refusals.py`, `constants.py`, `ratelimit.py`, `config.py`,
-`main.py`. Guarded by: `test_feedback_api.py`, `test_feedback_body.py`,
-`test_feedback_matrix.py`, `test_feedback_refusals.py`, `test_ratelimit.py`,
-`test_config.py`, `test_app_integration.py`.
+`serving/feedback_refusals.py`, `constants.py`, `api/admin/feedback/routes.py`, `ratelimit.py`,
+`config.py`, `main.py`. Guarded by: `test_feedback_api.py`,
+`test_feedback_body.py`, `test_feedback_matrix.py`, `test_feedback_refusals.py`,
+`test_feedback_admin_api.py`, `test_ratelimit.py`, `test_config.py`,
+`test_app_integration.py`.
 
-### 16.11 Links to a place
+### 16.11 The admin API
 
-A page that gets the widget can be opened at a place: its address with the
-fragment `#toon-feedback=`, base64url of compact JSON with `k` (the kind), `s`
-(the selector), `x`, `y`, `px`, `py` (the point, or the top left corner of an
-area), `w`, `h`, `pw`, `ph` (the size of an area in its element and on the
-page) and `q` (the quote). The widget takes at most 2048 bytes of JSON, so at
-most 2731 base64url characters after `#toon-feedback=`. The anchor of an item
-under "Mijn feedback" has the same reduced form (§16.8), but comes in the
-widget API's answer and has no such cap. The widget reads the fragment, takes
-it off the address, brings the place into view (also inside parts of the page
-that scroll on their own) and marks it with a ring, a frame for an area and a
-tint over each line of a quote, visible on light and dark bands and in forced
-colours. No mark takes a click. It never scrolls the window sideways while the
-root or the body hides what overflows sideways, since the visitor could not
-scroll back. It shows nothing from the fragment as text: it announces the
-place in the page's own words, never the link's. For a place it can no longer
-find it shows a note beside the button, "De plek van deze feedback is op deze
-pagina niet meer te vinden." (the spot of this feedback can no longer be found
-on this page).
+Seven routes of the admin API (`/-/api/v1`, tag `Feedback`):
 
-Code: `frontend/src/feedback-widget/fragment.ts`, `boot.ts`, `widget.ts`,
-`rect.ts`, `anchor.ts`, `styles.ts`, `screenshot.ts`. Guarded by: `frontend/src/feedback-widget/fragment.test.ts`,
-`boot.test.ts`, `widget.test.ts`, `rect.test.ts`, `anchor.test.ts`,
-`screenshot.test.ts`.
+| Method and path | Minimum role | Audit action |
+|---|---|---|
+| `GET /sites/{group}/{site}/feedback` | reader | none |
+| `GET /sites/{group}/{site}/feedback/{id}` | reader | none |
+| `GET /sites/{group}/{site}/feedback/{id}/screenshot` | reader | none |
+| `PUT /sites/{group}/{site}/feedback/{id}/status` | editor | `feedback_status` |
+| `POST /sites/{group}/{site}/feedback/{id}/replies` | editor | `feedback_reply` |
+| `DELETE /sites/{group}/{site}/feedback/{id}` | admin | `feedback_delete` |
+| `PUT /sites/{group}/{site}/feedback-settings` | admin | `site_feedback` |
+
+The reads take an admin session without the CSRF header, like every read (an
+`<img>` that loads a screenshot cannot send one). The writes take an admin
+session with CSRF. None of them takes a Bearer (§7.8).
+
+- **The list** pages as the audit log does: newest first over
+  `(created_at, id)`, `limit` 1 to 100 (50 by default), and `nextCursor`. It
+  filters on `status` (`open`, the default, for `new` and `seen`, or `new`,
+  `seen`, `resolved`, `all`), on `target` (`all`, `live`, `preview`) and on
+  `ref`, only with `target=preview` (else 422 `FEEDBACK_REF_WITHOUT_PREVIEW`)
+  and only as a slug (else 422 `PREVIEW_REF_INVALID`). The counts per status
+  cover the whole site, whatever the filters.
+- **Who sees what.** `author.email` is null for a caller whose effective role
+  is reader: the email addresses of submitters are for editors and admins.
+  Every text of an item comes from someone outside the site team, the page
+  title and a typed name included. The admin interface shows the page title,
+  a name and a quote as text. A comment and a reply render a fixed subset of
+  Markdown (§16.14), never HTML.
+- **The place on the page.** `page.url` is the page at the site's current
+  address. `highlightUrl` adds the fragment `#toon-feedback=`: base64url of
+  compact JSON with `k` (the kind), `s` (the selector), `x`, `y`, `px`, `py`
+  (the point, or the top left corner of an area), `w`, `h`, `pw`, `ph` (the
+  size of an area in its element and on the page) and `q` (the quote). The
+  widget takes at most 2048 bytes of JSON, so at most 2731 base64url
+  characters after `#toon-feedback=`, and `highlightUrl` keeps to that. The
+  anchor of an item under "Mijn feedback" has the same reduced form (§16.8),
+  but comes in the widget API's answer and has no such cap. A quote that is
+  too long is halved until it fits, since its start still finds the passage.
+  A selector that is too long is left out whole, since cut short it could
+  name another element. On a
+  page that gets the widget, the widget reads the fragment, takes it off the
+  address, brings the place into view (also inside parts of the page that
+  scroll on their own) and marks it with a ring, a frame for an area and a
+  tint over each line of a quote, visible on light and dark bands and in
+  forced colours. No mark takes a click. It never scrolls the window sideways
+  while the root or the body hides what overflows sideways, since the visitor
+  could not scroll back. It shows nothing from the fragment as text: it
+  announces the place in the page's own words, never the link's. For a place
+  it can no longer find it shows a note beside the button, "De plek van deze
+  feedback is op deze pagina niet meer te vinden." (the spot of this feedback
+  can no longer be found on this page). On the Feedback tab, "Bekijk op de
+  pagina" (view on the page) opens the place, for an item from a preview only
+  while that preview still opens, that is while its `currentVersion` is not
+  null. Where
+  the site's settings leave the page without the widget, the button stays
+  and a line says the page opens without marking the place. The tab's place
+  filter, "Gegeven op" (given on), offers the live site, all previews and
+  each current preview, since items outlive the preview they were given on
+  (§16.12). The filters stand in the tab's address the way the list route
+  takes them (`status`, `target`, `ref`). On the Previews tab a preview with
+  open feedback links to the list narrowed to it, by its `openFeedbackCount`.
+- **The version.** `versionId` is the version the page showed, and
+  `currentVersion` (`id` and `createdAt`) the one the live site or the
+  preview shows now, joined in the same query as the item, null when there is
+  none (the preview is gone or past its `expires_at`, nothing is live), since
+  the gate refuses an expired preview while the nightly cleanup has yet to
+  remove it. An item is on an earlier
+  version when `currentVersion` is not null and is not `versionId`, also when
+  `versionId` is null because that version is gone. The tab marks such a row
+  "Eerdere versie" (earlier version), and while the version still exists links
+  to the page at its `_version` address (§7.3), which every reader of the
+  feedback may open.
+- **The page of an item.** The tab opens an item in a sheet, which links to
+  the item's own page, `/{group}/{site}/feedback/{id}`, with the list's
+  filters in its address. An id that is no item of the site,
+  whatever the reason, gets one "Onbekende feedback" (unknown feedback).
+- **The status.** Sending the status an item has already changes nothing and
+  writes no audit row. A real change records when and by whom, and sets
+  `resolved_at` for `resolved` and clears it otherwise. A reopened item
+  therefore falls under the term of open items again, which counts from
+  `created_at` (§16.12), so one older than that term goes at the next nightly
+  cleanup.
+- **A reply** from the team is 1 to 5000 characters under the text rule of
+  §16.9 (refused as `FIELD_EMPTY`, `FIELD_TOO_LONG` or
+  `FIELD_CONTROL_CHARACTERS`). It stores the member's id and shows their
+  current name, read from the member, never their email address, because a
+  submitter who sent with an account reads it under "Mijn feedback".
+  The status stays as it is. An item takes 250 replies in all, the
+  submitter's included (409 `FEEDBACK_THREAD_FULL`). On the tab, a reply that
+  was typed or refused stays with its item for as long as the tab is open,
+  and its field is read-only while it is on its way.
+  Before it sends, the tab drops the format characters the API refuses, as
+  the widget does (§16.9).
+- **No cache.** The list, an item, and the answers to a status change and to
+  a reply carry `Cache-Control: no-store`, so what a submitter wrote, their
+  name and email address among it, stays in no browser's HTTP cache after the
+  item is deleted or purged.
+- **The screenshot** comes back as stored, with
+  `Cache-Control: private, no-store`, `nosniff`,
+  `Content-Security-Policy: default-src 'none'; sandbox` and
+  `Content-Disposition: inline; filename="feedback-<id>.<ext>"`. Opened on its
+  own it is a document that loads and runs nothing.
+- **`SiteOut`** carries `feedbackEnabled`, `feedbackIdentity`, `feedbackLive`
+  and `openFeedbackCount` (`new` plus `seen`, in one count for every site of a
+  list). **`PreviewOut`** carries `openFeedbackCount` too, in one count for
+  every preview of the site.
+
+Code: `api/admin/feedback/`, `api/admin/__init__.py`, `api/docs.py`, `api/openapi_nl.py`,
+`frontend/src/components/site/TabFeedback.vue`, `FeedbackInbox.vue`,
+`FeedbackSheet.vue`, `FeedbackSettings.vue`, `feedbackText.ts`,
+`feedbackRoute.ts`, `TabPreviews.vue`, `FeedbackItemPage.vue`,
+`FeedbackItemView.vue`, `feedbackItem.ts`,
+`frontend/src/feedback-widget/fragment.ts`, `boot.ts`, `widget.ts`,
+`rect.ts`, `anchor.ts`, `styles.ts`, `screenshot.ts`. Guarded by:
+`test_feedback_admin_api.py`, `test_cli_creation.py`,
+`test_api_documentation.py`, `test_openapi_i18n.py`, the component tests
+under `frontend/src/components/site/`,
+`frontend/src/feedback-widget/fragment.test.ts`, `boot.test.ts`,
+`widget.test.ts`, `rect.test.ts`, `anchor.test.ts`, `screenshot.test.ts`,
+and `e2e/tests/feedback.spec.ts`.
 
 ### 16.12 Retention
 
@@ -2328,8 +2447,8 @@ Feedback outlives preview teardown, redeploys and the cleanup of old live
 versions: an item names its version as a hint only. It goes in four ways.
 
 - With its site or its group (§8). Its replies and its screenshot go with it.
-- When the visitor who sent it with their account deletes it under "Mijn
-  feedback".
+- When a site admin deletes it, or the visitor who sent it with their account
+  deletes it under "Mijn feedback".
 - By the nightly cleanup (§8), in one transaction: resolved items
   `TOON_FEEDBACK_RESOLVED_RETENTION_DAYS` (90) after `resolved_at`, items still
   `new` or `seen` `TOON_FEEDBACK_OPEN_RETENTION_DAYS` (365) after `created_at`,
@@ -2360,15 +2479,18 @@ What site feedback writes to the audit log, and what it does not, is in
 
 ### 16.14 Formatting in comments and replies
 
-A comment and a reply are stored as typed. Mijn feedback in the widget
-renders them as a small fixed subset of Markdown: paragraphs, bullet and numbered lists one level deep, inline code,
+A comment and a reply are stored as typed. Mijn feedback in the widget and
+the Feedback tab of the admin SPA render them as a small fixed subset of
+Markdown: paragraphs, bullet and numbered lists one level deep, inline code,
 fenced code blocks, strong and emphasis, blockquotes one level deep,
 backslash escapes and links. Everything else stays the text it was typed as:
 headings, tables, rules, images, HTML, entities and footnotes.
 
 One parser, `frontend/src/feedback-text/markdown.ts`, turns the text into a
 tree of a few node types. The widget builds DOM from that tree with
-`createElement` and text nodes (`renderFeedbackText`). No step reads a string as markup, so nothing needs
+`createElement` and text nodes (`renderFeedbackText`), and the admin SPA
+renders the same tree with Vue's `h()` inside an `nldd-rich-text`
+(`FeedbackMarkdown.vue`). No step reads a string as markup, so nothing needs
 sanitising. The parser is linear in the length of the text: no backtracking
 regular expression runs over it, and emphasis is paired with CommonMark's
 delimiter algorithm and its lower bounds.
@@ -2383,9 +2505,9 @@ resolves it (an internationalised name, a percent-encoded or numeric host) is
 shown resolved, in ASCII, so a look-alike stands out. A link carries
 `rel="noopener noreferrer nofollow ugc"` and `dir="ltr"` and opens in a new
 tab, except in the widget on a shielded page, where a new tab would inherit
-the sandbox and it opens in the same tab (§16.4). The accessible name of a pin
-shows a one-line plain-text excerpt (`feedbackPlainText`), since a button
-cannot hold a link.
+the sandbox and it opens in the same tab (§16.4). A row of the inbox and the
+accessible name of a pin show a one-line plain-text excerpt
+(`feedbackPlainText`), since a button cannot hold a link.
 
 The editor (§16.15) formats more than this subset as it is typed, headings
 among them. It keeps the Markdown markers in sight, so the text on screen is
@@ -2393,8 +2515,11 @@ the text that is stored, but a heading reads as its `#` and words once it is
 rendered here.
 
 Code: `frontend/src/feedback-text/markdown.ts`, `styles.ts`,
-`frontend/src/feedback-widget/mine.ts`. Guarded by:
-`frontend/src/feedback-text/markdown.test.ts`, `mine.test.ts`.
+`frontend/src/components/FeedbackMarkdown.vue`, `FeedbackSheet.vue`,
+`FeedbackInbox.vue`, `frontend/src/feedback-widget/mine.ts`. Guarded by:
+`frontend/src/feedback-text/markdown.test.ts`, `FeedbackMarkdown.test.ts`,
+`mine.test.ts`, `FeedbackSheet.test.ts`, `FeedbackInbox.test.ts`,
+`e2e/tests/feedback-markdown.spec.ts`.
 
 ### 16.15 Writing in the editor
 
@@ -2483,4 +2608,5 @@ Guarded by:
 `frontend/src/feedback-widget/editor.test.ts`,
 `composer.test.ts`, `mine.test.ts`, `widget.test.ts`, `config.test.ts`,
 `test_feedback_editor.py`, `test_feedback_inject.py`,
-`test_app_integration.py`, `test_host_separation.py`, `test_ratelimit.py`.
+`test_app_integration.py`, `test_host_separation.py`, `test_ratelimit.py`,
+`e2e/tests/feedback.spec.ts`.
