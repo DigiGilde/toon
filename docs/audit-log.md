@@ -439,7 +439,7 @@ Furthermore `TOKEN_INVALID` for every unrecognised or missing Bearer scheme,
 and `INTERNAL_ERROR` for a deploy that failed on the machine rather than on a
 refusal, a full disk for instance: the client gets the generic 500 and the
 exception itself goes to the application log.
-See `api/deploys.py`, `ci/tokens.py` and `ci/trust.py`; the full list is
+See `api/deploys/`, `ci/tokens.py` and `ci/trust.py`; the full list is
 `CI_REASONS` in `audit/vocabulary.py`.
 
 ## Retention

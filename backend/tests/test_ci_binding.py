@@ -1,4 +1,4 @@
-"""CI deploys bound to the site id (api/deploys.py, ci/trust.py; spec §6.3).
+"""CI deploys bound to the site id (api/deploys/auth.py, ci/trust.py; spec §6.3).
 
 The decision table, cell by cell, for a deploy and for a preview teardown:
 a token bound to site Y or without a site id, an address that leads to Y, to

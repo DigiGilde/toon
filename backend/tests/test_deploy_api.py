@@ -1,4 +1,4 @@
-"""Tests for api/deploys.py and api/errors.py: CI ID token, CLI token and
+"""Tests for api/deploys/ and api/errors.py: CI ID token, CLI token and
 session auth, repository trust and live branch, preview semantics, teardown
 and problem+json for every failure class (spec §8).
 
@@ -34,7 +34,7 @@ from starlette.requests import Request
 
 from toon import i18n, messages
 from toon.api import deploys
-from toon.api.deploys import BearerOutsideDeploysMiddleware
+from toon.api.deploys import BearerOutsideDeploysMiddleware, auditing, auth, routes, upload
 from toon.api.errors import PROBLEM_CONTENT_TYPE, ApiError, register_error_handlers
 from toon.audit.log import AuditLog
 from toon.audit.pseudonymisation import pseudonymise
@@ -1067,7 +1067,7 @@ async def _no_space(*_args: object, **_kwargs: object) -> None:
 async def test_failed_upload_still_writes_a_refused_audit_row(
     environment: Environment, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(deploys, "_spool_upload", _no_space)
+    monkeypatch.setattr(routes, "_spool_upload", _no_space)
     async with environment.client() as client:
         with pytest.raises(OSError, match="No space left"):
             await client.post(DEPLOY_PATH, files=_upload(), headers=_bearer(environment.ci_token))
@@ -1134,7 +1134,7 @@ async def test_a_failing_audit_write_does_not_mask_the_ingest_failure(
         raise RuntimeError("audit log unreachable")
 
     monkeypatch.setattr(IngestService, "deploy", _no_space)
-    monkeypatch.setattr(deploys, "_audit", no_audit)
+    monkeypatch.setattr(auditing, "_audit", no_audit)
 
     with caplog.at_level(logging.ERROR, logger=deploys.__name__):
         async with environment.client() as client:
@@ -1205,7 +1205,7 @@ def test_auth_refs_of_no_established_auth_is_empty() -> None:
     """`_auth_refs` is only ever called after `_authenticate` has returned or
     raised, so `auth` is never actually `None` at either call site; this
     pins the fallback its type hint promises."""
-    assert deploys._auth_refs(None) == {}
+    assert auth._auth_refs(None) == {}
 
 
 async def test_revoked_cli_token_401_with_www_authenticate(environment: Environment) -> None:
@@ -1279,7 +1279,7 @@ async def test_session_of_not_group_member_403(environment: Environment) -> None
 
 
 async def test_refused_deploy_is_audited_once(environment: Environment) -> None:
-    """api/deploys.py marks its own refusals audited, so the generic ApiError
+    """api/deploys/auditing.py marks its own refusals audited, so the generic ApiError
     handler in api/errors.py does not add a second, thinner admin_access row."""
     cookies, headers = environment.session_for("sub-buiten")
     async with environment.client() as client:
@@ -1626,7 +1626,7 @@ async def test_a_client_disconnect_during_the_upload_is_a_400(tmp_path: Path) ->
     request = Request(scope, receive)
 
     with pytest.raises(ApiError) as excinfo:
-        await deploys._spool_upload(request, store, 10 * 1024 * 1024, RoomGuard(store, 0))
+        await upload._spool_upload(request, store, 10 * 1024 * 1024, RoomGuard(store, 0))
     assert excinfo.value.status == 400
     assert excinfo.value.reason == "CLIENT_ABORTED"
 
