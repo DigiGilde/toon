@@ -24,7 +24,8 @@ PACKING_TS = ROOT / "frontend" / "src" / "components" / "site" / "packing.ts"
 CLIENT_TS = ROOT / "frontend" / "src" / "api" / "client.ts"
 WIDGET_CONFIG_TS = ROOT / "frontend" / "src" / "feedback-widget" / "config.ts"
 DOCS_INIT = ROOT / "backend" / "src" / "toon" / "static" / "docs" / "docs-init.js"
-CLI = ROOT / "cli" / "toon_cli" / "__init__.py"
+CLI_COMMON = ROOT / "cli" / "toon_cli" / "common.py"
+CLI_PUBLISH = ROOT / "cli" / "toon_cli" / "publish.py"
 UNPACKER = ROOT / "backend" / "src" / "toon" / "ingest" / "unpacker" / "bundle.py"
 
 LIMIT_SETTINGS = {
@@ -51,7 +52,7 @@ def _backend_extensions() -> set[str]:
 
 
 def test_the_slug_rule_of_the_cli_is_the_one_of_the_backend():
-    cli = _capture(r'^SLUG_RE = re\.compile\(r"([^"]+)"\)', CLI)
+    cli = _capture(r'^SLUG_RE = re\.compile\(r"([^"]+)"\)', CLI_COMMON)
     assert cli == SLUG_RE.pattern
 
 
@@ -84,7 +85,7 @@ def test_the_csrf_cookie_of_the_docs_page_is_the_one_of_the_backend():
 
 
 def test_the_archive_extensions_of_the_cli_are_the_ones_of_the_backend():
-    body = _capture(r"^ALLOWED_ARCHIVE_EXTENSIONS = \{([^}]*)\}", CLI)
+    body = _capture(r"^ALLOWED_ARCHIVE_EXTENSIONS = \{([^}]*)\}", CLI_PUBLISH)
     assert set(re.findall(r'"(\.[a-z.]+)"', body)) == _backend_extensions()
 
 

@@ -786,7 +786,7 @@ def test_show_writes_the_screenshot_to_a_new_file_with_mode_600(stub_server, hos
     assert _run(host, "show", _uid(1), "--site", SITE, "--screenshot", str(target)) == 0
 
     assert target.read_bytes() == PNG
-    if not cli.WINDOWS:
+    if not cli.config.WINDOWS:
         assert (target.stat().st_mode & 0o777) == 0o600
     assert f"Screenshot: {target}\n" in capsys.readouterr().out
     assert stub_server.requests[1]["headers"]["Authorization"] == "Bearer tok"
@@ -855,7 +855,7 @@ def _mock_screenshot(monkeypatch, body: _Chunks, headers: dict[str, str]) -> Non
             return httpx.Response(200, headers={"Content-Type": "image/png", **headers}, stream=body)
         return httpx.Response(200, json=_detail(1, hasScreenshot=True))
 
-    monkeypatch.setattr(cli, "_client", httpx.Client(transport=httpx.MockTransport(handler)))
+    monkeypatch.setattr(cli.transport, "_client", httpx.Client(transport=httpx.MockTransport(handler)))
 
 
 def test_a_screenshot_whose_content_length_is_over_the_cap_is_refused_unread(token_env, monkeypatch, tmp_path, capsys):
@@ -1003,14 +1003,14 @@ def test_screenshot_for_an_item_without_one_warns_and_succeeds(stub_server, host
 
 def test_the_screenshot_download_reports_a_connection_failure(stub_server, host, token_env, tmp_path, monkeypatch, capsys):
     _router(stub_server, {("GET", f"{BASE}/{_uid(1)}"): _json(200, _detail(1, hasScreenshot=True))})
-    real = cli._http
+    real = cli.transport._http
 
     def flaky(method: str, url: str, **kwargs: Any):
         if url.endswith("/screenshot"):
             raise httpx.ConnectError("boom")
         return real(method, url, **kwargs)
 
-    monkeypatch.setattr(cli, "_http", flaky)
+    monkeypatch.setattr(cli.transport, "_http", flaky)
     target = tmp_path / "shot.png"
 
     assert _run(host, "show", _uid(1), "--site", SITE, "--screenshot", str(target)) == 1
