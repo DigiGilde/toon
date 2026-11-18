@@ -568,7 +568,8 @@ frontend tests and the CSP check on the built SPA.
 with `RijksICTGilde/zad-actions`. Both are pinned to commit SHAs.
 
 Production follows release tags only. A push to `beta` builds, scans and
-attests its image and deploys nowhere. A tag
+attests its image, and rolls out to the deployment `beta` in the preview
+project and nowhere else ("The deployment `beta`" below). A tag
 `vYYYY.M.D` (or `vYYYY.M.D.N` for a second release that day) rolls out to
 `productie` as the image tagged `YYYY.M.D`, its only tag, with that version
 baked in as `TOON_VERSION`. The release workflow sets the tag
@@ -663,8 +664,11 @@ The label `preview` on a pull request from this repository rolls it out to
 deployment `pr-<n>` in the project `toond-zrj` ("toon-development"), which
 holds no production. Every later green run of "Test and deploy" on the pull
 request updates it. Taking the label off, or closing the pull request, deletes
-the deployment with its database and volume. `.github/workflows/preview.yml`
-does all of it; TDR-0012 has the why.
+the deployment and its volume. ZAD only marks its database for deletion:
+labelling the same pull request again within ZAD's grace period brings that
+database back, and only a ZAD platform administrator can purge it ("The
+deployment `beta`" below). `.github/workflows/preview.yml` does all of it;
+TDR-0012 has the why.
 
 A preview has two components, because a component on the cluster wildcard
 gets one host:
@@ -680,8 +684,9 @@ gets one host:
 
 Toon runs there with `TOON_ENVIRONMENT=preview`: every production requirement
 holds, and on top the entrypoint seeds the demo data into an empty database
-(only the image of a pull request, built with `--target preview`, carries
-the seed; a production image run as a preview refuses to start), a
+(only the image of a pull request or of `beta` below, built with `--target
+preview`, carries the seed; a production image run as a preview refuses to
+start), a
 first sign-in makes an editor of the demo group `rijksoverheid`, and only a
 platform administrator can turn shielding off (`docs/security.md`, "Pull
 request previews").
@@ -707,10 +712,11 @@ Set up once, outside the workflow:
   a component with `keycloak` counts as a redirect URI), and the attachment
   `preview-proxy` from `containers/preview-proxy/haproxy.cfg` on
   `/usr/local/etc/haproxy/haproxy.cfg`.
-- Sleep mode on the project for `pr-*`: asleep after 24 hours without a
-  visit, awake on the next. A sleeping preview answers 200 with the
-  platform's wake-up page, which is why the workflow checks for Toon's own
-  `{"status": "ok"}` on `/-/healthz`.
+- Sleep mode on the project for `pr-*` only, so `beta` below stays awake:
+  asleep after 24 hours without a visit, awake on the next. A sleeping
+  preview answers 200 with the platform's wake-up page, which is why the
+  workflow checks for Toon's own `{"status": "ok"}` on `/-/healthz`, and for
+  the neutral 404 on the same path of the content host.
 - On GitHub: the environment `preview` (deployment branch `beta`) with the
   secret `ZAD_PREVIEW_API_KEY`, the key of `toond-zrj` and never
   production's (the steps hand it to zadctl as its `ZAD_API_KEY` variable,
@@ -721,6 +727,38 @@ Set up once, outside the workflow:
 Open with the platform team (#227, question 4): whether the shared PostgreSQL
 server keeps the role of one project out of another project's database.
 Nothing in a preview is pointed at production to find out.
+
+### The deployment `beta`
+
+Every merge to `beta` rolls that commit out to the deployment `beta` in the
+same project, so colleagues see what the next release holds (TDR-0016):
+
+- Admin: `https://beheer-beta-toond-zrj.rig.prd1.gn2.quattro.rijksapps.nl`
+- Sites: `https://site-beta-toond-zrj.rig.prd1.gn2.quattro.rijksapps.nl`
+
+The job `beta` in `.github/workflows/preview.yml` does it, with the steps of
+a preview: once "Test and deploy" has passed for the push, and only while
+that push is still the head of `beta` (a rerun of an older run rolls
+nothing back). It rolls out the image tagged `beta` by digest, after
+checking that its revision label is that commit and that `deploy.yml`
+attested it on `refs/heads/beta`. `deploy.yml` builds that image on every
+push to `beta`, from the `preview` target, beside the runtime image a
+release builds again from its tag. Rollouts never overlap: one runs, the
+newest waits, and anything in between is skipped.
+
+The deployment is never torn down. Its database, volume and secrets
+persist between rollouts, so every rollout migrates a database that holds
+the data of the last one, and the demo seed ran only on the first. A
+migration that fails on existing data fails here, before a release.
+
+Deleting the deployment does not reset it. ZAD only marks a deleted
+deployment's database for deletion, with a grace period, and a deployment
+created again under the same name within it gets the old database back:
+the seed finds it not empty and seeds nothing, and Alembic finds nothing
+to migrate. Purging the marked database takes a ZAD platform
+administrator; a project key cannot. A real reset therefore needs the
+platform team to purge the database of `beta`. A deployment under a new
+name starts with an empty database.
 
 ## 9. Storage sizing
 

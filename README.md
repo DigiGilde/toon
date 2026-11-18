@@ -324,8 +324,9 @@ serves content, the admin SPA and the host separation itself.
 `docs/deploying-on-zad.md` the step-by-step guide from nothing to
 running plus the open questions for the platform team.
 `.github/workflows/` holds the CI and deploy workflows. The checks run on
-every commit. A push to `beta` deploys nowhere: production follows the
-release tags (`docs/releasing.md`).
+every commit. A push to `beta` reaches only the deployment `beta` in the
+preview project: production follows the release tags
+(`docs/releasing.md`).
 
 ## Documentation
 

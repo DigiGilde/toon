@@ -7,8 +7,10 @@ changelog.
 
 ## The model
 
-- **A push to `beta` deploys nowhere.** It builds, scans and attests an
-  image. Nothing on ZAD runs it. Only a release tag reaches `productie`.
+- **A push to `beta` never reaches production.** It builds, scans and
+  attests an image, and rolls `beta` out to the deployment `beta` in the
+  preview project, so colleagues see what the next release holds
+  (`docs/deploying-on-zad.md` §8). Only a release tag reaches `productie`.
 - **A change adds a fragment.** One file per change under
   `changelog.d/`, in the pull request that makes the change. Fragments
   never conflict, and nobody edits `CHANGELOG.md` for a change.
