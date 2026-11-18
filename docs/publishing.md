@@ -1443,7 +1443,7 @@ the hiding ends, sealed by Toon, and nothing about the visitor.
 
 ### Reading and answering it
 
-In an item on the "Feedback" tab, "Bekijk op de pagina" (view on the page)
+In an item on the "Feedback" tab, "Bekijken op de site" (show on the site)
 opens the page it is about and, where that page carries the feedback button,
 marks the place. With feedback off, or for an item from the live site while
 "Ook op de live site" (on the live site too) is off, a line beside the

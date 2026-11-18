@@ -74,7 +74,7 @@ export const feedbackEn: Record<keyof typeof feedbackNl, string> = {
   'feedback.sheet.close': 'Close',
   'feedback.sheet.openAsPage': 'Open as page',
   'feedback.sheet.quote': 'About this text',
-  'feedback.sheet.view': 'View on the page',
+  'feedback.sheet.view': 'Show on the site',
   'feedback.sheet.view.gone':
     'Preview {ref} has expired or no longer exists, so this place can no longer be viewed.',
   'feedback.sheet.view.off': 'Feedback is off for this site, so the page opens without marking this place.',

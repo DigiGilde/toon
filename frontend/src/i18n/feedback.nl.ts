@@ -77,7 +77,7 @@ export const feedbackNl = {
   'feedback.sheet.close': 'Sluiten',
   'feedback.sheet.openAsPage': 'Openen als pagina',
   'feedback.sheet.quote': 'Over deze tekst',
-  'feedback.sheet.view': 'Bekijk op de pagina',
+  'feedback.sheet.view': 'Bekijken op de site',
   'feedback.sheet.view.gone':
     'Preview {ref} is verlopen of bestaat niet meer, dus deze plek is niet meer te bekijken.',
   'feedback.sheet.view.off': 'Feedback staat uit voor deze site, dus de pagina opent zonder deze plek te markeren.',

@@ -5,12 +5,15 @@
  * it. An editor replies and moves the status on, only with the buttons that
  * change something, and an admin can also delete it. The sheet beside the list
  * and the page of the item both show it, each around the state it keeps
- * (feedbackItem.ts), with a title and a way out of their own.
+ * (feedbackItem.ts), with a title and a way out of their own. The `actions`
+ * slot takes toolbar items of their own, after the ones here.
  *
  * Everything a sender wrote is put in as text, never as markup, and never in
  * an attribute that formats it. A comment and a reply show the Markdown
  * subset of feedback-text, which FeedbackMarkdown builds from its tree.
  */
+import { useSlots } from 'vue';
+
 import * as toon from '@/api/toon';
 import type { FeedbackDetail, FeedbackStatus } from '@/api/types';
 import ConfirmModal from '@/components/ConfirmModal.vue';
@@ -48,6 +51,8 @@ const props = defineProps<{
   enabled: boolean;
   live: boolean;
 }>();
+
+const slots = useSlots();
 
 /** The cap on a reply in the API. */
 const REPLY_MAX_LENGTH = 5000;
@@ -126,18 +131,23 @@ function screenshotOf(current: FeedbackDetail): string {
   return toon.feedbackScreenshotUrl(props.group, props.site, current.id);
 }
 
-/** Only what changes something: no "mark as seen" on what was seen already. */
-function nextStatusesOf(current: FeedbackDetail): { status: FeedbackStatus; text: string }[] {
+/**
+ * Only what changes something: no "mark as seen" on what was seen already.
+ * The priority is how long a button stays in the toolbar when the row runs
+ * out of room: resolving or reopening longest, "mark as seen" first to go,
+ * with the other actions of the toolbar in between.
+ */
+function nextStatusesOf(current: FeedbackDetail): { status: FeedbackStatus; text: string; priority: number }[] {
   switch (current.status) {
     case 'new':
       return [
-        { status: 'seen', text: t('feedback.action.seen') },
-        { status: 'resolved', text: t('feedback.action.resolve') },
+        { status: 'seen', text: t('feedback.action.seen'), priority: 1 },
+        { status: 'resolved', text: t('feedback.action.resolve'), priority: 5 },
       ];
     case 'seen':
-      return [{ status: 'resolved', text: t('feedback.action.resolve') }];
+      return [{ status: 'resolved', text: t('feedback.action.resolve'), priority: 5 }];
     default:
-      return [{ status: 'new', text: t('feedback.action.reopen') }];
+      return [{ status: 'new', text: t('feedback.action.reopen'), priority: 5 }];
   }
 }
 
@@ -157,6 +167,11 @@ function unmarkedOf(current: FeedbackDetail): string | null {
   if (!props.enabled) return t('feedback.sheet.view.off');
   if (current.target === 'live' && !props.live) return t('feedback.sheet.view.offLive');
   return null;
+}
+
+/** Whether the toolbar has anything in it: a reader of an item whose preview is gone has nothing to do. */
+function hasActionsOf(current: FeedbackDetail): boolean {
+  return props.canEdit || props.canAdmin || !previewGoneOf(current) || slots.actions !== undefined;
 }
 
 /** A sender without an account has no way to read a reply, and the team had better know. */
@@ -180,6 +195,66 @@ function replyHelpOf(current: FeedbackDetail): string {
     ></nldd-inline-dialog>
 
     <template v-else>
+      <!-- What does not fit moves into the toolbar's own menu, by priority. -->
+      <nldd-toolbar
+        v-if="hasActionsOf(detail)"
+        :ref="state.statusActions"
+        size="sm"
+        data-testid="feedback-actions"
+      >
+        <template v-if="canEdit">
+          <nldd-toolbar-item
+            v-for="action in nextStatusesOf(detail)"
+            :key="action.status"
+            slot="start"
+            :priority="action.priority"
+          >
+            <nldd-button
+              appearance="secondary"
+              :text="action.text"
+              :loading="statusBusy === action.status || undefined"
+              :data-testid="`feedback-mark-${action.status}`"
+              @click="setStatus(detail, action.status)"
+            ></nldd-button>
+            <nldd-menu-item slot="overflow" :text="action.text" @select="setStatus(detail, action.status)"></nldd-menu-item>
+          </nldd-toolbar-item>
+        </template>
+        <!-- No button once the preview is gone: its address would only open
+             "Niet gevonden". A line below says so. -->
+        <nldd-toolbar-item v-if="!previewGoneOf(detail)" slot="end" priority="4">
+          <nldd-button
+            appearance="secondary"
+            start-icon="open-new-page"
+            :text="t('feedback.sheet.view')"
+            :href="detail.highlightUrl ?? detail.page.url"
+            target="_blank"
+            data-testid="feedback-view"
+          ></nldd-button>
+          <nldd-menu-item
+            slot="overflow"
+            icon="open-new-page"
+            :text="t('feedback.sheet.view')"
+            :href="detail.highlightUrl ?? detail.page.url"
+            target="_blank"
+          ></nldd-menu-item>
+        </nldd-toolbar-item>
+        <slot name="actions"></slot>
+        <nldd-toolbar-item v-if="canAdmin" slot="end" priority="2">
+          <nldd-button
+            appearance="secondary"
+            :text="t('feedback.delete')"
+            data-testid="feedback-delete"
+            @click="askDelete(detail.id)"
+          ></nldd-button>
+          <nldd-menu-item
+            slot="overflow"
+            destructive
+            :text="t('feedback.delete')"
+            @select="askDelete(detail.id)"
+          ></nldd-menu-item>
+        </nldd-toolbar-item>
+      </nldd-toolbar>
+
       <nldd-rich-text data-testid="feedback-comment">
         <FeedbackMarkdown :text="detail.comment" bare />
         <template v-if="detail.quote !== null">
@@ -190,26 +265,12 @@ function replyHelpOf(current: FeedbackDetail): string {
         </template>
       </nldd-rich-text>
 
-      <!-- A line, not a disabled button, once the preview is gone: its
-           address would only open "Niet gevonden". -->
       <nldd-rich-text v-if="previewGoneOf(detail)" data-testid="feedback-view-gone">
         <p>{{ t('feedback.sheet.view.gone', { ref: String(detail.previewRef) }) }}</p>
       </nldd-rich-text>
-      <template v-else>
-        <nldd-button-group orientation="horizontal">
-          <nldd-button
-            appearance="secondary"
-            start-icon="open-new-page"
-            :text="t('feedback.sheet.view')"
-            :href="detail.highlightUrl ?? detail.page.url"
-            target="_blank"
-            data-testid="feedback-view"
-          ></nldd-button>
-        </nldd-button-group>
-        <nldd-rich-text v-if="unmarkedOf(detail) !== null" data-testid="feedback-view-unmarked">
-          <p>{{ unmarkedOf(detail) }}</p>
-        </nldd-rich-text>
-      </template>
+      <nldd-rich-text v-else-if="unmarkedOf(detail) !== null" data-testid="feedback-view-unmarked">
+        <p>{{ unmarkedOf(detail) }}</p>
+      </nldd-rich-text>
 
       <nldd-container v-if="detail.hasScreenshot" layout="stack" gap="8" data-testid="feedback-screenshot">
         <nldd-image :src="screenshotOf(detail)" :alt="t('feedback.sheet.screenshot.alt')"></nldd-image>
@@ -307,32 +368,12 @@ function replyHelpOf(current: FeedbackDetail): string {
         <nldd-visually-hidden v-if="replyError" role="alert" data-testid="feedback-reply-alert">
           {{ replyError }}
         </nldd-visually-hidden>
-
-        <nldd-button-group :ref="state.statusActions" orientation="horizontal" data-testid="feedback-status-actions">
-          <nldd-button
-            v-for="action in nextStatusesOf(detail)"
-            :key="action.status"
-            appearance="secondary"
-            :text="action.text"
-            :loading="statusBusy === action.status || undefined"
-            :data-testid="`feedback-mark-${action.status}`"
-            @click="setStatus(detail, action.status)"
-          ></nldd-button>
-        </nldd-button-group>
       </template>
 
       <nldd-rich-text v-else data-testid="feedback-read-only">
         <p>{{ t('feedback.readOnly') }}</p>
       </nldd-rich-text>
 
-      <nldd-button-group v-if="canAdmin" orientation="horizontal">
-        <nldd-button
-          appearance="destructive"
-          :text="t('feedback.delete')"
-          data-testid="feedback-delete"
-          @click="askDelete(detail.id)"
-        ></nldd-button>
-      </nldd-button-group>
     </template>
   </nldd-container>
 

@@ -2389,8 +2389,8 @@ writes the CLI may make take an admin session with CSRF or a CLI token
   announces the place in the page's own words, never the link's. For a place
   it can no longer find it shows a note beside the button, "De plek van deze
   feedback is op deze pagina niet meer te vinden." (the spot of this feedback
-  can no longer be found on this page). On the Feedback tab, "Bekijk op de
-  pagina" (view on the page) opens the place, for an item from a preview only
+  can no longer be found on this page). On the Feedback tab, "Bekijken op de
+  site" (show on the site) opens the place, for an item from a preview only
   while that preview still opens, that is while its `currentVersion` is not
   null. Where
   the site's settings leave the page without the widget, the button stays
