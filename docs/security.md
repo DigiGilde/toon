@@ -608,9 +608,9 @@ the three settings.
 
 | Item | Status |
 |---|---|
-| Fail-closed ingest: absolute paths, `..` segments, symlinks/hardlinks, null bytes refused | implemented: `ingest/unpacker.py`, `backend/tests/test_unpacker.py` |
-| Bomb guard: decompression incrementally against limits before materialisation | implemented: `ingest/unpacker.py` (archive headers are not trusted), `backend/tests/test_unpacker.py` |
-| Top-level `_preview`/`_version`/`_encoded` in a dist refused | implemented: `ingest/unpacker.py` (`RESERVED_SEGMENTS`), `backend/tests/test_unpacker.py` |
+| Fail-closed ingest: absolute paths, `..` segments, symlinks/hardlinks, null bytes refused | implemented: `ingest/unpacker/`, `backend/tests/test_unpacker.py` |
+| Bomb guard: decompression incrementally against limits before materialisation | implemented: `ingest/unpacker/` (archive headers are not trusted), `backend/tests/test_unpacker.py` |
+| Top-level `_preview`/`_version`/`_encoded` in a dist refused | implemented: `ingest/unpacker/root.py` (`RESERVED_SEGMENTS`), `backend/tests/test_unpacker.py` |
 | Atomic rename on the same volume (no EXDEV/copy fallback) | implemented: `ingest/store.py`, `backend/tests/test_store.py` |
 | Atomic live swap and preview upsert | implemented: `ingest/service.py` (pointer swap in the same transaction, upsert with `ON CONFLICT`), `backend/tests/test_ingest_service.py` |
 | A filling content volume is visible: `GET /-/healthz` lists `storage` when the free space is below `TOON_STORAGE_MIN_FREE_BYTES` plus `TOON_INGEST_MAX_TOTAL`, and `content_root` when, in production, the content root is not a mount point (checked once at startup); an ERROR line at most once per hour for the low space, measured by a periodic task every five minutes. Neither refuses to start | implemented: `platform/health.py`, `ingest/storage_health.py`, `main.py`, `backend/tests/test_storage_health.py` |

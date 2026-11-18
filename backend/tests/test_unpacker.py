@@ -21,14 +21,13 @@ from toon.config import Settings
 from toon.ingest.unpacker import (
     BundleError,
     Limits,
-    _safe_segments,
-    _Tree,
-    _write_entry,
     is_archive_junk,
 )
 from toon.ingest.unpacker import (
     unpack as unpack_archive,
 )
+from toon.ingest.unpacker.paths import _safe_segments
+from toon.ingest.unpacker.writing import _Tree, _write_entry
 
 LIMITS = Limits(max_file=100_000, max_total=200_000, max_files=10, max_depth=5)
 
