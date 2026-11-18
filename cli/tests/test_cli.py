@@ -842,6 +842,8 @@ def test_an_unusable_host_gives_exit_2_and_one_line_instead_of_a_traceback(
     assert captured.err == f"Error: {NOT_A_VALID_HOST}\n"
 
 
+_FEEDBACK_ID = "00000000-0000-4000-8000-000000000001"
+
 _COMMANDS = {
     "login": ["login", "--no-open"],
     "logout": ["logout"],
@@ -851,6 +853,12 @@ _COMMANDS = {
     "group-create": ["group", "create", "team-aurora", "--name", "Team Aurora"],
     "site-create": ["site", "create", "team-aurora/website", "--title", "Website"],
     "site-link": ["site", "link", "team-aurora/website", "minbzk/website"],
+    "feedback-list": ["feedback", "list", "--site", "team-aurora/website"],
+    "feedback-show": ["feedback", "show", _FEEDBACK_ID, "--site", "team-aurora/website"],
+    "feedback-seen": ["feedback", "seen", _FEEDBACK_ID, "--site", "team-aurora/website"],
+    "feedback-resolve": ["feedback", "resolve", _FEEDBACK_ID, "--site", "team-aurora/website"],
+    "feedback-reopen": ["feedback", "reopen", _FEEDBACK_ID, "--site", "team-aurora/website"],
+    "feedback-reply": ["feedback", "reply", _FEEDBACK_ID, "--site", "team-aurora/website", "--message", "ok"],
 }
 
 
@@ -5870,6 +5878,10 @@ _TOKEN_COMMANDS = {
     "whoami": (["whoami"], _json_responder(200, {"member": {"email": "iemand@example.nl"}})),
     "group-create": (["group", "create", "team", "--name", "Team"], _json_responder(201, _group_answer())),
     "logout": (["logout"], _empty_responder(204)),
+    "feedback-list": (
+        ["feedback", "list", "--site", "team-aurora/website"],
+        _json_responder(200, {"items": [], "counts": {}, "nextCursor": None}),
+    ),
 }
 
 _NO_TOON_ACCESS_TOKEN = pytest.mark.parametrize(
@@ -5906,7 +5918,9 @@ def test_without_a_toon_access_token_the_session_is_sent(
     assert request["headers"]["Authorization"] == "Bearer uit-de-sessie"
 
 
-@pytest.mark.parametrize(("command", "code"), [("whoami", 2), ("group-create", 2), ("logout", 0)])
+@pytest.mark.parametrize(
+    ("command", "code"), [("whoami", 2), ("group-create", 2), ("logout", 0), ("feedback-list", 2)]
+)
 @_NO_TOON_ACCESS_TOKEN
 def test_without_a_toon_access_token_or_a_session_nothing_is_sent(
     stub_server, host, isolated_cwd, monkeypatch, command, code, variables

@@ -111,6 +111,7 @@ describe('privacy statement', () => {
         'een platformbeheerder zou de tijden naast elkaar kunnen leggen',
         'zodat het team van een site opmerkingen over die site kan lezen, beantwoorden en afhandelen',
         'Of een site feedback aanneemt, en van wie, kiest de beheerder van die site.',
+        'Wie feedback zo in een AI-assistent laadt, beslist zelf over die verwerker.',
         'de schermafbeelding 30 dagen nadat de feedback is afgehandeld',
         'om afgeschermde content te bekijken of om feedback te geven met je account',
         'zien alleen redacteuren en beheerders van de site',
@@ -119,6 +120,7 @@ describe('privacy statement', () => {
         'Feedback met alleen een naam of zonder naam kun je later niet terugvinden of zelf verwijderen.',
         'ook op een openbare site, bijvoorbeeld om feedback te geven met je account',
         'Mijn feedback staat in de knop zolang je op die site feedback geeft met je account. Kom je later terug, dan kies je eerst Met je account versturen of Feedback geven met je account, log je in en zeg je opnieuw ja. Dat beëindig je daarna weer met Stoppen met feedback via je account.',
+        'Een schermafbeelding die het team zo ophaalt, en wat een AI-assistent van feedback in zijn eigen geschiedenis bewaart, zijn kopieën buiten Toon. De bewaartermijnen hieronder en het verwijderen door de indiener gelden daar niet voor, dus die kopieën opruimen is aan het team.',
       ],
     ],
     [
@@ -139,6 +141,7 @@ describe('privacy statement', () => {
         'a platform administrator could put the times side by side',
         'so the team of a site can read, answer and resolve remarks about that site',
         'Whether a site takes feedback, and from whom, is chosen by the administrator of that site.',
+        'Whoever loads feedback into an AI assistant that way decides about that processor themselves.',
         'the screenshot 30 days after the feedback was resolved',
         'to view restricted content or to give feedback with your account',
         'is seen only by editors and administrators of the site',
@@ -147,9 +150,10 @@ describe('privacy statement', () => {
         'Feedback sent with only a name or without a name cannot be found again later, or deleted by its submitter.',
         'a public one included, for instance to give feedback with your account',
         'My feedback is in the button while you give feedback on that site with your account. When you come back later, you first choose Send with your account or Give feedback with your account, sign in and say yes again. You end that again afterwards with Stop giving feedback with your account.',
+        "A screenshot the team fetches that way, and what an AI assistant keeps of feedback in its own history, are copies outside Toon. The retention periods below and a submitter's own deletion do not reach them, so removing those copies is up to the team.",
       ],
     ],
-  ] as const)('says in %s what feedback keeps, how long and who sees it', async (locale, sentences) => {
+  ] as const)('says in %s what feedback keeps, how long, who sees it and where it may go', async (locale, sentences) => {
     serve(OPERATOR);
     const wrapper = await render(Privacy, locale);
 

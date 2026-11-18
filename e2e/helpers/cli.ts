@@ -7,8 +7,65 @@
  * token minted directly.
  */
 
+import { execFile } from 'node:child_process';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+import { promisify } from 'node:util';
 import { expect, type APIRequestContext, type Page } from '@playwright/test';
 import { fillMockLogin, onMockLoginPage } from './oidc';
+
+const execFileAsync = promisify(execFile);
+
+const REPO_ROOT = path.resolve(__dirname, '../..');
+
+export interface CliResult {
+  code: number;
+  stdout: string;
+  stderr: string;
+}
+
+/**
+ * Runs the CLI as a contributor does, but with TOON_CONFIG_DIR set to
+ * `configDir`: the CLI keeps its session per user account, and a run must not
+ * overwrite the one a contributor may have.
+ */
+export async function runToon(
+  args: string[],
+  workDir: string,
+  configDir: string,
+  extraEnv: Record<string, string> = {},
+): Promise<CliResult> {
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    // The CLI reads TOON_*: none of it may leak in.
+    if (value !== undefined && !key.startsWith('TOON_')) {
+      env[key] = value;
+    }
+  }
+  env.TOON_CONFIG_DIR = configDir;
+  const command = ['run', '--project', path.join(REPO_ROOT, 'cli'), 'toon', ...args];
+  try {
+    const { stdout, stderr } = await execFileAsync('uv', command, { cwd: workDir, env: { ...env, ...extraEnv } });
+    return { code: 0, stdout, stderr };
+  } catch (error) {
+    const failed = error as { code?: number; stdout?: string; stderr?: string };
+    return { code: failed.code ?? 1, stdout: failed.stdout ?? '', stderr: failed.stderr ?? '' };
+  }
+}
+
+/**
+ * Writes what `toon login --insecure-storage` itself writes after the device
+ * flow: the default host and the session in plain text, only readable by the
+ * owner (the CLI ignores a looser file).
+ */
+export function writeCliSession(configDir: string, host: string, token: string): void {
+  mkdirSync(configDir, { mode: 0o700 });
+  const hosts = {
+    default_host: host,
+    hosts: { [host]: { storage: 'file', access_token: token, refresh_token: '' } },
+  };
+  writeFileSync(path.join(configDir, 'hosts.json'), JSON.stringify(hosts), { mode: 0o600 });
+}
 
 interface DeviceAuthorizationOut {
   deviceCode: string;

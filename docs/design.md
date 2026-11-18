@@ -998,17 +998,20 @@ Code: `auth/oidc.py`, `auth/revalidation.py`, `platform/backchannel.py`,
 The admin API refuses everything that does not demonstrably come from the
 admin origin (§4a) and never sets CORS headers. Session-borne mutations need
 the CSRF double submit against `__Host-toon-csrf`. A `Bearer` Authorization
-header is accepted on the two deploy endpoints and the two CLI session endpoints
-and nowhere else; a middleware answers 401 to any other request carrying one.
+header is accepted on the two deploy endpoints (§8), on the two CLI session
+endpoints (`DELETE /cli/session`, `GET /cli/whoami`) and, with a CLI access
+token only, on the admin routes that create a group or a site, link a
+repository, and read, mark and answer feedback (§16.11). A CI ID token there
+is a 401 (`TOKEN_INVALID`). A middleware answers 401 to any other request
+carrying a Bearer, matched on the method and the exact path shape.
 Deploy tokens no longer exist: a Bearer is either a CI ID token or a CLI access
 token (§8). The feedback widget API on the content host authenticates with a
 scheme of its own, `Authorization: Toon-Feedback <token>`, which that
 middleware leaves alone (§16.8).
 
-Code: `api/origin_guard.py`, `api/admin/__init__.py` (`require_csrf`), `api/deploys.py`
-(`BearerOutsideDeploysMiddleware`). Guarded by: `test_origin_guard.py`,
-`test_admin_api.py`, `test_deploy_api.py`, `test_cli_api.py`,
-`test_feedback_admin_api.py`.
+Code: `api/origin_guard.py`, `api/admin/`, `api/deploys.py`. Guarded by:
+`test_origin_guard.py`, `test_admin_api.py`, `test_deploy_api.py`,
+`test_cli_api.py`, `test_cli_creation.py`, `test_feedback_admin_api.py`.
 
 ### 7.9 Audit
 
@@ -1413,9 +1416,9 @@ Code: `alembic/versions/`, `models/`. Guarded by:
   audit log and the migrations. For site feedback (§16): the injection with each of its
   conditions (`test_feedback_inject.py`), the tokens and the
   consent pages with every refusal, the widget API with every code, the
-  quotas under concurrency, the admin API with its roles, the purge, and a
-  matrix over HTTP that holds every policy and visitor to the gate
-  (`test_feedback_matrix.py`).
+  quotas under concurrency, the admin API with its roles and the CLI token,
+  the purge, and a matrix over HTTP that holds every policy and visitor to
+  the gate (`test_feedback_matrix.py`).
 - **Frontend**: vitest (`npm test` in `frontend/`), including a check on the
   built `index.html` for inline scripts against the CSP of §9. The feedback
   widget is covered the same way, with a guard that imports every module under
@@ -1431,7 +1434,7 @@ Code: `alembic/versions/`, `models/`. Guarded by:
   a secret link, and deleting a site (`e2e/`). Site feedback on a shielded
   preview with the real widget: feedback on a page, on a point with a
   screenshot and on a text, consent and "Mijn feedback", hiding the button,
-  the Feedback tab and an axe check of the open widget
+  the Feedback tab, the CLI and an axe check of the open widget
   (`e2e/tests/feedback.spec.ts`).
 - **Lint**: `just lint` runs `ruff check` over `src` and `tests`.
 - **Security**: the living checklist in `docs/security.md` carries the items of
@@ -1451,7 +1454,7 @@ checked per request).
 
 For site feedback (§16): notifications of new feedback (by mail, in
 Mattermost or otherwise), one inbox across sites, acting on several items at
-once in the admin interface, assigning items,
+once in the admin interface (the CLI marks several at once), assigning items,
 labels, search, editing an item after it was sent, feedback on `_version`
 views and on a site's own 404 page, pins of other people's feedback for
 visitors, screenshots made on the server, real images in screenshots of a
@@ -1481,7 +1484,8 @@ A site admin can let visitors give feedback on the pages of a site: a remark
 about a point or an area on a page, a selected text or the page as a whole, with a
 screenshot if the visitor wants one. For that Toon adds a widget of its own to
 the site's HTML pages on the content host, keeps what comes in with the site,
-and lets the site team handle it on the site's Feedback tab. The stored files of a site do not change: the widget goes
+and lets the site team handle it on the site's Feedback tab or with
+`toon feedback`. The stored files of a site do not change: the widget goes
 into the answer, not into the version.
 
 ### 16.1 Settings and roles
@@ -2331,23 +2335,24 @@ Code: `serving/feedback_api.py`, `serving/feedback_body.py`,
 `test_feedback_admin_api.py`, `test_ratelimit.py`, `test_config.py`,
 `test_app_integration.py`.
 
-### 16.11 The admin API
+### 16.11 The admin API and the CLI
 
 Seven routes of the admin API (`/-/api/v1`, tag `Feedback`):
 
-| Method and path | Minimum role | Audit action |
-|---|---|---|
-| `GET /sites/{group}/{site}/feedback` | reader | none |
-| `GET /sites/{group}/{site}/feedback/{id}` | reader | none |
-| `GET /sites/{group}/{site}/feedback/{id}/screenshot` | reader | none |
-| `PUT /sites/{group}/{site}/feedback/{id}/status` | editor | `feedback_status` |
-| `POST /sites/{group}/{site}/feedback/{id}/replies` | editor | `feedback_reply` |
-| `DELETE /sites/{group}/{site}/feedback/{id}` | admin | `feedback_delete` |
-| `PUT /sites/{group}/{site}/feedback-settings` | admin | `site_feedback` |
+| Method and path | Minimum role | CLI token | Audit action |
+|---|---|---|---|
+| `GET /sites/{group}/{site}/feedback` | reader | yes | none |
+| `GET /sites/{group}/{site}/feedback/{id}` | reader | yes | none |
+| `GET /sites/{group}/{site}/feedback/{id}/screenshot` | reader | yes | none |
+| `PUT /sites/{group}/{site}/feedback/{id}/status` | editor | yes | `feedback_status` |
+| `POST /sites/{group}/{site}/feedback/{id}/replies` | editor | yes | `feedback_reply` |
+| `DELETE /sites/{group}/{site}/feedback/{id}` | admin | no | `feedback_delete` |
+| `PUT /sites/{group}/{site}/feedback-settings` | admin | no | `site_feedback` |
 
 The reads take an admin session without the CSRF header, like every read (an
-`<img>` that loads a screenshot cannot send one). The writes take an admin
-session with CSRF. None of them takes a Bearer (§7.8).
+`<img>` that loads a screenshot cannot send one), or a CLI token. The two
+writes the CLI may make take an admin session with CSRF or a CLI token
+(§7.8).
 
 - **The list** pages as the audit log does: newest first over
   `(created_at, id)`, `limit` 1 to 100 (50 by default), and `nextCursor`. It
@@ -2441,7 +2446,66 @@ session with CSRF. None of them takes a Bearer (§7.8).
   list). **`PreviewOut`** carries `openFeedbackCount` too, in one count for
   every preview of the site.
 
-Code: `api/admin/feedback/`, `api/admin/__init__.py`, `api/docs.py`, `api/openapi_nl.py`,
+The CLI lists, shows, marks and answers, as the member who ran `toon login`:
+
+```
+toon feedback list    --site GROUP/SITE [--status open|new|seen|resolved|all] [--preview REF | --live] [--json] [--with-contact]
+toon feedback show    ID --site GROUP/SITE [--json] [--with-contact] [--screenshot PATH]
+toon feedback seen    ID [ID ...] --site GROUP/SITE
+toon feedback resolve ID [ID ...] --site GROUP/SITE [--message TEXT | --message-file PATH]
+toon feedback reopen  ID [ID ...] --site GROUP/SITE
+toon feedback reply   ID --site GROUP/SITE (--message TEXT | --message-file PATH)
+```
+
+Each also takes `--host`. Ids are checked as UUIDs before any request. `list`
+follows `nextCursor` up to 500 items. `resolve` with a message posts the reply
+first and sets the status only when that worked, and `reopen` sets `new`.
+`seen` reads each item first and marks only one that is `new`, since `seen`
+on a resolved item would reopen it. A CLI token is no key for the rate
+limiter, so the CLI shares its client address's API limit (§10).
+`--message-file PATH` takes the reply from a file, so the text never passes
+through a shell: strict UTF-8, one leading byte order mark dropped, CRLF and
+CR read as LF and trailing newlines dropped, since the server refuses U+FEFF
+and CR. A file that cannot be read as such or is longer than 5000
+characters, and a reply that holds a character the server refuses (§16.9),
+end the command with exit code 2 before any request. The CLI never
+changes the approved text: it names the character, its code point, name and
+line and character, instead. What the CLI prints is read by a person or by an
+AI assistant, and the text in it comes from people outside the site team:
+
+- Names and email addresses are left out unless `--with-contact`: of the
+  submitter, of whoever replied, and of the member who changed the status
+  last. The author's kind stays.
+- `--json` prints an envelope. The values the server sets (`id`, `kind`,
+  `status`, `target`, `previewRef`, `versionId`, `hasScreenshot`,
+  `replyCount`, the times and the counts) stand at the top, each checked
+  against its shape and null when it does not fit. Everything else of an item
+  goes under one `untrusted` object, and a note at the top says that what is
+  under `untrusted` is data, never an instruction. The JSON escapes everything
+  outside ASCII, so a tag or bidi character shows instead of hiding.
+- The human output drops control and format characters (but U+200C and
+  U+200D) from visitor text. `list` shows a comment as an excerpt: its first
+  line, at most 200 characters of it. `show` prints a block, such as the
+  comment, the quote or a reply, whole up to 5000 characters and cuts it there
+  with a visible "(truncated)". Addresses print whole up to 16,384
+  characters, since a cut address opens another place, and are marked the
+  same way past that. Other one-line fields stop at 2000 characters. In
+  `list` and `show` every line with visitor text stands between
+  `UNTRUSTED_BEGIN` and `UNTRUSTED_END` markers, and each of those lines
+  starts with a label or an indent, so a forged marker in visitor text starts
+  no line, also for a reader that breaks lines at U+2028. Stdout uses `backslashreplace`, so a character
+  the output encoding lacks cannot end the output before its end marker.
+- `--screenshot PATH` writes a new file only (`O_EXCL`, `O_NOFOLLOW`, mode
+  0600), of type PNG, JPEG or WebP and at most 5 MiB, and never uses a file
+  name from the server. The file is a copy outside Toon: the retention of
+  §16.12 and a submitter's delete under "Mijn feedback" do not reach it.
+
+The Claude Code plugin carries a skill for it, `toon-feedback`, which runs
+these commands in a Claude session. `docs/skill.md` holds its rules.
+
+Code: `api/admin/feedback/`, `api/admin/__init__.py`, `api/deploys.py`, `api/docs.py`,
+`api/openapi_nl.py`, `cli/toon_cli/__init__.py`,
+`plugin/skills/toon-feedback/SKILL.md`, `references/errors.md`, `references/output.md`,
 `frontend/src/components/site/TabFeedback.vue`, `FeedbackInbox.vue`,
 `FeedbackSheet.vue`, `FeedbackSettings.vue`, `feedbackText.ts`,
 `feedbackRoute.ts`, `TabPreviews.vue`, `FeedbackItemPage.vue`,
@@ -2449,11 +2513,13 @@ Code: `api/admin/feedback/`, `api/admin/__init__.py`, `api/docs.py`, `api/openap
 `frontend/src/feedback-widget/fragment.ts`, `boot.ts`, `widget.ts`,
 `rect.ts`, `anchor.ts`, `styles.ts`, `screenshot.ts`. Guarded by:
 `test_feedback_admin_api.py`, `test_cli_creation.py`,
-`test_api_documentation.py`, `test_openapi_i18n.py`, the component tests
-under `frontend/src/components/site/`,
+`test_api_documentation.py`, `test_openapi_i18n.py`,
+`cli/tests/test_feedback.py`, the component tests under
+`frontend/src/components/site/`,
 `frontend/src/feedback-widget/fragment.test.ts`, `boot.test.ts`,
 `widget.test.ts`, `rect.test.ts`, `anchor.test.ts`, `screenshot.test.ts`,
-and `e2e/tests/feedback.spec.ts`.
+the `feedback-*` evals under `plugin/evals/`, and
+`e2e/tests/feedback.spec.ts`.
 
 ### 16.12 Retention
 

@@ -1,10 +1,11 @@
 """The admin API for site feedback (spec §16.11): the seven routes under
-`/sites/{group}/{site}/feedback` and the feedback fields of SiteOut.
+`/sites/{group}/{site}/feedback`, the feedback fields of SiteOut, and the CLI
+token on the five routes the CLI uses.
 
 The app wires the admin router behind BearerOutsideDeploysMiddleware the way
-main.py does, so a bearer on these routes meets the 401 it meets in
-production. Refusals come first: the role matrix, CSRF, the tokens, then what
-each route does.
+main.py does, so a bearer on a route outside the allowlist meets the 401 it
+meets in production. Refusals come first: the role matrix, CSRF, the tokens,
+then what each route does.
 """
 
 from __future__ import annotations
@@ -48,6 +49,7 @@ from toon.constants import (
 from toon.db import make_session_factory
 from toon.ingest.store import ContentStore
 from toon.models.audit import AuditLogEntry
+from toon.models.cli import CliSession
 from toon.models.feedback import FeedbackItem, FeedbackReply, FeedbackScreenshot
 from toon.models.identity import Group, GroupMember, Member, MemberStatus, PlatformRole, SiteMember
 from toon.models.publication import Preview, Site, Version, VersionTarget
@@ -57,6 +59,7 @@ FEEDBACK = f"{BASE}/sites/team/docs/feedback"
 PROBLEM = "application/problem+json"
 PEPPER = "audit-pepper-van-minstens-32-bytes!!"
 WWW_AUTHENTICATE = 'Bearer realm="toon", error="invalid_token"'
+JWT_SHAPED = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ4In0.c2ln"
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 24
 POINT_ANCHOR = {
     "selectors": [{"type": "CssSelector", "value": "main > p:nth-of-type(3)"}],
@@ -347,6 +350,7 @@ CALLERS = {
     "outsider": None,
     "platform_admin": None,
 }
+CLI_ROUTES = ("list", "detail", "screenshot", "status", "reply")
 
 
 async def _call(client, route: str, item: FeedbackItem, headers: dict[str, str]):
@@ -384,6 +388,19 @@ async def test_the_session_role_matrix(client, app, factory, world, route, calle
     _expect(response, route, caller)
 
 
+@pytest.mark.parametrize("caller", list(CALLERS))
+@pytest.mark.parametrize("route", CLI_ROUTES)
+async def test_the_cli_token_role_matrix(client, factory, world, route, caller):
+    """The CLI token is the member: the same roles decide, with no CSRF."""
+    item = await _item(factory, world.site)
+    await _screenshot(factory, item)
+    token = await _token(factory, getattr(world, caller))
+
+    response = await _call(client, route, item, _bearer(token))
+
+    _expect(response, route, caller)
+
+
 # -- Sessions, CSRF and tokens ------------------------------------------------
 
 
@@ -412,8 +429,20 @@ async def test_a_session_mutation_without_the_csrf_header_is_refused(client, app
         assert (await db.get(Site, world.site.id)).feedback_enabled is False
 
 
-@pytest.mark.parametrize("route", list(ROUTES))
-async def test_a_valid_cli_token_of_an_admin_is_refused_on_every_route(client, factory, world, route):
+@pytest.mark.parametrize("route", CLI_ROUTES)
+async def test_a_ci_id_token_is_401_and_names_the_cli_token(client, factory, world, route):
+    item = await _item(factory, world.site)
+
+    response = await _call(client, route, item, _bearer(JWT_SHAPED))
+
+    body = _problem(response, 401, "TOKEN_INVALID")
+    assert "toon login" in body["detail"]
+    assert response.headers["WWW-Authenticate"] == WWW_AUTHENTICATE
+    assert (await _stored(factory, item)).status == FeedbackStatus.NEW
+
+
+@pytest.mark.parametrize("route", ["delete", "settings"])
+async def test_a_valid_cli_token_of_an_admin_cannot_delete_or_change_the_settings(client, factory, world, route):
     item = await _item(factory, world.site)
     token = await _token(factory, world.admin)
 
@@ -421,10 +450,7 @@ async def test_a_valid_cli_token_of_an_admin_is_refused_on_every_route(client, f
 
     _problem(response, 401, "BEARER_NOT_ACCEPTED")
     assert response.headers["WWW-Authenticate"] == WWW_AUTHENTICATE
-    stored = await _stored(factory, item)
-    assert stored is not None
-    assert stored.status == FeedbackStatus.NEW
-    assert await _count(factory, FeedbackReply) == 0
+    assert await _stored(factory, item) is not None
     async with factory() as db:
         assert (await db.get(Site, world.site.id)).feedback_enabled is False
 
@@ -432,25 +458,72 @@ async def test_a_valid_cli_token_of_an_admin_is_refused_on_every_route(client, f
 @pytest.mark.parametrize(
     ("route", "status", "replies"), [("status", FeedbackStatus.SEEN, 0), ("reply", FeedbackStatus.NEW, 1)]
 )
-async def test_a_field_a_newer_cli_may_send_is_ignored_not_refused(
-    client, app, factory, world, route, status, replies
-):
+async def test_a_field_a_newer_cli_may_send_is_ignored_not_refused(client, factory, world, route, status, replies):
     """The CLI's feedback commands send these two bodies and the CLI ships
     apart from the server, so like every CLI body they ignore a field this
     server does not know (the session-only bodies refuse one:
-    TestUnknownBodyFields in test_admin_api.py). The token is refused on these
-    routes, so a session sends the field here."""
+    TestUnknownBodyFields in test_admin_api.py)."""
     item = await _item(factory, world.site)
-    headers = _login(client, app, world.editor)
+    token = await _token(factory, world.editor)
     method_, suffix, body, success, _ = ROUTES[route]
 
     response = await client.request(
-        method_, FEEDBACK + suffix.format(item=item.id), json={**body, "fromANewerCli": True}, headers=headers
+        method_, FEEDBACK + suffix.format(item=item.id), json={**body, "fromANewerCli": True}, headers=_bearer(token)
     )
 
     assert response.status_code == success, response.text
     assert (await _stored(factory, item)).status == status
     assert await _count(factory, FeedbackReply) == replies
+
+
+@pytest.mark.parametrize("with_session", [False, True])
+@pytest.mark.parametrize("route", ["list", "status", "reply"])
+async def test_an_unknown_cli_token_is_401_also_beside_a_valid_session(
+    client, app, factory, world, route, with_session
+):
+    """With a bearer header the bearer decides, on a read as on a mutation,
+    also beside an editor's session with a valid CSRF header."""
+    item = await _item(factory, world.site)
+    headers = _login(client, app, world.editor) if with_session else {}
+
+    response = await _call(client, route, item, {**headers, **_bearer("tooncli_abc_def")})
+
+    _problem(response, 401, "TOKEN_INVALID")
+    assert response.headers["WWW-Authenticate"] == WWW_AUTHENTICATE
+    assert (await _stored(factory, item)).status == FeedbackStatus.NEW
+    assert await _count(factory, FeedbackReply) == 0
+
+
+async def test_the_token_of_a_deactivated_member_is_403(client, factory, world):
+    token = await _token(factory, world.editor)
+    async with factory() as db:
+        await db.execute(update(Member).where(Member.id == world.editor.id).values(status=MemberStatus.DEACTIVATED))
+        await db.commit()
+
+    response = await client.get(FEEDBACK, headers=_bearer(token))
+
+    _problem(response, 403, "MEMBER_NOT_ACTIVE")
+
+
+async def test_a_refusal_with_the_cli_token_is_audited_as_the_cli_member(client, factory, world):
+    item = await _item(factory, world.site)
+    token = await _token(factory, world.reader)
+
+    response = await client.put(f"{FEEDBACK}/{item.id}/status", json={"status": "seen"}, headers=_bearer(token))
+
+    _problem(response, 403, "INSUFFICIENT_ROLE")
+    [row] = await _rows(factory, "admin_access")
+    assert (row.result, row.reason_code) == ("refused", "INSUFFICIENT_ROLE")
+    assert row.actor_pseudonym == pseudonymise(PEPPER, "lezer")
+    async with factory() as db:
+        session_id = str(await db.scalar(select(CliSession.id).where(CliSession.member_id == world.reader.id)))
+    assert row.refs == {
+        "method": "PUT",
+        "route": f"{BASE}/sites/{{group_slug}}/{{site_slug}}/feedback/{{item_id}}/status",
+        "status": 403,
+        "via": "cli",
+        "cli_session": session_id,
+    }
 
 
 # -- The list -------------------------------------------------------------------
@@ -1270,6 +1343,27 @@ async def test_a_status_that_is_none_of_the_three_is_422(client, app, factory, w
     assert (await _stored(factory, item)).status == FeedbackStatus.NEW
 
 
+async def test_the_cli_marks_and_the_audit_row_says_cli(client, factory, world):
+    item = await _item(factory, world.site)
+    token = await _token(factory, world.editor)
+
+    response = await _set_status(client, item, "resolved", _bearer(token))
+
+    assert response.status_code == 200, response.text
+    [row] = await _rows(factory, "feedback_status")
+    async with factory() as db:
+        session_id = str(await db.scalar(select(CliSession.id).where(CliSession.member_id == world.editor.id)))
+    assert row.refs == {
+        "group": "team",
+        "site": "docs",
+        "item": str(item.id),
+        "from": "new",
+        "to": "resolved",
+        "via": "cli",
+        "cli_session": session_id,
+    }
+
+
 # -- Replies ------------------------------------------------------------------------
 
 
@@ -1450,6 +1544,20 @@ async def test_a_burst_of_replies_stops_exactly_at_the_cap(client, app, factory,
 
     assert sorted(response.status_code for response in responses) == [201] * 5 + [409] * 7
     assert await _count(factory, FeedbackReply, item_id=item.id) == FEEDBACK_MAX_REPLIES
+
+
+async def test_the_cli_replies_and_the_audit_row_says_cli_without_the_text(client, factory, world):
+    item = await _item(factory, world.site)
+    token = await _token(factory, world.editor)
+
+    response = await client.post(
+        f"{FEEDBACK}/{item.id}/replies", json={"body": "Vertrouwelijk antwoord."}, headers=_bearer(token)
+    )
+
+    assert response.status_code == 201, response.text
+    [row] = await _rows(factory, "feedback_reply")
+    assert row.refs["via"] == "cli"
+    assert "Vertrouwelijk" not in json.dumps(row.refs)
 
 
 # -- Deleting ---------------------------------------------------------------------

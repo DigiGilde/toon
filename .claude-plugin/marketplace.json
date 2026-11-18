@@ -1,6 +1,6 @@
 {
   "name": "toon",
-  "description": "The Toon plugin: skills for publishing a static site to a Toon instance.",
+  "description": "The Toon plugin: skills for publishing a static site to a Toon instance and working through the feedback on it.",
   "owner": {
     "name": "Toon team",
     "email": "digigilde@rijksoverheid.nl"
@@ -9,7 +9,7 @@
     {
       "name": "toon",
       "source": "./plugin",
-      "description": "Publish a static site to a Toon instance: a preview by default, live only when the user asks for it.",
+      "description": "Publish a static site to a Toon instance (a preview by default, live only when the user asks for it) and work through the feedback visitors leave on it.",
       "author": {
         "name": "Toon team"
       }

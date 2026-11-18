@@ -189,9 +189,14 @@ item. `refs` carries group, site and `item`.
 takes its replies and its screenshot along. `refs` carries group, site and
 `item`.
 
-None of these rows ever carries the comment, the quote, a reply, a name or
-an email address: what was said stays with the item, and goes when the item
-goes.
+Through the CLI token from `toon login` (`toon feedback seen`, `resolve`,
+`reopen` and `reply`), a `feedback_status` or `feedback_reply` row also
+carries `refs.via` with the value `cli` and `refs.cli_session` with the id of
+the CLI session, as a creation does. `resolve` with `--message` or
+`--message-file` writes the `feedback_reply` row first, then the
+`feedback_status` row. None of these rows ever carries the comment, the
+quote, a reply, a name or an email address: what was said stays with the
+item, and goes when the item goes.
 
 What happens through the feedback widget on the content host writes no row:
 giving feedback, a submitter replying to or deleting their own item, saying

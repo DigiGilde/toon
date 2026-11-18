@@ -64,7 +64,7 @@ such rather than assumed.
 | `cli_sessions` / `cli_refresh_tokens` (`models/cli.py`) | `member_id`, `client_name`, token selector/hash pairs | CLI publishing sessions | approved by a member in an admin session | access token 1 hour; session up to 30 days after last refresh, 90 days absolute (`docs/security.md`, "CI id token"/"CLI device flow") |
 | Published content (files on the content volume) | whatever the publisher includes: potentially names, contact details or special categories of data (AVG art. 9) | the published site itself | uploaded by a publisher (member or CI) | until the site or version is removed; Toon does not parse, classify or scan content for personal data |
 | `feedback_items` (`models/feedback.py`) | The comment. The page (its path within the site or preview, its title). The place on it (`anchor`: the CSS selector of an element and the point or the area in it, or the quoted text with at most 32 characters around it). The window size (`viewport`: width, height, device pixel ratio), the version, and the moment it came in (`created_at`). Per author kind: `account` the SSO `sub`, the name, and the email address when the IdP marked it verified. `name` the name the submitter typed, which nobody checked. `anonymous` nothing about the person. The status, and the member who changed it last (`status_changed_by`, an id) | collecting remarks on a site's pages, so that the site team can read, answer and resolve them | the submitter, through the widget. The account fields come from the consented content session, never from the request | with its site or group, or when a site admin deletes it, or its submitter for an item sent with an account. Otherwise a resolved item 90 days after `resolved_at` and an item still new or seen 365 days after `created_at` (`TOON_FEEDBACK_RESOLVED_RETENTION_DAYS`, `TOON_FEEDBACK_OPEN_RETENTION_DAYS`), see "Retention and deletion" |
-| `feedback_replies` (`models/feedback.py`) | The text of a reply. For a reply of the site team the member's id, by which the reply shows the member's current name and never their email address, for a reply of the submitter no member | the conversation between the site team and the submitter | members, in the admin, and submitters who sent with an account, under "Mijn feedback" in the widget | with its item |
+| `feedback_replies` (`models/feedback.py`) | The text of a reply. For a reply of the site team the member's id, by which the reply shows the member's current name and never their email address, for a reply of the submitter no member | the conversation between the site team and the submitter | members, in the admin or with the CLI, and submitters who sent with an account, under "Mijn feedback" in the widget | with its item |
 | `feedback_screenshots` (`models/feedback.py`) | An image of the submitter's viewport, or of the part of it they chose, with what they covered painted over. It can show any personal data that was on the screen: of the submitter, of people named on the page, of anyone else. | showing the site team what the submitter saw | made in the submitter's browser by the widget. The submitter sees it before sending and can cover parts of it or leave it out | with its item, and for a resolved item 30 days after `resolved_at` (`TOON_FEEDBACK_SCREENSHOT_RETENTION_DAYS`) |
 | Feedback write counters (`serving/feedback_api.py`) | per author and site a key, the start of its window and a count, and per site a key with the same. The author's key is the site's id together with the session's `sub` when the page token carries a consented session, with the `sub` of the session that let a signed-in visitor in when the token carries one for the gate alone (under a key of its own), and otherwise with the client's IP address (an IPv6 address by its /64). The site's key is its id alone | limiting misuse of the widget | authors count attempts, a site counts accepted writes. The author's counter counts every attempt at a write through the widget, a create, a reply or a delete, that passes authentication, refused ones included, before its body is read. The site's counter reserves a write for every attempt its author's budget admits and gives it back unless the write is stored, so it holds the writes that are stored and those still in flight | in process memory only, for the window of `FEEDBACK_WRITES_WINDOW_S` (600 s) and at most one more window after it ends, lost on a restart |
 | Feedback bodies in flight (`serving/feedback_body.py`, `BodyBudget`) | per client its IP address (an IPv6 address by its /64) and how many request bodies it has in flight | keeping the memory that uploads take bounded, so one client cannot hold all of it | every create or reply through the widget, from before its body is read until its request is done | in process memory only, until none of that client's requests is in flight, lost on a restart |
@@ -108,7 +108,9 @@ email address of a submitter with an account is for the site's editors and
 admins only: the admin API leaves it out for a reader. A submitter who sent
 with their account sees their own items again in the widget, under "Mijn
 feedback" (my feedback), with the team's replies and the name of the member
-who wrote each, never an email address, and can delete them there.
+who wrote each, never an email address, and can delete them there. The
+site team can also fetch feedback with `toon feedback`, which leaves names
+and email addresses out unless asked for them with `--with-contact`.
 
 **The hide cookie.** The widget stores nothing in the visitor's browser. Only
 when the visitor hides the button until the browser closes does Toon set
@@ -318,6 +320,15 @@ Open items, to be completed by the controller before go-live:
   can say, such as the legal basis, the FG and the hosting, the organisation
   that runs an installation adds itself. No FG has reviewed it. It covers site
   feedback as well, and the feedback widget and the consent page link to it.
+- An AI assistant as a processor of feedback: the site team can load feedback
+  into one through the Toon CLI, for instance with the `toon-feedback` skill
+  (`docs/skill.md`). That is the publisher's own choice of processor, outside
+  Toon, and whether an organisation allows it, and with which assistant, is
+  for its own policy. A screenshot fetched with `toon feedback show
+  --screenshot`, and whatever an assistant keeps of feedback in its own
+  session history, are copies outside Toon: the retention terms and a
+  submitter's own delete do not reach them, and removing them is the site
+  team's job. The privacy statement says both (`page.privacy.processors.ai`).
 
 ## Risks
 

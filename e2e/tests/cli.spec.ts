@@ -8,14 +8,12 @@
  * assertions are made on the content host, against what a visitor sees.
  */
 
-import { execFile } from 'node:child_process';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { promisify } from 'node:util';
 import { expect, test, type APIRequestContext, type BrowserContext, type Page } from '@playwright/test';
 import { adminFetch, body, newHostContext } from '../helpers/api';
-import { cliLoginToken } from '../helpers/cli';
+import { cliLoginToken, runToon, writeCliSession, type CliResult } from '../helpers/cli';
 import { logInOnAdmin } from '../helpers/oidc';
 import {
   ADMIN_EMAIL,
@@ -27,9 +25,6 @@ import {
   NEUTRAL_404,
 } from '../helpers/environment';
 
-const execFileAsync = promisify(execFile);
-
-const REPO_ROOT = path.resolve(__dirname, '../..');
 const GROUP = 'cli-groep';
 const SITE = 'website';
 const SITE_PATH = `/${GROUP}/${SITE}`;
@@ -45,37 +40,8 @@ let workDir: string;
 let previewDist: string;
 let liveDist: string;
 
-interface CliResult {
-  code: number;
-  stdout: string;
-  stderr: string;
-}
-
-/**
- * Runs the CLI as a contributor does, but with TOON_CONFIG_DIR in a temp
- * dir: the CLI keeps its session per user account, and a run must not
- * overwrite the one a contributor may have.
- */
-async function toon(args: string[], extraEnv: Record<string, string> = {}): Promise<CliResult> {
-  const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries(process.env)) {
-    // The CLI reads TOON_*: none of it may leak in.
-    if (value !== undefined && !key.startsWith('TOON_')) {
-      env[key] = value;
-    }
-  }
-  env.TOON_CONFIG_DIR = configDir();
-  const command = ['run', '--project', path.join(REPO_ROOT, 'cli'), 'toon', ...args];
-  try {
-    const { stdout, stderr } = await execFileAsync('uv', command, {
-      cwd: workDir,
-      env: { ...env, ...extraEnv },
-    });
-    return { code: 0, stdout, stderr };
-  } catch (error) {
-    const failed = error as { code?: number; stdout?: string; stderr?: string };
-    return { code: failed.code ?? 1, stdout: failed.stdout ?? '', stderr: failed.stderr ?? '' };
-  }
+function toon(args: string[], extraEnv: Record<string, string> = {}): Promise<CliResult> {
+  return runToon(args, workDir, configDir(), extraEnv);
 }
 
 function configDir(): string {
@@ -141,15 +107,7 @@ test.describe.serial('Toon CLI against the e2e stack', () => {
       email: ADMIN_EMAIL,
     });
     expect(token).toMatch(/^tooncli_/);
-    // What `toon login --insecure-storage` itself writes after the device
-    // flow: the default host and the session in plain text, only readable by
-    // the owner (the CLI ignores a looser file).
-    mkdirSync(configDir(), { mode: 0o700 });
-    const hosts = {
-      default_host: ADMIN_URL,
-      hosts: { [ADMIN_URL]: { storage: 'file', access_token: token, refresh_token: '' } },
-    };
-    writeFileSync(path.join(configDir(), 'hosts.json'), JSON.stringify(hosts), { mode: 0o600 });
+    writeCliSession(configDir(), ADMIN_URL, token);
 
     const preview = await toon([
       'publish',

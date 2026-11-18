@@ -64,7 +64,7 @@ export const pagesEn: Record<keyof typeof pagesNl, string> = {
     'Turn on the feedback button and visitors of your preview or site point at a spot, an area or a text and leave a remark. Your team reads, answers and resolves it on the Feedback tab.',
   'page.about.features.cli.term': 'From your own computer.',
   'page.about.features.cli.body':
-    'With the Toon CLI you publish from your laptop, once you have linked it to your account.',
+    'With the Toon CLI you publish from your laptop and fetch feedback to answer, once you have linked it to your account.',
   'page.about.name.heading': 'Did you know',
   'page.about.name.body':
     'The name comes from the Dutch word tonen, to show. Toon shows your page or site to whoever may see it. That can be everyone, or only a small group.',
@@ -110,6 +110,8 @@ export const pagesEn: Record<keyof typeof pagesNl, string> = {
     'Processors and hosting',
   'page.privacy.processors.body':
     'Toon itself uses no web analytics and shares no data with other parties. Where this installation is hosted and which sign-in service it uses is up to the organisation that runs it.',
+  'page.privacy.processors.ai':
+    "The team of a site can also fetch feedback with the Toon CLI, for instance to load it into an AI assistant. The CLI then leaves names and e-mail addresses out, unless asked for them. Whoever loads feedback into an AI assistant that way decides about that processor themselves. A screenshot the team fetches that way, and what an AI assistant keeps of feedback in its own history, are copies outside Toon. The retention periods below and a submitter's own deletion do not reach them, so removing those copies is up to the team.",
   'page.privacy.retention.heading':
     'Retention period',
   'page.privacy.retention.body':
@@ -218,7 +220,7 @@ export const pagesEn: Record<keyof typeof pagesNl, string> = {
   'page.cliPair.confirm.question': 'Does your terminal show the same code?',
   'page.cliPair.confirm.account': 'You are linking this program to {account}',
   'page.cliPair.confirm.accountHint':
-    'After that the program can publish with all of your roles, until you unlink it.',
+    'After that the program can do everything the Toon CLI can with all of your roles, such as publishing, and reading, resolving and answering the feedback on your sites, with names, e-mail addresses and screenshots. That lasts until you unlink it.',
   'page.cliPair.confirm.client': 'Program, as it calls itself: "{name}"',
   'page.cliPair.confirm.requested': 'Requested: {time}',
   'page.cliPair.confirm.network': 'From network {network}',

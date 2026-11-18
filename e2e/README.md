@@ -55,22 +55,24 @@ and on the usual Linux setups).
 - `helpers/cli.ts`: `toon login` (device flow): a request on the Node
   side, approving it in the real SPA on `/cli-link` with the
   already logged-in admin page, and the token exchange on the Node side
-  again; yields the CLI token that the bearer deploys use.
+  again; yields the CLI token that the bearer deploys use. Also the session
+  file `toon login --insecure-storage` writes, and a run of the real CLI
+  (`uv run --project cli toon ...`) against its own `TOON_CONFIG_DIR`.
 - `helpers/tar.ts`: builds the multi-file dist fixtures (html + css +
   subdirectory) in memory as `.tar.gz`.
 - `tests/toon.spec.ts`: the scenarios, built up serially.
-- `tests/cli.spec.ts`: the real CLI (`uv run --project cli toon ...`)
-  against the same stack: publishing a preview and a live version,
-  removing the preview and logging out. It points `TOON_CONFIG_DIR` at
-  a temp directory, because the CLI keeps its session per user account
-  and a run must not touch a contributor's own.
+- `tests/cli.spec.ts`: the real CLI against the same stack: publishing a
+  preview and a live version, removing the preview and logging out. It
+  points `TOON_CONFIG_DIR` at a temp directory, because the CLI keeps its
+  session per user account and a run must not touch a contributor's own.
 - `tests/shared-origin.spec.ts`: a page of another site cannot read a
   restricted site from the browser cache (#152).
 - `tests/feedback.spec.ts`: site feedback across both origins on a
   shielded preview with the real widget, from giving it (every kind, a
   screenshot, consent with an account, "Mijn feedback", hiding the button,
-  links to a place) to handling it on the admin Feedback tab, with the
-  keyboard, small windows and an axe audit of the open widget.
+  links to a place) to handling it on the admin Feedback tab and with the
+  CLI (a reply from `--message-file`), with the keyboard, small windows and
+  an axe audit of the open widget.
 - `tests/feedback-markdown.spec.ts`: Markdown and HTML in feedback, in the
   widget and on the Feedback tab.
 - `tests/feedback-boundaries.spec.ts`: what the widget relies on, in the

@@ -33,6 +33,7 @@ const operator = useOperator();
     <p>{{ t('page.privacy.purpose.feedback') }}</p>
     <h2>{{ t('page.privacy.processors.heading') }}</h2>
     <p>{{ t('page.privacy.processors.body') }}</p>
+    <p>{{ t('page.privacy.processors.ai') }}</p>
     <h2>{{ t('page.privacy.retention.heading') }}</h2>
     <p>{{ t('page.privacy.retention.body') }}</p>
     <p>{{ t('page.privacy.retention.ip') }}</p>
