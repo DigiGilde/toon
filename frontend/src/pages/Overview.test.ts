@@ -557,7 +557,7 @@ describe('Overview', () => {
       await flushPromises();
 
       // No role gates this item: the backend lets every active member create
-      // a group (create_group in api/admin/__init__.py).
+      // a group (create_group in api/admin/groups/group.py).
       await selectCreateGroup();
       expect(wrapper!.findComponent(NewGroupSheet).props('open')).toBe(true);
 

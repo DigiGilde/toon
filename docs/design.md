@@ -97,7 +97,7 @@ Two reading concessions follow from that, not a bypass: a platform administrator
 sees that a site exists (they can read every group, its sites included), so they get a 403
 rather than the 404 a stranger gets.
 
-Code: `api/authorization.py`, `api/admin/__init__.py` (`_group_with_role` with
+Code: `api/authorization.py`, `api/admin/lookup.py` (`_group_with_role` with
 `platform_admin=True`, `_site_with_role`). Guarded by: `test_admin_api.py`.
 
 ### 3.5 Adding somebody is picking a role
@@ -513,7 +513,7 @@ A hash covers a `<style>` element, not a `style=""` attribute, so these pages
 carry none.
 
 Code: `serving/response.py` (`_CONTENT_DIRECTIVES`, `EXTERNAL_SOURCES`,
-`SANDBOX`, `content_csp`, `platform_csp`), `api/admin/__init__.py` (`PUT .../external-sources`,
+`SANDBOX`, `content_csp`, `platform_csp`), `api/admin/sites/site.py` (`PUT .../external-sources`,
 `PUT .../sandbox`), `serving/feedback_consent.py` (`CONSENT_PAGE_HEADERS`).
 Guarded by: `test_serving.py`, `test_security_headers.py`,
 `test_admin_api.py`, `test_feedback_consent.py`, `test_feedback_api.py`.
@@ -2503,7 +2503,7 @@ AI assistant, and the text in it comes from people outside the site team:
 The Claude Code plugin carries a skill for it, `toon-feedback`, which runs
 these commands in a Claude session. `docs/skill.md` holds its rules.
 
-Code: `api/admin/feedback/`, `api/admin/__init__.py`, `api/deploys.py`, `api/docs.py`,
+Code: `api/admin/feedback/`, `api/admin/dependencies.py`, `api/deploys.py`, `api/docs.py`,
 `api/openapi_nl.py`, `cli/toon_cli/__init__.py`,
 `plugin/skills/toon-feedback/SKILL.md`, `references/errors.md`, `references/output.md`,
 `frontend/src/components/site/TabFeedback.vue`, `FeedbackInbox.vue`,

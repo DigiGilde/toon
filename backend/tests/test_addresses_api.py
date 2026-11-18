@@ -15,6 +15,7 @@ import asyncio
 import uuid
 from dataclasses import dataclass
 from datetime import timedelta
+from types import ModuleType
 
 import httpx
 import pytest
@@ -35,8 +36,10 @@ from test_admin_api import (  # noqa: F401 - fixtures are found by name
     login,
 )
 
-from toon.api import admin
-from toon.api.admin import CREATION_MAX_PER_WINDOW
+from toon.api.admin import dependencies
+from toon.api.admin.dependencies import CREATION_MAX_PER_WINDOW
+from toon.api.admin.groups import group as group_routes
+from toon.api.admin.sites import site as site_routes
 from toon.audit.pseudonymisation import pseudonymise
 from toon.constants import MAX_PREVIOUS_SLUGS, SLUG_REDIRECT_DAYS, AccessBase, Role
 from toon.models.audit import AuditLogEntry
@@ -61,6 +64,10 @@ class Subject:
     original: str
     action: str
     route: str
+
+    @property
+    def module(self) -> ModuleType:
+        return group_routes if self.kind == "group" else site_routes
 
     def url(self, current: str) -> str:
         if self.kind == "group":
@@ -238,7 +245,7 @@ class TestTheRulesBothShare:
         await _assert_refusal_logged(factory, code="TOO_MANY_CREATIONS", route=subject.route)
 
     async def test_creating_and_changing_share_one_budget(self, client, app, data, factory, subject, monkeypatch):
-        monkeypatch.setattr(admin, "CREATION_MAX_PER_WINDOW", 1)
+        monkeypatch.setattr(dependencies, "CREATION_MAX_PER_WINDOW", 1)
         headers = _as_group_admin(client, app)
         created = await client.post(f"{BASE}/groups", json={"name": "Nieuw", "slug": "nieuwe-groep"}, headers=headers)
         assert created.status_code == 201
@@ -331,14 +338,14 @@ class TestTheRulesBothShare:
         await _join_group(factory, data.group, data.member_b, Role.ADMIN)
         lookup = "_group_with_role" if subject.kind == "group" else "_site_with_role"
         barrier = asyncio.Barrier(2)
-        real = getattr(admin, lookup)
+        real = getattr(subject.module, lookup)
 
         async def meet(*args, **kwargs):
             found = await real(*args, **kwargs)
             await barrier.wait()
             return found
 
-        monkeypatch.setattr(admin, lookup, meet)
+        monkeypatch.setattr(subject.module, lookup, meet)
         first = _as_group_admin(client, app)
         url = subject.url(subject.original)
         async with make_test_client(app) as other:
@@ -361,14 +368,14 @@ class TestTheRulesBothShare:
         await _join_group(factory, data.group, data.member_b, Role.ADMIN)
         lookup = "_group_with_role" if subject.kind == "group" else "_site_with_role"
         barrier = asyncio.Barrier(2)
-        real = getattr(admin, lookup)
+        real = getattr(subject.module, lookup)
 
         async def meet(*args, **kwargs):
             found = await real(*args, **kwargs)
             await barrier.wait()
             return found
 
-        monkeypatch.setattr(admin, lookup, meet)
+        monkeypatch.setattr(subject.module, lookup, meet)
         first = _as_group_admin(client, app)
         url = subject.url(subject.original)
         async with make_test_client(app) as other:
@@ -630,7 +637,7 @@ class TestReleasingAnotherSitesSlug:
     ):
         """Refused before the budget too: with a budget of one, the plain
         change after both refusals still goes through."""
-        monkeypatch.setattr(admin, "CREATION_MAX_PER_WINDOW", 1)
+        monkeypatch.setattr(dependencies, "CREATION_MAX_PER_WINDOW", 1)
         other = await _a_site_that_gave_up_its_slug(factory, data)
         await _join_group(factory, data.group, data.member_b, role)
         await _join_site(factory, other, data.member_b, Role.ADMIN)
@@ -769,7 +776,7 @@ class TestChangesAtTheSameMoment:
         """Another admin deletes the group or site between the role check and
         the lock: the 404 of one that was never there, not a server error."""
         lookup = "_group_with_role" if subject.kind == "group" else "_site_with_role"
-        real = getattr(admin, lookup)
+        real = getattr(subject.module, lookup)
 
         async def delete_meanwhile(*args, **kwargs):
             found = await real(*args, **kwargs)
@@ -778,7 +785,7 @@ class TestChangesAtTheSameMoment:
                 await db.commit()
             return found
 
-        monkeypatch.setattr(admin, lookup, delete_meanwhile)
+        monkeypatch.setattr(subject.module, lookup, delete_meanwhile)
         headers = _as_group_admin(client, app)
 
         response = await client.put(subject.url(subject.original), json={"slug": "nieuw"}, headers=headers)
@@ -790,7 +797,7 @@ class TestChangesAtTheSameMoment:
     async def test_a_site_whose_group_is_deleted_before_the_lock_is_unknown(
         self, client, app, data, factory, monkeypatch
     ):
-        real = admin._reread_locked
+        real = site_routes._reread_locked
 
         async def delete_the_group_first(db, row, **kwargs):
             if isinstance(row, Group):
@@ -799,7 +806,7 @@ class TestChangesAtTheSameMoment:
                     await other.commit()
             await real(db, row, **kwargs)
 
-        monkeypatch.setattr(admin, "_reread_locked", delete_the_group_first)
+        monkeypatch.setattr(site_routes, "_reread_locked", delete_the_group_first)
         headers = _as_group_admin(client, app)
 
         response = await client.put(f"{BASE}/sites/team/site/slug", json={"slug": "docs"}, headers=headers)
@@ -816,7 +823,7 @@ class TestChangesAtTheSameMoment:
         the change locks the group first, so the delete waits for it. Held
         after the first lock, which is where the order shows."""
         locked, release = asyncio.Event(), asyncio.Event()
-        real = admin._reread_locked
+        real = site_routes._reread_locked
 
         async def lock_and_hold_the_first(*args, **kwargs):
             await real(*args, **kwargs)
@@ -824,7 +831,7 @@ class TestChangesAtTheSameMoment:
                 locked.set()
                 await release.wait()
 
-        monkeypatch.setattr(admin, "_reread_locked", lock_and_hold_the_first)
+        monkeypatch.setattr(site_routes, "_reread_locked", lock_and_hold_the_first)
         headers = _as_group_admin(client, app)
 
         async def delete_the_group():
@@ -857,7 +864,7 @@ class TestChangesAtTheSameMoment:
     ):
         """The group gets another address between the role check and the
         lock: the audit row and the answer name the one it has now."""
-        real = admin._site_with_role
+        real = site_routes._site_with_role
 
         async def change_the_group_meanwhile(*args, **kwargs):
             found = await real(*args, **kwargs)
@@ -866,7 +873,7 @@ class TestChangesAtTheSameMoment:
                 await db.commit()
             return found
 
-        monkeypatch.setattr(admin, "_site_with_role", change_the_group_meanwhile)
+        monkeypatch.setattr(site_routes, "_site_with_role", change_the_group_meanwhile)
         headers = _as_group_admin(client, app)
 
         response = await client.put(f"{BASE}/sites/team/site/slug", json={"slug": "docs"}, headers=headers)
@@ -883,7 +890,7 @@ class TestChangesAtTheSameMoment:
         trading addresses cannot deadlock. A site added to the group does not
         wait."""
         locked, release = asyncio.Event(), asyncio.Event()
-        monkeypatch.setattr(admin, "_require_creation_budget", _held(locked, release))
+        monkeypatch.setattr(site_routes, "_require_creation_budget", _held(locked, release))
         headers = _as_group_admin(client, app)
         change = asyncio.create_task(
             client.put(f"{BASE}/sites/team/site/slug", json={"slug": "docs"}, headers=headers)
@@ -916,7 +923,7 @@ class TestChangesAtTheSameMoment:
         site added to the group, or a version written for the site, waits
         instead of taking a share that the change would then wait for."""
         locked, release = asyncio.Event(), asyncio.Event()
-        monkeypatch.setattr(admin, "_require_creation_budget", _held(locked, release))
+        monkeypatch.setattr(subject.module, "_require_creation_budget", _held(locked, release))
         headers = _as_group_admin(client, app)
         change = asyncio.create_task(
             client.put(subject.url(subject.original), json={"slug": "nieuw"}, headers=headers)
@@ -952,7 +959,7 @@ class TestChangesAtTheSameMoment:
             await db.commit()
         locked, release = asyncio.Event(), asyncio.Event()
         monkeypatch.setattr(
-            admin, "_require_creation_budget", _held(locked, release, real=admin._require_creation_budget)
+            group_routes, "_require_creation_budget", _held(locked, release, real=group_routes._require_creation_budget)
         )
         first = _as_group_admin(client, app)
         async with make_test_client(app) as other:
@@ -989,14 +996,14 @@ class TestChangesAtTheSameMoment:
             await _join_group(factory, data.group, data.member_b, Role.ADMIN)
         lookup = "_group_with_role" if subject.kind == "group" else "_site_with_role"
         barrier = asyncio.Barrier(2)
-        real = getattr(admin, lookup)
+        real = getattr(subject.module, lookup)
 
         async def meet(*args, **kwargs):
             found = await real(*args, **kwargs)
             await barrier.wait()
             return found
 
-        monkeypatch.setattr(admin, lookup, meet)
+        monkeypatch.setattr(subject.module, lookup, meet)
         first = _as_group_admin(client, app)
         async with make_test_client(app) as other:
             second = login(other, app, sub="lid-b", email="b@example.nl")

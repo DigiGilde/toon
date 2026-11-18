@@ -31,7 +31,8 @@ from test_admin_api import (  # noqa: F401 - fixtures are found by name
     login,
 )
 
-from toon.api import admin
+from toon.api.admin.platform import audit as audit_routes
+from toon.api.admin.platform import schemas as platform_schemas
 from toon.api.errors import ApiError
 from toon.api.schema import iso_utc
 from toon.audit import vocabulary
@@ -175,7 +176,7 @@ class TestStarting:
         constraint is a fault, and goes on as it came."""
         headers = _as_admin(client, app)
         await client.post(HOLD, json={"reason": REASON}, headers=headers)
-        monkeypatch.setattr(admin, "violated_constraint", lambda error: "some_other_constraint")
+        monkeypatch.setattr(audit_routes, "violated_constraint", lambda error: "some_other_constraint")
 
         with pytest.raises(IntegrityError):
             await client.post(HOLD, json={"reason": "incident 2026-092"}, headers=headers)
@@ -398,7 +399,7 @@ class TestReason:
     def test_the_length_is_checked_before_the_characters(self):
         """A huge text is refused without being scanned character by character."""
         with pytest.raises(ApiError) as refused:
-            admin._validated_hold_reason("\u200b" * (admin.HOLD_REASON_MAX_LENGTH + 1))
+            platform_schemas._validated_hold_reason("\u200b" * (platform_schemas.HOLD_REASON_MAX_LENGTH + 1))
 
         assert refused.value.code == "HOLD_REASON_TOO_LONG"
 
@@ -415,11 +416,11 @@ class TestReason:
         """A pattern like `[^\\s@]+@...` backtracks over the whole rest of the
         text from every start position: about half a second for 10,000
         characters, on the event loop. Twenty checks have to fit in a second."""
-        reason = "a" * admin.HOLD_REASON_MAX_LENGTH
+        reason = "a" * platform_schemas.HOLD_REASON_MAX_LENGTH
         start = time.perf_counter()
 
         for _ in range(20):
-            assert admin._validated_hold_reason(reason) == reason
+            assert platform_schemas._validated_hold_reason(reason) == reason
 
         assert time.perf_counter() - start < 1
 
@@ -430,7 +431,7 @@ class TestReason:
         for length in range(7):
             for characters in itertools.product("a@. \n", repeat=length):
                 text = "".join(characters)
-                assert bool(admin._EMAIL_ADDRESS.search(text)) == bool(plain.search(text)), repr(text)
+                assert bool(platform_schemas._EMAIL_ADDRESS.search(text)) == bool(plain.search(text)), repr(text)
 
     @pytest.mark.parametrize(
         ("sent", "kept"),

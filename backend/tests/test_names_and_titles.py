@@ -15,6 +15,7 @@ import asyncio
 import json
 import uuid
 from dataclasses import dataclass
+from types import ModuleType
 
 import pytest
 from helpers_oidc import make_test_client
@@ -33,8 +34,11 @@ from test_admin_api import (  # noqa: F401 - fixtures are found by name
     login,
 )
 
-from toon.api import admin, openapi_file
-from toon.api.admin import _has_forbidden_characters, _validate_text
+from toon.api import openapi_file
+from toon.api.admin import common
+from toon.api.admin.common import _has_forbidden_characters, _validate_text
+from toon.api.admin.groups import group as group_routes
+from toon.api.admin.sites import site as site_routes
 from toon.api.errors import ApiError
 from toon.audit.pseudonymisation import pseudonymise
 from toon.constants import AccessBase, Role
@@ -81,7 +85,7 @@ class TestMaximumLength:
         def refuse_to_scan(value):
             raise AssertionError("scanned a text that is too long")
 
-        monkeypatch.setattr(admin, "_has_forbidden_characters", refuse_to_scan)
+        monkeypatch.setattr(common, "_has_forbidden_characters", refuse_to_scan)
 
         with pytest.raises(ApiError) as error:
             _validate_text("a" * 6, "name", max_length=5)
@@ -106,6 +110,7 @@ class Subject:
     original: str
     action: str
     previous_ref: str
+    module: ModuleType
     lookup: str
     unknown: str  # the code of the 404 once the row is gone
     child: Site | Version  # a row that refers to the one being changed
@@ -132,6 +137,7 @@ def subject(request, data) -> Subject:
             original="Team",
             action="group_name",
             previous_ref="previous_name",
+            module=group_routes,
             lookup="_group_with_role",
             unknown="UNKNOWN_GROUP",
             child=Site(group_id=data.group.id, slug="nieuw", title="Nieuw", access_base=AccessBase.SITE_TEAM),
@@ -145,6 +151,7 @@ def subject(request, data) -> Subject:
         original="Site",
         action="site_title",
         previous_ref="previous_title",
+        module=site_routes,
         lookup="_site_with_role",
         unknown="UNKNOWN_SITE",
         child=Version(
@@ -325,14 +332,14 @@ class TestTheTextRules:
         first wrote."""
         await _join_group(factory, data.group, data.member_b, Role.ADMIN)
         barrier = asyncio.Barrier(2)
-        real = getattr(admin, subject.lookup)
+        real = getattr(subject.module, subject.lookup)
 
         async def meet(*args, **kwargs):
             found = await real(*args, **kwargs)
             await barrier.wait()
             return found
 
-        monkeypatch.setattr(admin, subject.lookup, meet)
+        monkeypatch.setattr(subject.module, subject.lookup, meet)
         first = _as_group_admin(client, app)
         async with make_test_client(app) as other:
             second = login(other, app, sub="lid-b", email="b@example.nl")
@@ -356,14 +363,14 @@ class TestTheTextRules:
         for a rename: the lock keeps out other changes of the row, not the rows
         that point at it."""
         locked, release = asyncio.Event(), asyncio.Event()
-        reread_locked = admin._reread_locked
+        reread_locked = subject.module._reread_locked
 
         async def lock_and_hold(*args, **kwargs):
             await reread_locked(*args, **kwargs)
             locked.set()
             await release.wait()
 
-        monkeypatch.setattr(admin, "_reread_locked", lock_and_hold)
+        monkeypatch.setattr(subject.module, "_reread_locked", lock_and_hold)
         headers = _as_group_admin(client, app)
         change = asyncio.create_task(client.put(subject.url, json={subject.field: "Nieuw"}, headers=headers))
         try:
@@ -392,7 +399,7 @@ class TestTheTextRules:
     ):
         """Another admin deletes the group or site between the role check and
         the lock: a 404 as for one that was never there, not a server error."""
-        real = getattr(admin, subject.lookup)
+        real = getattr(subject.module, subject.lookup)
 
         async def delete_meanwhile(*args, **kwargs):
             found = await real(*args, **kwargs)
@@ -401,7 +408,7 @@ class TestTheTextRules:
                 await db.commit()
             return found
 
-        monkeypatch.setattr(admin, subject.lookup, delete_meanwhile)
+        monkeypatch.setattr(subject.module, subject.lookup, delete_meanwhile)
         headers = _as_group_admin(client, app)
 
         response = await client.put(subject.url, json={subject.field: "Nieuw"}, headers=headers)
