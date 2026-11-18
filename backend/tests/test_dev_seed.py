@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from toon.auth.members import PREVIEW_GROUP
 from toon.config import Settings
-from toon.constants import AccessBase, Role
+from toon.constants import AccessBase, FeedbackIdentity, Role
 from toon.db import make_engine, make_session_factory
 from toon.ingest.store import ContentStore, version_ref
 from toon.models.identity import Group, GroupMember, Member, MemberStatus, PlatformRole, SiteMember
@@ -361,6 +361,23 @@ class TestMain:
         assert seed_module.main() == 0
         assert seed_module.main() == 0
         assert capsys.readouterr().out.count("Dev-inhoud gezaaid") == 2
+
+
+class TestFeedback:
+    async def test_one_site_takes_feedback_on_its_previews_without_a_name_needed(
+        self, seed_module, settings: Settings, session_factory
+    ) -> None:
+        """So the feedback button shows on the seeded previews locally."""
+        await seed_module.seed(settings)
+        async with session_factory() as db:
+            taking = (
+                await db.execute(
+                    select(Site.slug, Site.feedback_identity, Site.feedback_live).where(
+                        Site.feedback_enabled.is_(True)
+                    )
+                )
+            ).all()
+        assert [tuple(row) for row in taking] == [("jaarverslag", FeedbackIdentity.ANONYMOUS, False)]
 
 
 class TestReport:

@@ -349,6 +349,14 @@ GAP_CHANGES = [
         True,
         id="feedback-off-on-a-preview",
     ),
+    pytest.param(
+        AccessPolicy(AccessBase.PUBLIC),
+        "kijker",
+        False,
+        _set_site(sandbox=False),
+        False,
+        id="unshielded-keeps-the-consent",
+    ),
 ]
 
 

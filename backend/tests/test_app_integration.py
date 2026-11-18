@@ -28,11 +28,14 @@ from toon.auth.oidc import OidcClient
 from toon.auth.sessions import CONTENT_ANCHOR_COOKIE, SessionStore, sign
 from toon.config import ConfigurationError, Settings
 from toon.ingest.store import ContentStore
-from toon.main import ApiVersionHeaderMiddleware, SessionRecheckMiddleware, create_app
+from toon.main import API_VERSION, ApiVersionHeaderMiddleware, SessionRecheckMiddleware, create_app
 from toon.ratelimit import FEEDBACK_API_HEADERS, InMemoryCounter
+from toon.security_headers import HSTS, PERMISSIONS_POLICY
 from toon.serving import feedback_api
 from toon.serving.feedback_api import PREFLIGHT_HEADERS
 from toon.serving.feedback_body import BodyBudget
+from toon.serving.feedback_editor import FeedbackEditor, editor_csp, frame_url, script_url
+from toon.serving.feedback_widget import WidgetBundle, widget_url
 from toon.serving.response import NEUTRAL_404_BODY
 
 BASE_URL = "https://toon.example"
@@ -496,7 +499,96 @@ async def test_no_trustedhost_middleware_without_base_url(tmp_path: Path) -> Non
     assert resp.status_code == 200
 
 
-# --- Site feedback: the counters and the routes in the stack ------------------
+# --- Site feedback: the bundle, the counters and the routes in the stack --------
+
+
+def _built_widget(tmp_path: Path) -> tuple[Path, bytes]:
+    spa = tmp_path / "spa"
+    spa.mkdir()
+    content = b"/*! Toon feedback widget. */(()=>{})();\n"
+    (spa / "feedback-widget.js").write_bytes(content)
+    return spa, content
+
+
+async def test_the_feedback_widget_is_read_at_startup_and_served_on_the_content_host(tmp_path: Path) -> None:
+    spa, content = _built_widget(tmp_path)
+    settings = _make_settings(tmp_path, spa_path=spa, base_url="https://beheer.toon.example")
+    app = create_app(settings)
+
+    async with app.router.lifespan_context(app):
+        bundle = app.state.feedback_widget
+        assert isinstance(bundle, WidgetBundle)
+        assert bundle.content == content
+        async with _client_for(app) as content_host:
+            served = await content_host.get(widget_url(bundle))
+            other = await content_host.get("/-/feedback/widget.0000000000000000.js")
+        async with _client_for(app, "https://beheer.toon.example") as admin_host:
+            on_admin = await admin_host.get(widget_url(bundle))
+
+    assert served.status_code == 200
+    assert served.content == content
+    assert served.headers["content-type"] == "text/javascript; charset=utf-8"
+    assert served.headers["cache-control"] == "public, max-age=31536000, immutable"
+    assert (other.status_code, other.content) == (404, NEUTRAL_404_BODY)
+    assert (on_admin.status_code, on_admin.content) == (404, NEUTRAL_404_BODY)
+
+
+async def test_the_feedback_editor_is_read_at_startup_and_served_on_the_content_host(tmp_path: Path) -> None:
+    """Through the whole stack: the security headers add nothing on the
+    content host that would keep the frame out of a page, and its policy
+    goes out as the route built it."""
+    spa = tmp_path / "spa"
+    spa.mkdir()
+    content = b"/*! Toon feedback editor. */(()=>{})();\n"
+    (spa / "feedback-editor.js").write_bytes(content)
+    settings = _make_settings(tmp_path, spa_path=spa, base_url="https://beheer.toon.example")
+    app = create_app(settings)
+
+    async with app.router.lifespan_context(app):
+        editor = app.state.feedback_editor
+        assert isinstance(editor, FeedbackEditor)
+        assert editor.script.content == content
+        async with _client_for(app) as content_host:
+            script = await content_host.get(script_url(editor.script))
+            frame = await content_host.get(frame_url(editor))
+        async with _client_for(app, "https://beheer.toon.example") as admin_host:
+            on_admin = [await admin_host.get(path) for path in (script_url(editor.script), frame_url(editor))]
+
+    assert (script.status_code, script.content) == (200, content)
+    assert script.headers["content-type"] == "text/javascript; charset=utf-8"
+    assert frame.status_code == 200
+    assert frame.content == editor.frame
+    assert sorted(frame.headers.multi_items()) == sorted(
+        {
+            "content-type": "text/html; charset=utf-8",
+            "content-length": str(len(editor.frame)),
+            "cache-control": "public, max-age=31536000, immutable",
+            "x-content-type-options": "nosniff",
+            "referrer-policy": "no-referrer",
+            "content-security-policy": editor_csp(BASE_URL, script_url(editor.script)),
+            "permissions-policy": PERMISSIONS_POLICY,
+            "strict-transport-security": HSTS,
+            "api-version": API_VERSION,
+        }.items()
+    )
+    assert "x-frame-options" not in frame.headers
+    assert "frame-ancestors" not in frame.headers["content-security-policy"]
+    for refused in on_admin:
+        assert (refused.status_code, refused.content) == (404, NEUTRAL_404_BODY)
+
+
+async def test_without_a_built_editor_toon_starts_and_says_so(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    spa, _ = _built_widget(tmp_path)
+    app = create_app(_make_settings(tmp_path, spa_path=spa))
+
+    with caplog.at_level(logging.WARNING, logger="toon.serving.feedback_editor"):
+        async with app.router.lifespan_context(app):
+            assert app.state.feedback_editor is None
+            assert app.state.feedback_widget is not None
+
+    assert "Feedback editor not readable" in caplog.text
 
 
 async def test_the_feedback_write_counters_are_each_one_of_their_own(tmp_path: Path) -> None:
@@ -535,7 +627,7 @@ async def test_the_feedback_routes_answer_before_the_serving_catch_all(tmp_path:
         ]
         # A method no route names, on a path one does.
         unnamed = [await client.request(method, "/-/feedback/v1/items") for method in ("TRACE", "PROPFIND", "QUERY")]
-        head = await client.head("/-/feedback/account/stop")
+        head = await client.head("/-/feedback/show")
 
     assert preflight.status_code == 204
     for name, value in PREFLIGHT_HEADERS.items():
@@ -588,7 +680,7 @@ async def test_a_preflight_over_budget_is_answered_as_within_it(tmp_path: Path) 
         for name, value in PREFLIGHT_HEADERS.items():
             assert preflight.headers[name] == value, name
     assert refused.status_code == 429
-    assert refused.headers["retry-after"] == "60"
+    assert 1 <= int(refused.headers["retry-after"]) <= 60
     for name, value in FEEDBACK_API_HEADERS.items():
         assert refused.headers[name] == value, name
     assert (on_admin.status_code, on_admin.content) == (404, NEUTRAL_404_BODY)

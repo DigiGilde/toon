@@ -1,5 +1,5 @@
-"""Every route under `/-/feedback/` on the content host: the widget API and
-the consent pages.
+"""Every route under `/-/feedback/` on the content host: the widget bundle,
+its editor, its API, the consent pages and hiding or showing the button.
 
 Host separation lets the whole prefix through on the content host, and on the
 admin host every `/-/` path reaches the routes anyway, so each route checks
@@ -24,9 +24,15 @@ from toon.constants import (
     PATH_FEEDBACK_ACCOUNT,
     PATH_FEEDBACK_ACCOUNT_STOP,
     PATH_FEEDBACK_API_PREFIX,
+    PATH_FEEDBACK_EDITOR_PREFIX,
+    PATH_FEEDBACK_HIDE,
+    PATH_FEEDBACK_SHOW,
+    PATH_FEEDBACK_WIDGET_PREFIX,
 )
 from toon.host_separation import host_from_scope
 from toon.serving import feedback_api, feedback_consent
+from toon.serving.feedback_editor import FeedbackEditor, frame_url, script_url
+from toon.serving.feedback_widget import widget_url
 from toon.serving.response import neutral_404_response
 
 router = APIRouter()
@@ -35,9 +41,59 @@ _ITEMS = f"{PATH_FEEDBACK_API_PREFIX}items"
 _ITEM = f"{_ITEMS}/{{item_id}}"
 _REPLIES = f"{_ITEM}/replies"
 
+# Content-addressed: a new build is a new address, so this one never changes.
+_BUNDLE_HEADERS = {
+    "Cache-Control": "public, max-age=31536000, immutable",
+    "X-Content-Type-Options": "nosniff",
+}
+_FRAME_HEADERS = {**_BUNDLE_HEADERS, "Referrer-Policy": "no-referrer"}
+
 
 def _elsewhere(request: Request) -> bool:
     return host_from_scope(request.scope) != request.app.state.settings.content_host
+
+
+@router.get(f"{PATH_FEEDBACK_WIDGET_PREFIX}{{name}}", include_in_schema=False)
+async def feedback_widget_bundle(request: Request, name: str) -> Response:
+    """The bundle under the address of its own hash, and nothing under any
+    other: a stale bundle cannot be cached under the next build's address."""
+    bundle = getattr(request.app.state, "feedback_widget", None)
+    if _elsewhere(request) or bundle is None or request.scope["path"] != widget_url(bundle):
+        return neutral_404_response()
+    return Response(bundle.content, media_type="text/javascript; charset=utf-8", headers=_BUNDLE_HEADERS)
+
+
+@router.get(f"{PATH_FEEDBACK_EDITOR_PREFIX}{{name}}", include_in_schema=False)
+async def feedback_editor(request: Request, name: str) -> Response:
+    """The editor's script and its frame, each under the address of its own
+    hash, and nothing under any other."""
+    editor: FeedbackEditor | None = getattr(request.app.state, "feedback_editor", None)
+    if _elsewhere(request) or editor is None:
+        return neutral_404_response()
+    path = request.scope["path"]
+    if path == script_url(editor.script):
+        return Response(editor.script.content, media_type="text/javascript; charset=utf-8", headers=_BUNDLE_HEADERS)
+    if path == frame_url(editor):
+        return Response(
+            editor.frame,
+            media_type="text/html; charset=utf-8",
+            headers={**_FRAME_HEADERS, "Content-Security-Policy": editor.csp},
+        )
+    return neutral_404_response()
+
+
+@router.post(PATH_FEEDBACK_HIDE, include_in_schema=False)
+async def feedback_hide(request: Request) -> Response:
+    if _elsewhere(request):
+        return neutral_404_response()
+    return await feedback_consent.hide_button(request)
+
+
+@router.get(PATH_FEEDBACK_SHOW, include_in_schema=False)
+async def feedback_show(request: Request) -> Response:
+    if _elsewhere(request):
+        return neutral_404_response()
+    return await feedback_consent.show_button(request)
 
 
 @router.get(PATH_FEEDBACK_ACCOUNT, include_in_schema=False)

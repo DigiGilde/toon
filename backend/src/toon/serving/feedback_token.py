@@ -1,5 +1,5 @@
-"""The page token, the link ticket and the consent nonce of site feedback,
-sealed by serving/feedback_seal.py.
+"""The page token, the link ticket, the consent nonce and the hide mark of
+site feedback, sealed by serving/feedback_seal.py.
 
 The page token rides in the widget's config on every page Toon adds the
 widget to. It names the site and the target the page belongs to, the version
@@ -23,6 +23,10 @@ sandboxed page carries no Lax cookie, so the session it consents for travels
 sealed in the form, for ten minutes, with the secret link of the ticket the
 page was opened with.
 
+The hide mark is the value of the cookie that hides the button: the site and
+an expiry twelve hours on. Sealed, so a value a page writes itself, or one
+meant for another site, hides nothing.
+
 Parsing is as strict as minting: a payload with a field minting would never
 have written is no token at all. Minting runs the same check, so a token that
 parsing refuses never leaves the server.
@@ -36,16 +40,17 @@ from typing import Literal
 
 from toon.auth.sessions import parse_site_path, valid_return_to
 from toon.constants import SLUG_RE
-from toon.serving.feedback_seal import PURPOSE_CONSENT, PURPOSE_PAGE, seal, unseal
+from toon.serving.feedback_seal import PURPOSE_CONSENT, PURPOSE_HIDE, PURPOSE_PAGE, seal, unseal
 
 TOKEN_VERSION = 1
 TOKEN_LIFETIME_S = 12 * 3600
 # No longer than the page token it is minted beside.
 LINK_LIFETIME_S = TOKEN_LIFETIME_S
 CONSENT_LIFETIME_S = 600
+HIDE_LIFETIME_S = 12 * 3600
 MAX_RETURN_TO_LENGTH = 2048
 
-# Not among serving/feedback_seal.py's two: a purpose of its own all the
+# Not among serving/feedback_seal.py's three: a purpose of its own all the
 # same, so a ticket opens as nothing else and nothing else as a ticket.
 PURPOSE_LINK = b"toon-feedback-link-v1"
 
@@ -60,6 +65,7 @@ _MAX_HANDLE_LENGTH = 128
 _PAGE_FIELDS = frozenset({"v", "site", "kind", "ref", "ver", "ses", "acc", "key", "exp"})
 _LINK_FIELDS = frozenset({"key", "site", "exp"})
 _CONSENT_FIELDS = frozenset({"ses", "site", "key", "returnTo", "exp"})
+_HIDE_FIELDS = frozenset({"site", "exp"})
 
 
 @dataclass(frozen=True)
@@ -100,6 +106,12 @@ class ConsentNonce:
     expires_at: int
 
 
+@dataclass(frozen=True)
+class HideMark:
+    site_id: uuid.UUID
+    expires_at: int
+
+
 def mint_page_token(
     secret: str,
     *,
@@ -136,6 +148,18 @@ def parse_page_token(secret: str, token: object, *, now: int) -> PageToken | Non
     that is still valid at `now`."""
     payload = unseal(secret, PURPOSE_PAGE, token)
     return None if payload is None else _page_token(payload, now=now)
+
+
+def page_token_expired(secret: str, token: object, *, now: int) -> bool:
+    """Whether `token` is a page token Toon minted whose time ran out by
+    `now`: what `parse_page_token` refused it for, and nothing else."""
+    payload = unseal(secret, PURPOSE_PAGE, token)
+    if payload is None:
+        return False
+    expires_at = payload.get("exp")
+    if type(expires_at) is not int or expires_at > now:
+        return False
+    return _page_token(payload, now=expires_at - 1) is not None
 
 
 def mint_link_ticket(secret: str, *, key_id: str, site_id: uuid.UUID, now: int) -> str:
@@ -179,6 +203,22 @@ def parse_consent_nonce(secret: str, token: object, *, now: int) -> ConsentNonce
     that is still valid at `now`."""
     payload = unseal(secret, PURPOSE_CONSENT, token)
     return None if payload is None else _consent_nonce(payload, now=now)
+
+
+def mint_hide_mark(secret: str, *, site_id: uuid.UUID, now: int) -> str:
+    """The sealed hide mark for the button hidden on a site at `now`. Raises
+    ValueError for fields `parse_hide_mark` would refuse."""
+    payload: dict[str, object] = {"site": str(site_id), "exp": now + HIDE_LIFETIME_S}
+    if _hide_mark(payload, now=now) is None:
+        raise ValueError("these fields make no hide mark")
+    return seal(secret, PURPOSE_HIDE, payload)
+
+
+def parse_hide_mark(secret: str, value: object, *, now: int) -> HideMark | None:
+    """The hide mark, or None for anything that is not one Toon minted and
+    that is still valid at `now`."""
+    payload = unseal(secret, PURPOSE_HIDE, value)
+    return None if payload is None else _hide_mark(payload, now=now)
 
 
 class _RefusedError(Exception):
@@ -230,6 +270,17 @@ def _consent_nonce(payload: dict[str, object], *, now: int) -> ConsentNonce | No
             key_id=None if payload["key"] is None else _handle(payload["key"]),
             return_to=_return_to(payload["returnTo"]),
             expires_at=_expiry(payload["exp"], now=now, lifetime=CONSENT_LIFETIME_S),
+        )
+    except _RefusedError:
+        return None
+
+
+def _hide_mark(payload: dict[str, object], *, now: int) -> HideMark | None:
+    try:
+        _expect_fields(payload, _HIDE_FIELDS)
+        return HideMark(
+            site_id=_uuid(payload["site"]),
+            expires_at=_expiry(payload["exp"], now=now, lifetime=HIDE_LIFETIME_S),
         )
     except _RefusedError:
         return None
@@ -308,18 +359,23 @@ def _return_to(value: object) -> str:
 
 __all__ = [
     "CONSENT_LIFETIME_S",
+    "HIDE_LIFETIME_S",
     "LINK_LIFETIME_S",
     "MAX_RETURN_TO_LENGTH",
     "PURPOSE_LINK",
     "TOKEN_LIFETIME_S",
     "TOKEN_VERSION",
     "ConsentNonce",
+    "HideMark",
     "LinkTicket",
     "PageToken",
     "mint_consent_nonce",
+    "mint_hide_mark",
     "mint_link_ticket",
     "mint_page_token",
+    "page_token_expired",
     "parse_consent_nonce",
+    "parse_hide_mark",
     "parse_link_ticket",
     "parse_page_token",
 ]

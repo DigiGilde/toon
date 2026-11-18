@@ -98,14 +98,28 @@ PATH_CONTENT_LOGOUT = f"/{PLATFORM_SEGMENT}/logout"
 # path out.
 PATH_CONTENT_CODE = f"/{PLATFORM_SEGMENT}/code"
 
-# Site feedback on the content host: the widget API and the consent page for
-# feedback with an account.
+# Site feedback on the content host: the widget bundle and its editor, its
+# API, the consent page for feedback with an account and hiding the button.
 # Host separation admits the prefix. Every route under it checks the host
 # itself, because on the admin host every /-/ path reaches the routes.
 PATH_CONTENT_FEEDBACK_PREFIX = f"/{PLATFORM_SEGMENT}/feedback/"
 PATH_FEEDBACK_API_PREFIX = f"{PATH_CONTENT_FEEDBACK_PREFIX}v1/"
+PATH_FEEDBACK_WIDGET_PREFIX = f"{PATH_CONTENT_FEEDBACK_PREFIX}widget."
+PATH_FEEDBACK_EDITOR_PREFIX = f"{PATH_CONTENT_FEEDBACK_PREFIX}editor."
+PATH_FEEDBACK_HIDE = f"{PATH_CONTENT_FEEDBACK_PREFIX}hide"
+PATH_FEEDBACK_SHOW = f"{PATH_CONTENT_FEEDBACK_PREFIX}show"
 PATH_FEEDBACK_ACCOUNT = f"{PATH_CONTENT_FEEDBACK_PREFIX}account"
 PATH_FEEDBACK_ACCOUNT_STOP = f"{PATH_CONTENT_FEEDBACK_PREFIX}account/stop"
+
+# Set on a site's path while a visitor has hidden the feedback button. Its
+# value is a sealed hide mark for that one site that lasts twelve hours
+# (serving/feedback_token.py). While a request carries a valid one, Toon
+# injects nothing into that site's pages.
+FEEDBACK_HIDE_COOKIE = "__Secure-toon-feedback-off"
+# An HTML page whose decoded size is above this gets no widget: every page the
+# widget goes into is decoded in this process on every view, and is sent
+# uncompressed.
+FEEDBACK_INJECT_MAX_BYTES = 10 * 1024 * 1024
 
 # The replies one feedback item takes: from the visitor who sent it, and in
 # all, the site team's included. Counted under the lock of

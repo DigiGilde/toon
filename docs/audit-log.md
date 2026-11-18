@@ -169,10 +169,13 @@ nightly cleanup keeps for this site (set on the site's Versions tab):
 `refs.live_versions_kept` is the new number, `0` for keeping all, or `null`
 when the site went back to the platform default `TOON_LIVE_VERSIONS_KEPT`.
 
-What happens through the feedback widget API and the consent pages on the
-content host writes no row: giving feedback, a submitter replying to or
-deleting their own item, saying yes to feedback with their account or taking
-that back, and the refusals of all of these, like viewing public content.
+What happens through the feedback widget on the content host writes no row:
+giving feedback, a submitter replying to or deleting their own item, saying
+yes to feedback with their account or taking that back, hiding and showing
+the button, and the refusals of all of these, like viewing public content.
+The page tokens the widget refuses are counted per process instead, and a
+window of ten minutes with more than 100 of them is one WARNING in the
+application log with the counts per reason alone (`docs/design.md` §16.5).
 What a visitor sends is kept with the item, where its retention and its
 deletion reach it, and a row about it would outlast both. Signing in for it
 writes its `login` row as every sign-in does. A session the IdP ends writes

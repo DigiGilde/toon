@@ -36,8 +36,8 @@ such rather than assumed.
 - **People named in published content**: anyone whose personal data appears
   inside a published site, without ever interacting with Toon's own
   authentication.
-- **Feedback submitters**: people who send feedback on a site's page through
-  the widget API (`backend/src/toon/models/feedback.py`, `FeedbackItem`), with
+- **Feedback submitters**: people who send feedback through the widget on a
+  site's page (`backend/src/toon/models/feedback.py`, `FeedbackItem`), with
   their SSO account after consenting on Toon's own page, with a name they
   type, or without a name, as far as the site's setting allows. Where the
   site is public, or a preview of it is public by an access of its own, and
@@ -45,9 +45,8 @@ such rather than assumed.
   included. A preview follows the site's access, so on a public site this
   holds whether the live site takes feedback or not.
 - **People visible in screenshots**: anyone whose personal data was on a
-  submitter's screen when a screenshot sent with feedback was made: the
-  submitter, people named on the page, anyone else it showed
-  (`FeedbackScreenshot`).
+  submitter's screen when the widget made a screenshot: the submitter, people
+  named on the page, anyone else it showed (`FeedbackScreenshot`).
 
 ## Personal data processed, per store
 
@@ -64,9 +63,9 @@ such rather than assumed.
 | `cli_device_authorizations` (`models/cli.py`) | `device_hash`, `user_code_hash`, `client_name`, `ip_truncated`, `member_id` | `toon login` device pairing | CLI device flow (RFC 8628) | short-lived: expires after 10 minutes, deleted once exchanged, swept by the cleanup job |
 | `cli_sessions` / `cli_refresh_tokens` (`models/cli.py`) | `member_id`, `client_name`, token selector/hash pairs | CLI publishing sessions | approved by a member in an admin session | access token 1 hour; session up to 30 days after last refresh, 90 days absolute (`docs/security.md`, "CI id token"/"CLI device flow") |
 | Published content (files on the content volume) | whatever the publisher includes: potentially names, contact details or special categories of data (AVG art. 9) | the published site itself | uploaded by a publisher (member or CI) | until the site or version is removed; Toon does not parse, classify or scan content for personal data |
-| `feedback_items` (`models/feedback.py`) | The comment. The page (its path within the site or preview, its title). The place on it (`anchor`: the CSS selector of an element and the point or the area in it, or the quoted text with at most 32 characters around it). The window size (`viewport`: width, height, device pixel ratio), the version, and the moment it came in (`created_at`). Per author kind: `account` the SSO `sub`, the name, and the email address when the IdP marked it verified. `name` the name the submitter typed, which nobody checked. `anonymous` nothing about the person. The status, and the member who changed it last (`status_changed_by`, an id) | collecting remarks on a site's pages, so that the site team can read, answer and resolve them | the submitter, through the widget API. The account fields come from the consented content session, never from the request | with its site or group, or when its submitter deletes it, for an item sent with an account. Otherwise a resolved item 90 days after `resolved_at` and an item still new or seen 365 days after `created_at` (`TOON_FEEDBACK_RESOLVED_RETENTION_DAYS`, `TOON_FEEDBACK_OPEN_RETENTION_DAYS`), see "Retention and deletion" |
-| `feedback_replies` (`models/feedback.py`) | The text of a reply. For a reply of the site team the member's id, by which the reply shows the member's current name and never their email address, for a reply of the submitter no member | the conversation between the site team and the submitter | submitters who sent with an account, on their own items, through the widget API | with its item |
-| `feedback_screenshots` (`models/feedback.py`) | An image of the submitter's viewport, or of the part of it they chose. It can show any personal data that was on the screen: of the submitter, of people named on the page, of anyone else. | showing the site team what the submitter saw | sent by the submitter with an item, through the widget API | with its item, and for a resolved item 30 days after `resolved_at` (`TOON_FEEDBACK_SCREENSHOT_RETENTION_DAYS`) |
+| `feedback_items` (`models/feedback.py`) | The comment. The page (its path within the site or preview, its title). The place on it (`anchor`: the CSS selector of an element and the point or the area in it, or the quoted text with at most 32 characters around it). The window size (`viewport`: width, height, device pixel ratio), the version, and the moment it came in (`created_at`). Per author kind: `account` the SSO `sub`, the name, and the email address when the IdP marked it verified. `name` the name the submitter typed, which nobody checked. `anonymous` nothing about the person. The status, and the member who changed it last (`status_changed_by`, an id) | collecting remarks on a site's pages, so that the site team can read, answer and resolve them | the submitter, through the widget. The account fields come from the consented content session, never from the request | with its site or group, or when its submitter deletes it, for an item sent with an account. Otherwise a resolved item 90 days after `resolved_at` and an item still new or seen 365 days after `created_at` (`TOON_FEEDBACK_RESOLVED_RETENTION_DAYS`, `TOON_FEEDBACK_OPEN_RETENTION_DAYS`), see "Retention and deletion" |
+| `feedback_replies` (`models/feedback.py`) | The text of a reply. For a reply of the site team the member's id, by which the reply shows the member's current name and never their email address, for a reply of the submitter no member | the conversation between the site team and the submitter | submitters who sent with an account, under "Mijn feedback" in the widget | with its item |
+| `feedback_screenshots` (`models/feedback.py`) | An image of the submitter's viewport, or of the part of it they chose, with what they covered painted over. It can show any personal data that was on the screen: of the submitter, of people named on the page, of anyone else. | showing the site team what the submitter saw | made in the submitter's browser by the widget. The submitter sees it before sending and can cover parts of it or leave it out | with its item, and for a resolved item 30 days after `resolved_at` (`TOON_FEEDBACK_SCREENSHOT_RETENTION_DAYS`) |
 | Feedback write counters (`serving/feedback_api.py`) | per author and site a key, the start of its window and a count, and per site a key with the same. The author's key is the site's id together with the session's `sub` when the page token carries a consented session, with the `sub` of the session that let a signed-in visitor in when the token carries one for the gate alone (under a key of its own), and otherwise with the client's IP address (an IPv6 address by its /64). The site's key is its id alone | limiting misuse of the widget | authors count attempts, a site counts accepted writes. The author's counter counts every attempt at a write through the widget, a create, a reply or a delete, that passes authentication, refused ones included, before its body is read. The site's counter reserves a write for every attempt its author's budget admits and gives it back unless the write is stored, so it holds the writes that are stored and those still in flight | in process memory only, for the window of `FEEDBACK_WRITES_WINDOW_S` (600 s) and at most one more window after it ends, lost on a restart |
 | Feedback bodies in flight (`serving/feedback_body.py`, `BodyBudget`) | per client its IP address (an IPv6 address by its /64) and how many request bodies it has in flight | keeping the memory that uploads take bounded, so one client cannot hold all of it | every create or reply through the widget, from before its body is read until its request is done | in process memory only, until none of that client's requests is in flight, lost on a restart |
 
@@ -101,11 +100,21 @@ stored with feedback, and none of the details a browser sends about itself,
 such as its user agent. An item sent without a name holds nothing about the
 person, which the database enforces (`ck_feedback_items_author`). What the
 consent page for feedback with an account tells the visitor is in
-`docs/design.md` §16.6.
+`docs/design.md` §16.6. Under its send button the widget links the
+privacy statement.
 
 The feedback is for everyone with a role on the site, the site team. The
 email address of a submitter with an account is for the site's editors and
-admins only.
+admins only. A submitter who sent with their account sees their own items
+again in the widget, under "Mijn feedback" (my feedback), and can delete
+them there.
+
+**The hide cookie.** The widget stores nothing in the visitor's browser. Only
+when the visitor hides the button until the browser closes does Toon set
+`__Secure-toon-feedback-off` (for that site's path, `HttpOnly`, `Secure`,
+`SameSite=Lax`, without an expiry). Its value is sealed by Toon and holds the
+site and the moment the hiding ends, twelve hours on. It is functional: it
+identifies no person and Toon keeps nothing of it.
 
 ## Proposed legal basis (AVG art. 6)
 
@@ -138,7 +147,9 @@ DPIA (open action 11).
 ## Published content: publisher responsibility and EEA/GHCR boundary
 
 Published content can contain personal data, including special categories
-under art. 9, and Toon does not inspect, classify or filter it. The publisher
+under art. 9, and Toon does not inspect, classify or filter it. With site
+feedback on, Toon reads the start of a site's HTML pages to find where its own
+script goes, and nothing more (`docs/design.md` §16.2). The publisher
 who uploads or deploys a site is responsible for what it contains; Toon's
 role is limited to storing and serving what it is given, subject to the
 access controls the publisher configures.
@@ -213,8 +224,9 @@ done yet.
 
 Access (art. 15), rectification (art. 16) and erasure (art. 17, limited by
 the legal basis and the Archiefwet trade-off above) are not implemented as
-self-service features today. An operator fulfilling a request would, as far
-as the code supports it:
+self-service features today, apart from the feedback a person sent with their
+account (below). An operator fulfilling a request would, as far as the code
+supports it:
 
 - **Access/rectification for a member**: a member can see and edit their own
   profile (`/-/profile`, `language` and, presumably, other self-service
@@ -238,9 +250,18 @@ as the code supports it:
 - **Erasure from published content**: entirely the publisher's
   responsibility; Toon has no mechanism to locate or redact personal data
   inside a published site.
-- **Feedback a person sent with their account**: a request to the operator
-  is the route, and the privacy statement points to it. An operator erases
-  every item one person sent with their account, on every site, with its replies
+- **Feedback a person sent with their account**: the submitter finds it
+  again in the widget on that site, under "Mijn feedback" (my feedback),
+  and deletes it there, its replies and screenshot along with it. That is
+  the self-service route for access and erasure, and the privacy statement
+  points to it. It has limits: "Mijn feedback" is there only while the
+  submitter's session holds their consent for that site (`docs/design.md`
+  §16.6) and a page of the site shows them the button, and it lists the
+  newest 20 items only, saying so when it leaves older ones out. The items
+  stay all the same, until their term in "Retention and deletion" ends. For
+  whatever "Mijn feedback" does not show, a request to the operator is the
+  route. An operator erases every item one person sent with their account,
+  on every site, with its replies
   and screenshots, on the database (the account of `TOON_DB_URL`):
 
   ```sql
@@ -288,7 +309,7 @@ Open items, to be completed by the controller before go-live:
   "the organisation that runs this installation". What only the controller
   can say, such as the legal basis, the FG and the hosting, the organisation
   that runs an installation adds itself. No FG has reviewed it. It covers site
-  feedback as well, and the consent page links to it.
+  feedback as well, and the feedback widget and the consent page link to it.
 
 ## Risks
 
@@ -306,8 +327,9 @@ to Toon's actual design.
 | R.7 | Personal data in published content transferred outside the EEA | content never enters the container image or GHCR; content lives on the ZAD content volume (verified, see "Published content" above) | whether the ZAD platform/region itself guarantees EEA storage is unverified |
 | R.8 | Audit log tampering hides unlawful access or a data subject's history | append-only triggers, hash chain per shard, published chain head for external verification (`docs/audit-log.md`) | the schema owner (the one database account Toon has on ZAD) can disable the triggers, the `TRUNCATE` guard among them, and then empty the table; this is a documented, not a closed, gap (`docs/audit-log.md`, "Known gaps") |
 | R.9 | Member-chosen text in a log that cannot be corrected: the previous name of a group or title of a site stays readable in the audit log after it is corrected on the group or site, and it can be a person's name | only the previous text is logged, never the new one; a name or title that a rename sets is at most 200 characters (`TEXT_MAX_LENGTH`); like every admin operation the row expires after 3 years (`docs/audit-log.md`, "Retention") | an audit row cannot be changed or removed before its term ends. Residual risk: the create routes have no maximum (adding one needs a new API major), so an active member could create a group with a very long name and rename it, which writes that text once into a row kept 1096 days (3 years). That is bounded by the creation budget (20 per hour, new groups, sites and addresses together) and by the request body limit of whatever stands in front of Toon (the application sets none for JSON requests), and it is traceable to the member through the `group_create` and `group_name` rows (`site_create` and `site_title` for a site). Whether keeping the previous text is necessary and proportionate is for the DPIA (open action 1) |
-| R.10 | Personal data of third parties, and special categories, in feedback: a screenshot shows whatever was on the submitter's screen, a comment says whatever its writer wants, and the writer can be anyone a site lets give feedback, the public included, about sites that may be non-public | Feedback is for the site team only, and the screenshot of a resolved item goes after 30 days, the item after 90, an open item after 365 (`docs/design.md` §16.12). Size and storage are capped (`docs/design.md` §16.10) | nothing redacts a screenshot, and an open item keeps its screenshot up to 365 days. Whether screenshots are necessary and proportionate, and how people visible in a screenshot are informed (art. 14), is for the DPIA (open action 11) |
+| R.10 | Personal data of third parties, and special categories, in feedback: a screenshot shows whatever was on the submitter's screen, a comment says whatever its writer wants, and the writer can be anyone a site lets give feedback, the public included, about sites that may be non-public | the widget shows the screenshot before sending, with a notice that it can show data of others or of the submitter, and parts can be covered or the screenshot left out. Feedback is for the site team only, and the screenshot of a resolved item goes after 30 days, the item after 90, an open item after 365 (`docs/design.md` §16.12). Size and storage are capped (`docs/design.md` §16.10) | nothing redacts what the submitter does not cover, and an open item keeps its screenshot up to 365 days. Whether screenshots are necessary and proportionate, and how people visible in a screenshot are informed (art. 14), is for the DPIA (open action 11) |
 | R.11 | Re-identification of feedback sent without a name: its time and page can be set beside the access log of a non-public site (one row per page view, with a pseudonym and the IP address) and beside a login, and the text, the screenshot and the window size can say who sent it | no IP address or user agent is stored with feedback, and an item without a name holds no `sub`, name or email address, which the database enforces (`ck_feedback_items_author`). Audit lookups are for a platform administrator only, with a recorded reason and a daily limit. The privacy statement says that the text or the screenshot can still identify the submitter | `created_at` is kept in full, to the microsecond, and the window size with it. Whether either should be coarser is for the DPIA (open action 11) |
+| R.12 | Another site acting as a visitor who gave feedback with their account: on a site whose shielding from other sites is off, the page of another site without it can read a page's token, and with it, for the token's twelve hours, send feedback in that visitor's name, and read, reply to and delete that visitor's own feedback on that site | the shielding is on by default, and a site that turns it off opens its pages to every other site without it already. The token is sealed, expires after twelve hours and is checked again on every call (`docs/security.md`, "What site feedback adds, and what is accepted") | accepted by the product owner on 2026-11-17, until every site has an origin of its own (TDR-0002) or the account actions move into a window Toon owns |
 
 ## Open actions
 
@@ -344,7 +366,7 @@ to Toon's actual design.
     `docs/design.md` §16):
     - Whether collecting feedback is necessary and proportionate, above all
       without an account, from the public on a public site or a public
-      preview, and with screenshots (R.10).
+      preview, and with screenshots made by themselves (R.10).
     - The retention terms, by default 30 days for the screenshot of a
       resolved item, 90 for a resolved item and 365 for an open one, and the
       full moment an item keeps (R.11).

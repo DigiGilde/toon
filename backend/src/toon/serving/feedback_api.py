@@ -498,9 +498,10 @@ def _mine_rows(context: FeedbackContext, session: Session) -> Select[tuple[Feedb
 
 
 def highlight_anchor(kind: FeedbackKind, anchor: dict[str, Any] | None) -> dict[str, Any] | None:
-    """The reduced form the widget finds a place with again: k, s, x, y, px,
-    py (a point), x, y, w, h, px, py, pw, ph (an area) and q, each only where
-    the stored anchor has it."""
+    """The reduced form the widget finds a place with again, the one the
+    `#toon-feedback=` fragment carries: k, s, x, y, px, py (a point), x, y, w,
+    h, px, py, pw, ph (an area) and q, each only where the stored anchor has
+    it."""
     if anchor is None:
         return None
     selectors = {selector["type"]: selector for selector in anchor["selectors"]}

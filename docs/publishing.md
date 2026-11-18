@@ -5,7 +5,8 @@ Toon: the base path contract for your build, publishing from CI with an
 OIDC ID token, publishing from your own machine with `toon login`, the use
 of the `publish` action, the curl fallback, and the difference
 between a live version, a preview and a `_version` view. If you published
-to Plak before the rename, §9 lists what to change.
+to Plak before the rename, §9 lists what to change. §10 says what feedback on
+your site adds to your pages.
 
 The CLI and the action live in this repository: `cli/` is the CLI (a uv
 project of its own, installing the `toon` command),
@@ -1000,6 +1001,11 @@ no half upload. The live site stays as it was.
   on a page the visitor may see, it does the same for a value of exactly
   eight letters or digits (a link shared without its code). Do not use `key`
   as a query parameter of your own site.
+- **Feedback adds a script to your pages, once it is on**: with feedback
+  on for the site, Toon adds its feedback button to the HTML pages of your
+  previews as it serves them, and with feedback on the live site too to
+  those of your live site. A page a visitor opens there is then never cached and goes
+  out uncompressed. What Toon adds, and what it leaves alone, is in §10.
 - **Absolute base under `_version`**: if your site was built with an
   absolute base (for example hardcoded `https://example.org/path/`), then
   that absolute base inside a `_version/{version-id}/` view still
@@ -1198,7 +1204,7 @@ does not keep what it serves:
   every version in it.
 - Feedback on a site goes by itself: the screenshot of a resolved item after
   30 days, a resolved item after 90 and an item that stays open after 365,
-  by default.
+  by default (§10).
 - The content volume is not backed up as an archive, and nothing in Toon
   records that a page was an official publication.
 
@@ -1278,3 +1284,138 @@ plugin. The skill is `/toon:toon-publish` from then on.
 /plugin marketplace add DigiGilde/toon
 /plugin install toon@toon
 ```
+
+## 10. Feedback on your site
+
+Toon can let visitors give feedback on a site's pages. A visitor points at a
+spot or an area, selects a text or comments on the page as a whole, with a
+screenshot if they want. The rules behind it are in `docs/design.md` §16.
+
+### The settings
+
+A site has three feedback settings:
+
+- Whether it takes feedback at all. Off by default.
+- Who may give it: only with an account (the default), also with a name the
+  visitor types themselves, or also without a name. With an account, a
+  visitor signs in and says yes once, with a tick and a press on a page of
+  Toon that names what your team will see with their feedback: their name
+  and their verified email address, each when there is one, the address for
+  your site's editors and admins only. A visitor who is signed in but did not
+  say yes can still give feedback with a name or without one, as far as the
+  setting allows, also on a site that needs a sign-in. That works for a
+  visitor who came in through a secret link as well: they sign in, say yes
+  and send with their account while the link lets them see the page.
+- Whether the live site takes it too. Off by default: without it only the
+  previews of your site get the button.
+
+Nothing in the admin sets them yet, so feedback stays off for every site.
+
+A site that takes feedback without an account while it, or one of its
+previews, is public collects from the public: expect spam. The site takes
+nothing new once the installation's limit of open items is reached (500 by
+default), and your organisation names the collection in its own privacy
+statement too.
+
+### What Toon adds to your pages
+
+Where the button is on (your previews, and with feedback on the live site
+your live site), Toon adds one script tag to each HTML page as it serves it, right
+after the doctype:
+
+```html
+<script src="/-/feedback/widget.<hash>.js" defer data-toon-feedback="..."></script>
+```
+
+Your files do not change: the version stays as you published it. A
+`_version` view, your `404.html` and every request that is not a navigation
+(a `fetch`, a script, an iframe) get the file as published. The script puts a
+"Feedback" button at the bottom right of the window, which moves out of the
+way of an element of your page that has keyboard focus, inside a shadow root
+of its own and outside the flow of your layout, with its styles in px, so
+your CSS does not reach it and your layout does not shift for it. It uses
+no browser storage, no cookies, no global variable and no custom element. Key
+and input events that start inside it stop there, so your page's shortcuts
+do not see what a visitor types in it. It is hidden in print.
+
+What to keep in mind:
+
+- The widget adds one element to the end of `body`,
+  `<div data-toon-feedback-host>`. A script that walks the children of
+  `body` meets it.
+- A page larger than 10 MiB once decoded, a page that starts with a UTF-16
+  byte order mark, and a page with no place for the tag in its first 64 KiB
+  get no button.
+- The tag's configuration holds a token for this page view and no name or
+  email address, and your page's own scripts can read it. After a visitor
+  said yes to feedback with their account, the scripts on your page can also
+  send feedback in that visitor's name on your site, until they log out or
+  their session ends. With the shielding from other sites off, the pages of
+  every other site whose shielding is off can do that too, and read, reply
+  to and delete that visitor's own feedback on your site, for twelve hours
+  after the page view. On a site that takes feedback with accounts, run only
+  scripts you trust, and keep the shielding on.
+- The query parameter `key` and the fragment `#toon-feedback=` belong to
+  Toon. On a page that carries the feedback button the widget takes that
+  fragment off the address and marks the place it names.
+
+### No caching for your HTML
+
+Where the button is on, the HTML page a visitor opens is never stored and
+never confirmed with a `304 Not Modified`: the answer to a navigation is
+`Cache-Control: no-store`, also when the button stays out, because the page
+carries a token for this visitor and this view. A page with the button goes
+out uncompressed. So every view of a page transfers it in full, which costs
+more for a large page than before. Every answer for such a page carries
+`Vary: Sec-Fetch-Dest`. Your other files (CSS, scripts, images) keep the
+caching they had.
+
+### Under the shielding
+
+The button works on a shielded site ("Afschermen van andere sites" on, §2).
+It is a classic script, which loads under the shielding, and its calls to
+Toon go out without a cookie and with `Origin: null`, which the feedback API
+accepts. Two things are different there:
+
+- In a screenshot your site's own images appear as grey areas: the page's
+  opaque origin cannot read them back. The widget says so before the visitor
+  sends.
+- While a screenshot is made, the browser stops the screenshot's request for
+  each such image before it goes out, and the console says so for each one.
+  Chrome and Edge show
+  `Fetch API cannot load ... Request mode is "same-origin"` and a
+  `Failed to fetch` warning from the screenshot library. Firefox shows only
+  that warning, as `NetworkError when attempting to fetch resource.`, and
+  Safari as `Load failed`. That is expected.
+
+### Which browsers get the button
+
+Toon adds the button only to a request that the browser marks as a
+navigation, with the header `Sec-Fetch-Dest: document`, because a page's own
+script cannot send that header. Chrome and Edge send it from version 80,
+Firefox from 90 and Safari from 16.4 (MDN browser compatibility data). An
+older browser gets your page without the button.
+
+### Your accessibility statement
+
+With the button on your live site, it is part of every HTML page there, and
+your accessibility statement covers it like the rest of the page. It is
+built for WCAG 2.2 AA: a landmark labelled "Feedback" with a button that
+carries visible text, the whole flow by keyboard (the arrow keys move a
+crosshair to point at a spot and Enter picks it, which the bar of the overlay
+says once the keyboard is in use, and Escape steps back), an area by dragging
+or without it ("Gebied zonder slepen" in the bar: two clicks on its corners,
+or the arrow keys and Enter, WCAG 2.5.7), announcements
+through a status region, a panel that becomes a sheet at the bottom of the
+screen below 600 pixels, with Tab kept inside it, and support for forced
+colours, a dark colour scheme and reduced motion. It has not been audited,
+nor tried with a screen reader, in Safari or Firefox, or on a touch device.
+
+### How visitors hide it
+
+The button's menu has "Knop verbergen" (hide the button). "Een minuut" (one
+minute) hides it on that page for a minute. "Tot je de browser sluit" (until
+you close the browser) hides it on the whole site, live and previews, until
+the browser closes and for twelve hours at most, and first shows the link
+that brings it back. That choice sets a cookie that holds the site and when
+the hiding ends, sealed by Toon, and nothing about the visitor.

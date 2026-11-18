@@ -1,5 +1,5 @@
-"""Toon's own pages around site feedback: consent to feedback with an
-account, and ending that consent.
+"""Toon's own pages around the feedback widget: consent to feedback with an
+account, ending that consent, and hiding or showing the button.
 
 A page token carries the visitor's content session for feedback with their
 account only after the visitor said yes, on a page Toon renders outside every
@@ -39,9 +39,12 @@ the visitor has signed in.
 Everything here answers top-level navigations only (`Sec-Fetch-Dest:
 document`, which no page script can set), and every refusal is the neutral
 404. A way back (`returnTo`) passes the same rule as the login's, must be a
-site's path and loses every `key` parameter. Ending the consent is harmless,
-so it is a GET, and it reaches every session that a correctly signed site
-cookie or anchor on the request names.
+site's path without a `.` or `..` segment and loses every `key` parameter. Ending the consent and showing
+the button again are harmless, so they are GETs, and ending it reaches every
+session that a correctly signed site cookie or anchor on the request names.
+Hiding the button takes a page token of the very site it hides the button
+on, and keeps the button away on that site until the browser closes, twelve
+hours at most.
 """
 
 from __future__ import annotations
@@ -52,7 +55,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import partial
 from html import escape
-from urllib.parse import parse_qsl, urlencode
+from urllib.parse import parse_qsl, unquote, urlencode, urlsplit
 
 from fastapi import Request
 from sqlalchemy import select
@@ -65,6 +68,7 @@ from toon.auth import sessions
 from toon.auth.revalidation import revalidate_session
 from toon.auth.sessions import Session, SessionKind, SessionStore, Visitor
 from toon.constants import (
+    FEEDBACK_HIDE_COOKIE,
     PATH_CONTENT_LOGIN,
     PATH_FEEDBACK_ACCOUNT,
     SLUG_RE,
@@ -73,11 +77,15 @@ from toon.models.identity import Group
 from toon.models.publication import Site
 from toon.serving import addresses
 from toon.serving.feedback_access import decide_page, open_feedback
+from toon.serving.feedback_refusals import RefusedToken, refused
 from toon.serving.feedback_token import (
     MAX_RETURN_TO_LENGTH,
     mint_consent_nonce,
+    mint_hide_mark,
+    page_token_expired,
     parse_consent_nonce,
     parse_link_ticket,
+    parse_page_token,
 )
 from toon.serving.platform_page import PAGE_CSS, bounded_form, footer_html
 from toon.serving.response import NOINDEX, neutral_404_response, platform_csp
@@ -168,6 +176,10 @@ class ReturnTarget:
     group: str
     site: str
 
+    @property
+    def prefix(self) -> str:
+        return sessions.site_prefix(self.group, self.site)
+
 
 @dataclass(frozen=True)
 class PageRoute:
@@ -192,19 +204,36 @@ def without_key(value: str) -> str:
     return f"{cleaned}#{fragment}" if hash_mark else cleaned
 
 
+def _has_dot_segment(value: str) -> bool:
+    """Whether the path of `value` has a `.` or `..` segment, percent-encoded
+    or not: a browser resolves one before it requests the path, so
+    `/g/s/../../other/` names one site and leads to another."""
+    return any(unquote(segment) in {".", ".."} for segment in urlsplit(value).path.split("/"))
+
+
 def return_target(values: list[str]) -> ReturnTarget | None:
     """The one `returnTo` of a request, when it is a way back these pages may
-    send a visitor: the login's rule, a site's path, and no `key`."""
+    send a visitor: the login's rule, a site's path without a dot segment,
+    and no `key`."""
     if len(values) != 1:
         return None
     value = values[0]
     if len(value) >= MAX_RETURN_TO_LENGTH or sessions.valid_return_to(value, "") != value:
+        return None
+    if _has_dot_segment(value):
         return None
     path = without_key(value)
     site_path = sessions.parse_site_path(path)
     if site_path is None:
         return None
     return ReturnTarget(path, *site_path)
+
+
+def ways_back(return_to: str) -> list[str]:
+    """The ways back to a page that `return_target` takes, best first: its
+    path and query, then its path alone. Empty when it takes neither."""
+    path = return_to.partition("?")[0]
+    return [value for value in dict.fromkeys((return_to, path)) if return_target([value]) is not None]
 
 
 def page_route(path: str) -> PageRoute | None:
@@ -471,6 +500,65 @@ async def _site_id(db: AsyncSession, group: str, site: str) -> uuid.UUID | None:
     )
 
 
+async def hide_button(request: Request) -> Response:
+    """POST /-/feedback/hide: hides the button on one site until the browser
+    closes, twelve hours at most. Only with a page token of that site, and
+    the cookie holds a sealed mark for that site alone. A token it refuses
+    counts in serving/feedback_refusals.py.
+
+    That does not stop another page from posting a token it got hold of, and
+    a public site's page hands one to anyone. No header tells such a post
+    from the widget's own: from a shielded page that is a cross-site
+    navigation with `Origin: null` as well. Accepted, since it costs the
+    visitor the button on that one site for that while, and the show link
+    brings it back."""
+    if not sessions.top_level_navigation(request):
+        return neutral_404_response()
+    form = await bounded_form(request, MAX_FORM_BYTES)
+    if form is None:
+        return neutral_404_response()
+    tokens = form.getlist("token")
+    target = return_target([str(value) for value in form.getlist("returnTo")])
+    settings = request.app.state.settings
+    now = int(time.time())
+    token = parse_page_token(settings.session_secret, tokens[0], now=now) if len(tokens) == 1 else None
+    if token is None and len(tokens) == 1 and str(tokens[0]).strip():
+        expired = page_token_expired(settings.session_secret, tokens[0], now=now)
+        refused(RefusedToken.EXPIRED if expired else RefusedToken.UNOPENED)
+    if target is None or token is None:
+        return neutral_404_response()
+    async with request.app.state.session_factory() as db:
+        address = (
+            await db.execute(
+                select(Group.slug, Site.slug).join(Group, Group.id == Site.group_id).where(Site.id == token.site_id)
+            )
+        ).one_or_none()
+    if address is None or tuple(address) != (target.group, target.site):
+        refused(RefusedToken.SITE)
+        return neutral_404_response()
+    response = RedirectResponse(target.path, status_code=303, headers=_NO_STORE)
+    mark = mint_hide_mark(settings.session_secret, site_id=token.site_id, now=now)
+    # No Max-Age: the cookie goes when the browser closes, and the mark in it
+    # stops counting after twelve hours.
+    response.set_cookie(FEEDBACK_HIDE_COOKIE, mark, path=target.prefix, secure=True, httponly=True, samesite="lax")
+    return response
+
+
+async def show_button(request: Request) -> Response:
+    """GET /-/feedback/show: shows the button again on the site in
+    `returnTo`. It clears the cookie at the site's path, where hiding sets
+    it, and at `/`, where a page's own script may have written one."""
+    if not sessions.top_level_navigation(request):
+        return neutral_404_response()
+    target = return_target(request.query_params.getlist("returnTo"))
+    if target is None:
+        return neutral_404_response()
+    response = RedirectResponse(target.path, status_code=303, headers=_NO_STORE)
+    for path in (target.prefix, "/"):
+        response.delete_cookie(FEEDBACK_HIDE_COOKIE, path=path, secure=True, httponly=True, samesite="lax")
+    return response
+
+
 __all__ = [
     "CONSENT_PAGE_HEADERS",
     "MAX_FORM_BYTES",
@@ -479,8 +567,11 @@ __all__ = [
     "account_page",
     "consent_page_html",
     "give_consent",
+    "hide_button",
     "page_route",
     "return_target",
+    "show_button",
     "stop_consent",
+    "ways_back",
     "without_key",
 ]

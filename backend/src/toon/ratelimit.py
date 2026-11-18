@@ -93,7 +93,7 @@ def class_for_path(path: str) -> RateLimitClass:
     # this one counts per IP.
     if path == PATH_CONTENT_CODE:
         return RateLimitClass.CODE
-    # The widget API and the pages around it: a budget of their own, so
+    # The widget, its API and the pages around it: a budget of their own, so
     # sending feedback neither spends nor shares the budget of page views. The
     # counters per author and per site sit in the routes.
     if path.startswith(PATH_CONTENT_FEEDBACK_PREFIX):

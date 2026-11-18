@@ -1,5 +1,6 @@
 """Sealing for the tokens of site feedback: the page token in the widget's
-config and the consent nonce in Toon's consent form.
+config, the consent nonce in Toon's consent form and the mark in the cookie
+that hides the button.
 
 A sealed token sits where others can read it, a site's own scripts included,
 so unlike `sessions.sign` it has to hide what it carries as well as prove it:
@@ -34,6 +35,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 PURPOSE_PAGE = b"toon-feedback-page-v1"
 PURPOSE_CONSENT = b"toon-feedback-consent-v1"
+PURPOSE_HIDE = b"toon-feedback-hide-v1"
 
 # What unseal reads at most, of a value any request can hand in. Every token
 # Toon mints stays well below it, and seal refuses one that would not.
@@ -104,6 +106,7 @@ def _decode(token: str) -> bytes | None:
 __all__ = [
     "MAX_TOKEN_LENGTH",
     "PURPOSE_CONSENT",
+    "PURPOSE_HIDE",
     "PURPOSE_PAGE",
     "seal",
     "unseal",

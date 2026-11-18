@@ -24,6 +24,11 @@ This document describes how to run and test Toon locally.
 - A built SPA: `just build-spa` (npm run build) fills `frontend/dist`,
   which the compose stack mounts read-only into the app container. Without
   that directory the admin host answers with a 503 and a clear message.
+  The same build writes the site feedback widget, `frontend/dist/feedback-widget.js`
+  (`frontend/vite.widget.config.ts`). The app reads that file once, at
+  startup, so after a new build of the widget restart the app container:
+  `podman compose -f dev/compose.yml restart app`. Without the file every page
+  goes out without the widget, and the app logs one warning at startup.
 
 ## Commit hooks
 
@@ -144,6 +149,8 @@ What ends up there:
   own override that is stricter: base `site_team` without exceptions. An
   override is always the whole access, never a base from the preview with
   exceptions from the site.
+- **Feedback.** `jaarverslag` takes feedback on its previews only, from
+  anyone who can view them, also without a name.
 
 The secret link of `kerncijfers` is shown once, at the bottom of the
 output, and cannot be reconstructed afterwards. Instead of a deploy
@@ -161,6 +168,28 @@ curl -s -o /dev/null -w '%{http_code}\n' http://toon.localhost:8080/rijksoverhei
 testcontainer database, so that a schema change which breaks the script
 fails in `just test` and not only when someone wants their dev environment
 back.
+
+## Trying site feedback
+
+The seed switches feedback on for `rijksoverheid/jaarverslag`, on its
+previews only. Open one of them in a browser, for instance
+`http://toon.localhost:8080/rijksoverheid/jaarverslag/_preview/pr-42/`: the
+button sits at the bottom right of the page. The widget only goes into a
+navigation the browser marks with `Sec-Fetch-Dest: document`, so `curl` gets
+the page without it, unless you send that header yourself:
+
+```bash
+curl -s -H 'Sec-Fetch-Dest: document' http://toon.localhost:8080/rijksoverheid/jaarverslag/_preview/pr-42/ | grep -o '<script src="/-/feedback/[^"]*"'
+```
+
+The seed lets anyone give feedback, also without a name, so the menu lets
+you send straight away. "Met je account versturen" (send with your account) takes you through
+the login, which the mock OIDC server does at once, to Toon's consent page.
+Its form shows after a second and takes a tick in its box before "Ja, met
+mijn account" (yes, with my account) does anything.
+
+Pages get no widget when `TOON_BASE_URL` is not set: its link to the privacy
+statement has to be an absolute address. `dev/compose.yml` sets it.
 
 ## Compose topology
 
@@ -216,7 +245,9 @@ point at the same nginx on port `8080`; the app makes the distinction.
   decision, audit, file resolution and the streaming itself. In compose the
   app gets `./frontend/dist` mounted read-only at `/spa`
   (`TOON_SPA_PATH=/spa`), so that `just build-spa` is visible without a
-  rebuild. The same holds for the backend: `./backend/src` is read-only at
+  rebuild, apart from the feedback widget, which the app reads at startup (a
+  new one needs a restart of the app container, see "Prerequisites"). The
+  same holds for the backend: `./backend/src` is read-only at
   `/app/src` and uvicorn runs with `--reload`, so a change in Python code
   is there within seconds. That polls (`WATCHFILES_FORCE_POLLING`), because
   over the mount from macOS inotify events do not reach the container. A

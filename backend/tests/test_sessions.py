@@ -1770,6 +1770,7 @@ class TestRawCookieValues:
             pytest.param((b"a=",), [""], id="empty-value"),
             pytest.param((b"a; ab=1; b=a=1; A=1; =a",), [], id="other-names-and-no-name"),
             pytest.param((b"a=\xc3\xa9",), ["\xc3\xa9"], id="read-as-latin-1"),
+            pytest.param((b"a=1; \xa0a=2",), ["1", "2"], id="a-no-break-space-trimmed-as-starlette-does"),
         ],
     )
     async def test_every_value_under_the_name(self, app, headers, values):

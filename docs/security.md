@@ -397,7 +397,9 @@ What that opens, shape by shape, for a site this browser has a cookie for:
   nothing (see "Site feedback").
 - **`<iframe>`**: `frame-ancestors 'none'` on every content response, the
   neutral 404 included, so the browser refuses to render either and the two
-  fail identically.
+  fail identically. The feedback editor's frame is the exception: a static
+  document, the same for everyone, which no cookie changes (design.md
+  §16.15).
 - **`<img>`**: a real image of the site loads. The including page cannot read
   its pixels (the canvas is tainted) but does learn that it exists and what
   its intrinsic dimensions are, for a path it guessed.
@@ -418,7 +420,8 @@ What that opens, shape by shape, for a site this browser has a cookie for:
   takes a sealed nonce from Toon's own sandboxed page and sets no cookie, the
   widget API takes the page token in a header, and ending consent is a GET as
   forgeable as the logout and as harmless, because it can only take consent
-  away (design.md §16.6, §16.8).
+  away (design.md §16.6, §16.8). Hiding the button takes a page token of
+  that very site, which any page that holds one can send (design.md §16.7).
 
 Accepted, in short: a third-party page can have a visited site's assets loaded
 with the visitor's credentials and observe their effect, but not read its
@@ -443,21 +446,29 @@ unnecessary at once.
 
 ## Site feedback
 
-Visitors give feedback on a site's pages through the widget API on the
-content host. No page carries a widget yet. The rules are in design.md §16.
+Visitors give feedback on a site's pages through a widget Toon adds to them.
+The rules are in design.md §16.
 
 | Item | Status |
 |---|---|
 | Feedback nobody asked for: a site takes none until its settings turn it on, the live site only on top of the previews, and without an account only when the site widens who may give it (design.md §16.1) | implemented: `models/publication.py`, `alembic/versions/0011_feedback.py`, `backend/tests/test_migrations.py` |
+| A page with a token in it kept for someone else: only a navigation gets the widget, and a navigation to a feedback page is never stored or confirmed with a 304 (design.md §16.2, §16.3) | implemented: `serving/feedback_inject.py`, `serving/router.py`, `serving/response.py`, `backend/tests/test_feedback_inject.py` |
+| A page that costs too much to inject into: its decoded size is bounded at 10 MiB before anything is decoded, and at most 64 KiB of it is examined (design.md §16.3) | implemented: `serving/feedback_inject.py`, `constants.py`, `backend/tests/test_feedback_inject.py` |
 | A forged or replayed page token: it is sealed with a key from `TOON_SESSION_SECRET`, expires after twelve hours, is parsed as strictly as it is minted, and is taken by the widget API alone, never by a page or an asset (design.md §16.5) | implemented: `serving/feedback_seal.py`, `serving/feedback_token.py`, `backend/tests/test_feedback_seal.py`, `backend/tests/test_feedback_token.py` |
+| A planted site cookie beside the visitor's own: a page view whose request carries the site cookie twice gets a token without a session (design.md §16.5) | implemented: `serving/feedback_inject.py`, `auth/sessions.py`, `backend/tests/test_feedback_inject.py` |
 | A token that outlives the access it was minted for: every call checks the session, the consent and the gate again, and every ground for refusal answers the one byte-identical `FEEDBACK_UNAVAILABLE` (design.md §16.5) | implemented: `serving/feedback_access.py`, `auth/revalidation.py`, `backend/tests/test_feedback_api.py`, `backend/tests/test_feedback_matrix.py` |
-| A site's scripts sending in a visitor's name: feedback with an account only after consent on Toon's own sandboxed page, which takes no single press as consent and sets no cookie (design.md §16.6) | implemented: `serving/feedback_consent.py`, `serving/feedback_token.py`, `auth/sessions.py`, `platform/pages.py`, `backend/tests/test_feedback_consent.py`, `backend/tests/test_feedback_token.py`, `backend/tests/test_sessions.py`. See "What site feedback adds" below |
+| Somebody trying page tokens unnoticed (BIO2, ISO 27002:2022 8.16): each process counts the tokens the widget API and the hide route refuse, per reason, and a window of ten minutes with more than 100 of them is one WARNING with the counts alone, no address, account, site or token (design.md §16.5, `docs/deploying-on-zad.md`) | implemented: `serving/feedback_refusals.py`, `serving/feedback_access.py`, `serving/feedback_consent.py`, `backend/tests/test_feedback_refusals.py` |
+| A site's scripts sending in a visitor's name: feedback with an account only after consent on Toon's own sandboxed page, which takes no single press as consent and sets no cookie (design.md §16.6) | implemented: `serving/feedback_consent.py`, `serving/feedback_token.py`, `serving/feedback_inject.py`, `auth/sessions.py`, `platform/pages.py`, `backend/tests/test_feedback_consent.py`, `backend/tests/test_feedback_token.py`, `backend/tests/test_feedback_inject.py`, `backend/tests/test_sessions.py`. See "What site feedback adds" below |
+| A hide cookie written by a page's script or a sibling host: only a mark Toon sealed for that very site hides the button (design.md §16.7) | implemented: `serving/feedback_consent.py`, `serving/feedback_token.py`, `serving/feedback_inject.py`, `auth/sessions.py`, `backend/tests/test_feedback_consent.py`, `backend/tests/test_feedback_inject.py`, `backend/tests/test_feedback_token.py` |
 | A cross-origin page reading answers with the visitor's credentials: CORS only under `/-/feedback/v1/`, `Access-Control-Allow-Origin: *` without credentials on an API that reads no cookie (design.md §16.8) | implemented: `ratelimit.py` (`FEEDBACK_API_HEADERS`), `serving/feedback_api.py`, `backend/tests/test_feedback_api.py`, `backend/tests/test_ratelimit.py`, `backend/tests/test_app_integration.py` |
 | Paths under the prefix that no route names: the neutral 404 for every other method and path, on both hosts (design.md §4a, §16.8) | implemented: `host_separation.py`, `serving/feedback_routes.py`, `backend/tests/test_host_separation.py`, `backend/tests/test_feedback_api.py` |
 | Hostile input: one rule for every string a submitter writes, strict JSON in closed schemas, and author fields from the session or from nowhere, each refusal a 422 and never a 500 (design.md §16.9) | implemented: `serving/feedback_input.py`, `serving/feedback_api.py`, `backend/tests/test_feedback_input.py`, `backend/tests/test_feedback_api.py` |
+| Stored XSS through feedback text: it renders from one parser into DOM nodes, never as markup (design.md §16.14) | implemented: `frontend/src/feedback-text/markdown.ts`, `frontend/src/feedback-widget/mine.ts`, `frontend/src/feedback-text/markdown.test.ts`, `frontend/tests/feedback-widget-modules.test.ts` |
 | Hostile screenshots and bodies that cost the event loop: the bytes decide the type, the dimensions come from a header found within a bounded walk, nothing is decoded, and the delimiters of a body are counted before it is parsed (design.md §16.9) | implemented: `serving/feedback_images.py`, `serving/feedback_body.py`, `backend/tests/test_feedback_images.py`, `backend/tests/test_feedback_body.py` |
 | Spam and storage exhaustion: caps on open items, screenshot space and replies, checked under advisory locks, and write counters per author and per site in counters of their own. Authors count attempts, a site counts accepted writes: each write reserves the site's before its body is read and gives it back unless it is stored, so concurrent writes cannot take a site past its budget, refused attempts cannot lock a site out and a flood of author keys cannot evict a site's (design.md §16.10) | implemented: `serving/feedback_api.py`, `constants.py`, `backend/tests/test_feedback_api.py`, `backend/tests/test_feedback_matrix.py` |
 | Memory exhaustion by uploads: a budget for the bodies in flight that every chunk takes its room in before it is parsed, a share per client and a deadline per body (design.md §16.10) | implemented: `serving/feedback_body.py`, `constants.py`, `backend/tests/test_feedback_body.py` |
+| A widget bundle swapped or stale, or one that reaches into the site: it loads from an address that carries its hash on Toon's own origin, and keeps out of the site's storage, cookies, globals and custom elements (design.md §16.4) | implemented: `serving/feedback_widget.py`, `serving/feedback_routes.py`, `frontend/vite.widget.config.ts`, `backend/tests/test_feedback_widget_bundle.py`, `frontend/tests/feedback-widget-bundle.test.ts`, `frontend/tests/feedback-widget-modules.test.ts` |
+| The editor reaching into the site, or the site into it: a static, sandboxed frame document with a policy of its own, which talks to the widget over one port (design.md §16.15) | implemented: `serving/feedback_editor.py`, `serving/feedback_routes.py`, `frontend/src/feedback-editor/`, `frontend/src/feedback-widget/editor.ts`, `backend/tests/test_feedback_editor.py`, `frontend/src/feedback-editor/frame.test.ts`, `frontend/src/feedback-widget/editor.test.ts` |
 | Feedback kept longer than needed: the nightly cleanup purges it on its terms (design.md §16.12) | implemented: `previews/cleanup_job.py`, `backend/tests/test_cleanup_job.py`. See `docs/privacy.md` |
 
 ### What site feedback adds, and what is accepted
@@ -465,9 +476,24 @@ content host. No page carries a widget yet. The rules are in design.md §16.
 This is the explicit risk assessment BIO2 asks for a security-relevant
 change, as for WebAssembly above.
 
-What it adds. Until now the platform's only POST on the content host was the
-code of a secret link. Site feedback adds more:
+What it adds. Until now the platform ran no script of its own in a site's
+pages, and its only POST on the content host was the code of a secret link.
+Site feedback adds both:
 
+- **Toon's code in the site's pages.** On a site that collects feedback the
+  widget runs in every HTML page of a feedback route, in the site's realm,
+  beside the site's own scripts. A fault in it is a fault on all those pages,
+  and whatever reaches the widget's build reaches them too. What bounds that:
+  sites start with feedback off and on previews only, the bundle comes from
+  Toon's own origin at an address bound to its hash, it keeps out of the
+  site's storage, cookies, globals and custom elements, and its one
+  dependency, `html-to-image`, is pinned to an exact version in the lockfile
+  and scanned with the rest of the frontend (see "Supply chain").
+  The editor of the comment and reply fields is Toon's code as well, but it
+  runs in a sandboxed frame of its own (design.md §16.15).
+  Its dependencies, `@nldd/design-system` at exactly 0.24.0 and the
+  CodeMirror and Lit packages that come with it, are locked in the lockfile
+  and scanned the same way.
 - **An API that takes input from whoever may see a page.** On a public site
   that takes feedback without an account that is anyone. What bounds it: a
   token per page view that is checked again on every call, the validation,
@@ -481,21 +507,93 @@ code of a secret link. Site feedback adds more:
   API allows no credentials.
 
 Accepted, each in design.md: a site's own scripts can act for a visitor on
-that site's feedback once the visitor consented (§16.6), a content cookie
-planted from elsewhere for a session that consented already cannot be told
-from the visitor's own (§16.6), the scripts can find out whether a signed-in
-visitor's write budget on that site is spent (§16.10), the sites share the
-platform-wide screenshot cap first come, first served (§16.10), and without
-a minimum receive rate a client with enough addresses can keep every create
-at a 503 (§16.10). A token reaches no other site's feedback and no other
-site's count.
+that site's feedback once the visitor consented (§16.5, §16.6), a content
+cookie planted from elsewhere for a session that consented already cannot be
+told from the visitor's own (§16.6), the scripts can find out whether a
+signed-in visitor's write budget on that site is spent (§16.10), the sites
+share the platform-wide screenshot cap first come, first served (§16.10), and
+without a minimum receive rate a client with enough addresses can keep every
+create at a 503 (§16.10). A token reaches no other site's feedback and no
+other site's count.
 
-Switching it off. Per site, with `sites.feedback_enabled` off every widget
-call for the site is refused at once, because each call asks the site's
-setting again. What was given stays until it is deleted or purged. On the
-platform every site starts with feedback off. Removing the feature is the
-downgrade of migration `0011_feedback`, which drops every item, reply and
-screenshot with the three settings.
+With the widget in the page, accepted as well:
+
+- **Sites without the shielding can read each other's pages, and so their
+  tokens.** Accepted by the product owner on 2026-11-17 (TDR-0015). A page of
+  one such site can open a page of another in a window, which is a navigation
+  and so gets the widget, and read it, its configuration included, as it could
+  read that page before, and act through the widget in that window. With the
+  token it can send feedback to that site with a name or anonymously, as the
+  visitor could, also where only the visitor's session lets them see the page.
+  Where the visitor consented to feedback with their account on that site, the
+  token carries the consented session too. The other site can then send
+  feedback in the visitor's name, and read, reply to and delete the visitor's
+  own feedback on that site (design.md §16.5). Every call checks the token
+  again, so that ends as soon as the visitor logs out, withdraws the consent
+  ("Stop giving feedback with your account"), or their session ends or fails
+  revalidation at the IdP, and at the latest when the token expires, twelve
+  hours after the page view. What the other site did by then, an item sent or
+  one deleted, stays done. A link ticket in the configuration of such a page
+  (design.md §16.6) lets whoever signs in with it open the consent page for
+  that site while the secret link holds, for the page token's twelve hours at
+  most, and nothing more: it opens none of the site's pages. The shielding is
+  the boundary between sites and is on by default. A site whose admin turns it
+  off has its pages open to every other unshielded site already. A `fetch` or
+  a frame gets no token, since only a navigation gets the widget, and frames
+  are refused anyway. Revisit when every site gets an origin of its own
+  (TDR-0002), or when the account actions move into a window Toon owns, with
+  an opaque origin, so the session never enters the site's page.
+- **Screenshots of a shielded page lack its images.** Its opaque origin cannot
+  read the site's own image files back, so they appear as grey areas and a
+  reviewer sees less than the visitor saw. The widget says so before sending.
+  Making those images readable would take CORS headers on content, and the
+  analysis in "Why the content cookies are SameSite=None" depends on there
+  being none.
+- **Any page that can get a page token can hide the button on that site.** A
+  public site's page hands a token to anyone, and a hide form another site
+  posts looks like the widget's own: from a shielded page that is a
+  cross-site navigation with `Origin: null` too, so no header check tells
+  them apart. The button then stays away on that one site until the browser
+  closes, twelve hours at most, or until the visitor follows the show link
+  (`/-/feedback/show`), which the widget shows when it hides the button
+  itself. The show link clears the cookie on this host alone, at the site's
+  path and at `/`. So a mark that an unshielded page writes at another path
+  that reaches the site's pages outlasts it, and so does one that a sibling
+  `*.rijks.app` host sets with `Domain=rijks.app`, at the site's path or at
+  `/` too: until the mark expires, twelve hours at most. A page or host that
+  keeps writing fresh marks keeps the button away for as long as it does.
+  Either way the button stays away for that visitor on that site, and
+  nothing more (design.md §16.7).
+- **Any page anywhere may frame the editor.** Its frame carries no
+  `frame-ancestors`, since any value would keep it out of shielded sites
+  (design.md §16.15). A page that frames it gets an empty editor and nothing
+  more: the frame holds no data and no session, can take no action, and
+  talks only to the parent that hands it a port.
+- **The site's scripts can read what is typed in the editor.** The widget
+  runs in the site's realm with an open shadow root, and every change in the
+  editor is written into its textarea. The frame keeps the editor apart from
+  the site, not what is typed.
+- **The editor's frame can navigate itself.** No CSP directive stops that,
+  so a compromised build of the editor could carry the text of its field to
+  another address. That text is all the frame holds.
+- **A link in feedback can lead anywhere.** A comment can carry a link, and
+  a giver can be anyone the site lets in. The link shows the address it goes
+  to, never a label, so the team reads where it leads before following it,
+  and `nofollow ugc` tells search engines it is not the site's own. A
+  look-alike that is pure ASCII (`rnicrosoft.com`), or a long host that
+  pushes the real domain out of sight, still shows as typed. The renderer
+  cannot tell a deceptive address from an honest one. It refuses what it can
+  define: a user name before the host, an invisible or bidi character, and a
+  host the browser would show otherwise (design.md §16.14).
+
+Switching it off. Per site, with `sites.feedback_enabled` off the next page
+view has no widget, and every widget call for the site is refused at once,
+because each call asks the site's setting again. What was given stays until it
+is deleted or purged. Per visitor, "Knop verbergen" (hide the button) takes it
+away until the browser closes, twelve hours at most. On the platform every
+site starts with feedback off. Removing the feature is the downgrade of
+migration `0011_feedback`, which drops every item, reply and screenshot with
+the three settings.
 
 ## Ingest and storage
 
@@ -658,7 +756,10 @@ whole registrable domain, every `*.rijks.app` application along with it, not
 only Toon's own cookies. Other applications on `*.rijks.app` that use an
 ordinary (non-`__Host-`) session cookie do not have the `__Host-` protection
 either and are exposed to cookie tossing: a `Domain=rijks.app` cookie that a
-more specific path match lets substitute for theirs.
+more specific path match lets substitute for theirs. Site feedback adds a
+consequence on Toon's own content host: a planted site cookie can carry a
+session that consented to feedback, so that a visitor's feedback goes in under
+the planter's name (see "What site feedback adds, and what is accepted").
 
 Status: open. Options under evaluation: making the per-site shielding
 mandatory rather than a switch a site administrator can turn off, a separate
