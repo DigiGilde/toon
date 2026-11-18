@@ -271,6 +271,27 @@ class TestCreateGroupWithTheCliToken:
 
         _problem(response, 409, "SLUG_EXISTS")
 
+    async def test_a_field_from_a_newer_cli_is_ignored_not_refused(self, client, factory):
+        """The CLI ships apart from the server, so its bodies stay lenient,
+        unlike the session-only ones (TestUnknownBodyFields in test_admin_api.py)."""
+        member = await _member(factory, "maker")
+        token = await _token(factory, member)
+
+        response = await client.post(
+            f"{BASE}/groups",
+            json={
+                "name": "Team",
+                "slug": "team",
+                "defaultAccess": {"base": "public", "fromANewerCli": True},
+                "fromANewerCli": True,
+            },
+            headers=_bearer(token),
+        )
+
+        assert response.status_code == 201, response.text
+        assert response.json()["defaultAccess"] == {"base": "public", "keys": False, "invitees": False}
+        assert await _group_exists(factory, "team")
+
     async def test_an_unknown_access_base_is_422_and_creates_nothing(self, client, factory):
         member = await _member(factory, "maker")
         token = await _token(factory, member)

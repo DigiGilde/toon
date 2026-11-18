@@ -72,7 +72,7 @@ from toon.api.docs import (
 )
 from toon.api.errors import WWW_AUTHENTICATE_BEARER, ApiError, error_responses
 from toon.api.origin_guard import require_admin_origin
-from toon.api.schema import ACCESS_BASE_HINT, AccessOut, ApiModel, iso_utc
+from toon.api.schema import ACCESS_BASE_HINT, AccessOut, ApiModel, SessionBody, iso_utc
 from toon.audit import request as audit_request
 from toon.audit import vocabulary
 from toon.audit.ip_crypto import IpDecryptError, decrypt_ip
@@ -424,7 +424,7 @@ class SiteCreate(ApiModel):
     )
 
 
-class GroupNameBody(ApiModel):
+class GroupNameBody(SessionBody):
     """The new display name of a group."""
 
     model_config = ConfigDict(json_schema_extra={"examples": [{"name": "Team Aurora"}]})
@@ -438,7 +438,7 @@ class GroupNameBody(ApiModel):
     )
 
 
-class SiteTitleBody(ApiModel):
+class SiteTitleBody(SessionBody):
     """The new display title of a site."""
 
     model_config = ConfigDict(json_schema_extra={"examples": [{"title": "Documentatie"}]})
@@ -452,7 +452,7 @@ class SiteTitleBody(ApiModel):
     )
 
 
-class GroupSlugBody(ApiModel):
+class GroupSlugBody(SessionBody):
     """The new slug of a group."""
 
     model_config = ConfigDict(json_schema_extra={"examples": [{"slug": "aurora"}]})
@@ -469,7 +469,7 @@ class GroupSlugBody(ApiModel):
     )
 
 
-class SiteSlugBody(ApiModel):
+class SiteSlugBody(SessionBody):
     """The new slug of a site within its group."""
 
     model_config = ConfigDict(json_schema_extra={"examples": [{"slug": "docs"}]})
@@ -491,7 +491,7 @@ class SiteSlugBody(ApiModel):
     )
 
 
-class AccessBody(ApiModel):
+class AccessBody(SessionBody):
     """Who may see the content: a base plus two exceptions."""
 
     model_config = ConfigDict(
@@ -507,7 +507,7 @@ class AccessBody(ApiModel):
     )
 
 
-class ExternalSourcesBody(ApiModel):
+class ExternalSourcesBody(SessionBody):
     """Whether the content of this site may load external sources."""
 
     model_config = ConfigDict(json_schema_extra={"examples": [{"externalSources": True}]})
@@ -523,7 +523,7 @@ class ExternalSourcesBody(ApiModel):
     )
 
 
-class SandboxBody(ApiModel):
+class SandboxBody(SessionBody):
     """Whether the content of this site is isolated from the other sites."""
 
     model_config = ConfigDict(json_schema_extra={"examples": [{"sandbox": True}]})
@@ -540,7 +540,7 @@ class SandboxBody(ApiModel):
     )
 
 
-class SiteIdRequiredBody(ApiModel):
+class SiteIdRequiredBody(SessionBody):
     """Whether the linked repository may publish only with a CI ID token bound to this site."""
 
     model_config = ConfigDict(json_schema_extra={"examples": [{"siteIdRequired": True}]})
@@ -553,7 +553,7 @@ class SiteIdRequiredBody(ApiModel):
     )
 
 
-class LiveVersionsKeptBody(ApiModel):
+class LiveVersionsKeptBody(SessionBody):
     """How many previous live versions this site keeps."""
 
     model_config = ConfigDict(json_schema_extra={"examples": [{"liveVersionsKept": 3}]})
@@ -569,7 +569,7 @@ class LiveVersionsKeptBody(ApiModel):
     )
 
 
-class PreviewAccessBody(ApiModel):
+class PreviewAccessBody(SessionBody):
     """Separate access settings for a preview, or `null` to turn it off."""
 
     model_config = ConfigDict(
@@ -586,7 +586,7 @@ class PreviewAccessBody(ApiModel):
     )
 
 
-class IdentifierBody(ApiModel):
+class IdentifierBody(SessionBody):
     """A person, identified by e-mail address or SSO subject."""
 
     model_config = ConfigDict(
@@ -642,7 +642,7 @@ class SiteMemberAdd(IdentifierBody):
     )
 
 
-class KeyCreate(ApiModel):
+class KeyCreate(SessionBody):
     """A new secret link."""
 
     model_config = ConfigDict(
@@ -687,7 +687,7 @@ class KeyCreate(ApiModel):
 # -- Response models --------------------------------------------------------
 
 
-class LanguageUpdate(ApiModel):
+class LanguageUpdate(SessionBody):
     """The language choice of the signed-in member."""
 
     model_config = ConfigDict(
@@ -704,7 +704,7 @@ class LanguageUpdate(ApiModel):
     )
 
 
-class PlatformRoleUpdate(ApiModel):
+class PlatformRoleUpdate(SessionBody):
     """The new platform role of a member."""
 
     model_config = ConfigDict(json_schema_extra={"examples": [{"platformRole": "admin"}]})
@@ -715,7 +715,7 @@ class PlatformRoleUpdate(ApiModel):
     )
 
 
-class GroupRoleUpdate(ApiModel):
+class GroupRoleUpdate(SessionBody):
     """The new role of a member within a group."""
 
     model_config = ConfigDict(json_schema_extra={"examples": [{"role": "editor"}]})
@@ -723,7 +723,7 @@ class GroupRoleUpdate(ApiModel):
     role: Role = Field(description=f"Role this member gets in the group: {ROLE_HINT}", examples=["editor"])
 
 
-class SiteRoleUpdate(ApiModel):
+class SiteRoleUpdate(SessionBody):
     """The new site role of a member."""
 
     model_config = ConfigDict(json_schema_extra={"examples": [{"role": "editor"}]})
@@ -1415,7 +1415,7 @@ class SiteRepositoryOut(ApiModel):
     )
 
 
-class UserCodeBody(ApiModel):
+class UserCodeBody(SessionBody):
     """The code from the terminal of `toon login`."""
 
     model_config = ConfigDict(json_schema_extra={"examples": [{"userCode": "WDJB-MJHT"}]})
@@ -1644,7 +1644,7 @@ def _validated_hold_reason(value: str) -> str:
     return normalised
 
 
-class ReasonField(ApiModel):
+class ReasonField(SessionBody):
     """Mandatory justification when re-identifying a pseudonym or IP address (spec §12): ends up unchanged
     in the audit row of that re-identification (visible to every platform administrator who reads the
     audit log), and counts towards the daily limit on such re-identifications."""
@@ -1786,7 +1786,7 @@ class IpRevealOut(ApiModel):
     ip: str = Field(description="The full IP address as stored with this audit row.")
 
 
-class PurgeHoldReason(ApiModel):
+class PurgeHoldReason(SessionBody):
     """Why the audit purge is put on hold, or why the hold ends."""
 
     model_config = ConfigDict(json_schema_extra={"examples": [{"reason": "incident 2026-091"}]})

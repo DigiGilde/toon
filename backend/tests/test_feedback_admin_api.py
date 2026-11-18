@@ -429,6 +429,30 @@ async def test_a_valid_cli_token_of_an_admin_is_refused_on_every_route(client, f
         assert (await db.get(Site, world.site.id)).feedback_enabled is False
 
 
+@pytest.mark.parametrize(
+    ("route", "status", "replies"), [("status", FeedbackStatus.SEEN, 0), ("reply", FeedbackStatus.NEW, 1)]
+)
+async def test_a_field_a_newer_cli_may_send_is_ignored_not_refused(
+    client, app, factory, world, route, status, replies
+):
+    """The CLI's feedback commands send these two bodies and the CLI ships
+    apart from the server, so like every CLI body they ignore a field this
+    server does not know (the session-only bodies refuse one:
+    TestUnknownBodyFields in test_admin_api.py). The token is refused on these
+    routes, so a session sends the field here."""
+    item = await _item(factory, world.site)
+    headers = _login(client, app, world.editor)
+    method_, suffix, body, success, _ = ROUTES[route]
+
+    response = await client.request(
+        method_, FEEDBACK + suffix.format(item=item.id), json={**body, "fromANewerCli": True}, headers=headers
+    )
+
+    assert response.status_code == success, response.text
+    assert (await _stored(factory, item)).status == status
+    assert await _count(factory, FeedbackReply) == replies
+
+
 # -- The list -------------------------------------------------------------------
 
 

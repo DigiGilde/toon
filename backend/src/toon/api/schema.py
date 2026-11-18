@@ -18,6 +18,16 @@ class ApiModel(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
 
+class SessionBody(ApiModel):
+    """A request body that only arrives over an admin session: from the SPA,
+    which ships with the server, or from a platform admin calling by hand. An
+    unknown field is a mistake and gets 422. A body the CLI sends stays an
+    `ApiModel`: a CLI of another version may send a field this server does not
+    know yet."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
 ACCESS_BASE_HINT = (
     "`public` (everyone), `sso` (every user who signs in with SSO Rijk), `site_team` (anyone with a role "
     "on the site or on its group) or `nobody` (nobody by default: only through the "
@@ -44,4 +54,4 @@ def iso_utc(value: datetime | None) -> str | None:
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
-__all__ = ["ACCESS_BASE_HINT", "AccessOut", "ApiModel", "iso_utc"]
+__all__ = ["ACCESS_BASE_HINT", "AccessOut", "ApiModel", "SessionBody", "iso_utc"]

@@ -8,13 +8,13 @@ from typing import Any, Literal
 from pydantic import ConfigDict, Field
 
 from toon.api.admin import _timestamp_schema
-from toon.api.schema import ApiModel
+from toon.api.schema import ApiModel, SessionBody
 from toon.constants import FeedbackIdentity, FeedbackKind, FeedbackReplyAuthor, FeedbackStatus
 from toon.models.publication import VersionTarget
 from toon.serving.feedback_input import MAX_COMMENT
 
 
-class FeedbackSettingsBody(ApiModel):
+class FeedbackSettingsBody(SessionBody):
     """Whether this site collects feedback, from whom, and where."""
 
     model_config = ConfigDict(
