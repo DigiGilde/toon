@@ -58,9 +58,10 @@ from toon.main import create_app
 WITHOUT_BODY = {"204", "304"}
 
 # The screenshot of a feedback item answers with the image itself, which is
-# what an <img> in the admin interface needs: wrapped in JSON it would take
-# base64 and a decoder. Its 200 has no JSON model and names the three image
-# types with a binary schema instead (TestBinaryResponse holds it to that).
+# what an <img> in the admin interface and `toon feedback show --screenshot`
+# need: wrapped in JSON it would take base64 and a decoder on both ends. Its
+# 200 has no JSON model and names the three image types with a binary schema
+# instead (TestBinaryResponse holds it to that).
 BINARY_RESPONSES = frozenset({("get", "/-/api/v1/sites/{group_slug}/{site_slug}/feedback/{item_id}/screenshot")})
 
 
@@ -398,7 +399,10 @@ class TestSecurity:
             for method_, operation in path_part.items():
                 assert operation["security"], f"{method_} {path}"
 
-    def test_only_the_deploy_cli_session_creation_and_link_endpoints_accept_a_token(self, schema) -> None:
+    def test_only_the_deploy_cli_session_creation_link_and_cli_feedback_endpoints_accept_a_token(
+        self, schema
+    ) -> None:
+        feedback = "/-/api/v1/sites/{group_slug}/{site_slug}/feedback"
         with_token = {
             (path, method_)
             for path, path_part in schema["paths"].items()
@@ -413,6 +417,11 @@ class TestSecurity:
             ("/-/api/v1/groups", "post"),
             ("/-/api/v1/groups/{group_slug}/sites", "post"),
             ("/-/api/v1/sites/{group_slug}/{site_slug}/repository", "put"),
+            (feedback, "get"),
+            (f"{feedback}/{{item_id}}", "get"),
+            (f"{feedback}/{{item_id}}/screenshot", "get"),
+            (f"{feedback}/{{item_id}}/status", "put"),
+            (f"{feedback}/{{item_id}}/replies", "post"),
         }
 
     def test_the_documented_token_endpoints_are_exactly_the_ones_the_middleware_lets_through(

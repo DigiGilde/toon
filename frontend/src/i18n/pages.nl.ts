@@ -64,7 +64,7 @@ export const pagesNl = {
     'Zet de feedbackknop aan, dan wijzen bezoekers van je preview of site een punt, een gebied of een tekst aan en laten ze een opmerking achter. Je team leest, beantwoordt en handelt die af op het tabblad Feedback.',
   'page.about.features.cli.term': 'Vanaf je eigen computer.',
   'page.about.features.cli.body':
-    'Met de Toon-CLI publiceer je vanaf je laptop, nadat je die eenmalig aan je account hebt gekoppeld.',
+    'Met de Toon-CLI publiceer je vanaf je laptop en haal je feedback op om te beantwoorden, nadat je die eenmalig aan je account hebt gekoppeld.',
   'page.about.name.heading': 'Wist je dat',
   'page.about.name.body':
     'De naam komt van tonen: laten zien. Toon laat je pagina of site zien aan wie die mag zien. Dat kan iedereen zijn, of alleen een kleine groep.',
@@ -110,6 +110,8 @@ export const pagesNl = {
     'Verwerkers en hosting',
   'page.privacy.processors.body':
     'Toon gebruikt zelf geen webstatistieken en deelt geen gegevens met andere partijen. Waar deze installatie draait en via welke inlogdienst je inlogt, bepaalt de organisatie die haar beheert.',
+  'page.privacy.processors.ai':
+    'Het team van een site kan feedback ook ophalen met de Toon-CLI, bijvoorbeeld om die in een AI-assistent te laden. Namen en e-mailadressen laat de CLI dan weg, tenzij erom gevraagd wordt. Wie feedback zo in een AI-assistent laadt, beslist zelf over die verwerker. Een schermafbeelding die het team zo ophaalt, en wat een AI-assistent van feedback in zijn eigen geschiedenis bewaart, zijn kopieën buiten Toon. De bewaartermijnen hieronder en het verwijderen door de indiener gelden daar niet voor, dus die kopieën opruimen is aan het team.',
   'page.privacy.retention.heading':
     'Bewaartermijn',
   'page.privacy.retention.body':
@@ -218,7 +220,7 @@ export const pagesNl = {
   'page.cliPair.confirm.question': 'Staat in je terminal dezelfde code?',
   'page.cliPair.confirm.account': 'Je koppelt dit programma aan {account}',
   'page.cliPair.confirm.accountHint':
-    'Het programma kan daarna publiceren met al jouw rollen, tot je het ontkoppelt.',
+    'Het programma kan daarna met al jouw rollen alles wat de Toon-CLI kan, zoals publiceren, en de feedback op je sites lezen, afhandelen en beantwoorden, met namen, e-mailadressen en schermafbeeldingen. Dat blijft zo tot je het ontkoppelt.',
   'page.cliPair.confirm.client': 'Programma, zoals het zichzelf noemt: "{name}"',
   'page.cliPair.confirm.requested': 'Aangevraagd: {time}',
   'page.cliPair.confirm.network': 'Vanaf netwerk {network}',

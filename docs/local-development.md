@@ -54,7 +54,9 @@ the working tree and the commits a pull request adds, because
 
 Both use `.gitleaks.toml`: the default rule set plus an allowlist for
 `dev/.secrets/` and `frontend/dist/`, the two gitignored directories a
-working-tree scan would otherwise trip over.
+working-tree scan would otherwise trip over, and one for the highlight links
+(`#toon-feedback=`) in the eval prompts under `plugin/evals/`, which the rule
+`grafana-api-key` takes for a key.
 
 Building the gitleaks hook needs a Go toolchain on the first run. Every
 hook revision is pinned to a commit SHA; Dependabot bumps them.
@@ -197,7 +199,12 @@ away. "Met je account versturen" (send with your account) takes you through
 the login, which the mock OIDC server does at once, to Toon's consent page.
 Its form shows after a second and takes a tick in its box before "Ja, met
 mijn account" (yes, with my account) does anything. What comes in shows on
-the "Feedback" tab.
+the "Feedback" tab, and from the terminal:
+
+```bash
+toon login --host http://beheer.toon.localhost:8080
+toon feedback list --site rijksoverheid/jaarverslag --host http://beheer.toon.localhost:8080
+```
 
 Pages get no widget when `TOON_BASE_URL` is not set: its link to the privacy
 statement has to be an absolute address. `dev/compose.yml` sets it.

@@ -698,9 +698,10 @@ Addresses are slugs and can change; the API knows only the current one, an
 old slug answers 404 (§3, "After an address change"). The
 endpoints live on the admin origin (`TOON_BASE_URL`); on the content host
 `/admin` does not exist. `${TOON_TOKEN}` below is one of two things: a
-CI ID token (§3), or a CLI token from `toon login` (§6). Outside these two
-endpoints and the CLI session endpoints, Toon accepts a Bearer token
-nowhere.
+CI ID token (§3), or a CLI token from `toon login` (§6). Besides these two
+endpoints and the CLI session endpoints, a CLI token reaches only the admin
+routes that `docs/design.md` §7.8 lists. Every other route refuses a Bearer
+token.
 
 `--fail-with-body` (curl 7.76 or newer) makes a refused request exit
 non-zero and still prints Toon's explanation. Without it curl exits 0, and a
@@ -1291,8 +1292,8 @@ plugin. The skill is `/toon:toon-publish` from then on.
 A site admin can let visitors give feedback on the site's pages. A visitor
 points at a spot or an area, selects a text or comments on the page as a whole, with a
 screenshot if they want, and your team reads it, answers it and marks it
-resolved on the site's "Feedback" tab. It is off until a site admin turns it
-on. The rules behind it are in `docs/design.md` §16.
+resolved on the site's "Feedback" tab or with `toon feedback`. It is off until
+a site admin turns it on. The rules behind it are in `docs/design.md` §16.
 
 ### Turning it on
 
@@ -1316,6 +1317,9 @@ choices follow:
   lets them see the page.
 - "Ook op de live site" (on the live site too), off by default: without it
   only the previews of your site get the button.
+
+The CLI does not offer these switches: they are a decision for the site's
+admin in the admin environment.
 
 When your site is public, or one of its previews is public by an access of
 its own, and it takes feedback without an account, the tab warns that you
@@ -1445,6 +1449,6 @@ marks the place. With feedback off, or for an item from the live site while
 "Ook op de live site" (on the live site too) is off, a line beside the
 button says that the page opens without marking it. For an item from a
 preview that is gone or has expired, the item says instead that the place
-can no longer be viewed. A reply written there reaches a submitter who sent
-with their account, under "Mijn feedback" (my feedback) in the button, with
-your name.
+can no longer be viewed. A reply, written there or
+with `toon feedback`, reaches a submitter who sent with their account, under
+"Mijn feedback" (my feedback) in the button, with your name.

@@ -76,8 +76,8 @@ platform is not ruled out.
   `pr-42`), pointing at a version with target `preview`.
 - **Feedback**: on a site whose admin turns it on, visitors point at a
   spot or a text on a page and leave a remark, with a screenshot if they
-  want, and the site team handles it on the site's Feedback tab (§10 of
-  `docs/publishing.md`).
+  want, and the site team handles it on the site's Feedback tab or with
+  `toon feedback` (§10 of `docs/publishing.md`).
 
 ## Access
 

@@ -117,6 +117,9 @@ describe('About: what you can do with it', () => {
     expect(wrapper!.findAll('li')[terms.indexOf('Feedback ophalen.')].text()).toBe(
       'Feedback ophalen. Zet de feedbackknop aan, dan wijzen bezoekers van je preview of site een punt, een gebied of een tekst aan en laten ze een opmerking achter. Je team leest, beantwoordt en handelt die af op het tabblad Feedback.',
     );
+    expect(wrapper!.findAll('li')[terms.indexOf('Vanaf je eigen computer.')].text()).toBe(
+      'Vanaf je eigen computer. Met de Toon-CLI publiceer je vanaf je laptop en haal je feedback op om te beantwoorden, nadat je die eenmalig aan je account hebt gekoppeld.',
+    );
   });
 
   it('names it in English too', () => {
@@ -126,6 +129,9 @@ describe('About: what you can do with it', () => {
     expect(terms.slice(-3)).toEqual(['A whole site as well.', 'Gather feedback.', 'From your own computer.']);
     expect(wrapper!.findAll('li')[terms.indexOf('Gather feedback.')].text()).toBe(
       'Gather feedback. Turn on the feedback button and visitors of your preview or site point at a spot, an area or a text and leave a remark. Your team reads, answers and resolves it on the Feedback tab.',
+    );
+    expect(wrapper!.findAll('li')[terms.indexOf('From your own computer.')].text()).toBe(
+      'From your own computer. With the Toon CLI you publish from your laptop and fetch feedback to answer, once you have linked it to your account.',
     );
   });
 });

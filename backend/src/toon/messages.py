@@ -88,8 +88,9 @@ NL: Final[dict[str, str]] = {
     "role.admin": "beheerder",
     "NO_AUTHENTICATION": "Geen geldige sessie of bearer-token.",
     "BEARER_NOT_ACCEPTED": (
-        "Bearer-authenticatie wordt alleen op de deploy- en CLI-endpoints, bij het aanmaken van "
-        "een groep of site en bij het koppelen van een repository geaccepteerd."
+        "Bearer-authenticatie wordt alleen geaccepteerd op de deploy- en CLI-endpoints, bij het "
+        "aanmaken van een groep of site, bij het koppelen van een repository en bij het lezen, "
+        "markeren en beantwoorden van feedback."
     ),
     # -- Groups, sites, members ----------------------------------------------
     "UNKNOWN_GROUP": "Onbekende groep.",
@@ -435,8 +436,8 @@ EN: Final[dict[str, str]] = {
     "role.admin": "admin",
     "NO_AUTHENTICATION": "No valid session or bearer token.",
     "BEARER_NOT_ACCEPTED": (
-        "Bearer authentication is accepted on the deploy and CLI endpoints, for creating a group or "
-        "site and for linking a repository only."
+        "Bearer authentication is accepted only on the deploy and CLI endpoints, for creating a group "
+        "or site, for linking a repository and for reading, marking and answering feedback."
     ),
     # -- Groups, sites, members ----------------------------------------------
     "UNKNOWN_GROUP": "Unknown group.",

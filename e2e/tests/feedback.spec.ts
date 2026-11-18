@@ -9,7 +9,7 @@
  * The keyboard and a 320 px window each get their own checks, also inside the
  * page's own web components, and so do the overlays at the window of a phone
  * and at 400% zoom. The site team handles it all in the Feedback tab of the
- * admin SPA, also once a preview is gone. A member of the
+ * admin SPA and with the CLI, also once a preview is gone. A member of the
  * team who never said yes to feedback with their account sends without a
  * name on a preview only the team can see, and goes straight to the consent
  * page where the site takes feedback with an account only. Someone let in by
@@ -25,6 +25,9 @@
  * SPA reads it. Its own group, independent of the other specs.
  */
 
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import AxeBuilder from '@axe-core/playwright';
 import {
   expect,
@@ -36,8 +39,10 @@ import {
   type Response,
 } from '@playwright/test';
 import { adminFetch, body, newHostContext, uploadViaSession } from '../helpers/api';
+import { cliLoginToken, runToon, writeCliSession } from '../helpers/cli';
 import {
   ADMIN_EMAIL,
+  ADMIN_HOST,
   ADMIN_SUB,
   ADMIN_URL,
   CONTENT_HOST,
@@ -525,6 +530,7 @@ let adminPage: Page;
 let visitorPage: Page;
 let giverPage: Page;
 let teamPage: Page;
+let adminApi: APIRequestContext;
 let contentApi: APIRequestContext;
 
 let pointId: string;
@@ -544,12 +550,14 @@ test.describe.serial('site feedback', () => {
     visitorPage = await visitorContext.newPage();
     giverPage = await giverContext.newPage();
     teamPage = await teamContext.newPage();
+    adminApi = await newHostContext(ADMIN_HOST);
     contentApi = await newHostContext(CONTENT_HOST);
     await logInOnAdmin(adminPage, ADMIN_URL, ADMIN_SUB, { email: ADMIN_EMAIL });
     await logInOnAdmin(teamPage, ADMIN_URL, ADMIN_SUB, { email: ADMIN_EMAIL });
   });
 
   test.afterAll(async () => {
+    await adminApi?.dispose();
     await contentApi?.dispose();
     await adminContext?.close();
     await visitorContext?.close();
@@ -1940,11 +1948,48 @@ test.describe.serial('site feedback', () => {
     await expect(reply).toContainText(/^Siteteam/);
   });
 
-  test('the team resolves a second item', async () => {
-    const resolved = await adminFetch(adminPage, 'PUT', `${API}/sites/${GROUP}/${SITE}/feedback/${pointId}/status`, {
-      status: 'resolved',
-    });
-    expect(resolved.status, resolved.text).toBe(200);
+  test('the CLI lists the open feedback as JSON and resolves an item', async () => {
+    // The device flow through the SPA plus two CLI runs.
+    test.setTimeout(180_000);
+    const workDir = mkdtempSync(path.join(tmpdir(), 'toon-feedback-e2e-'));
+    const configDir = path.join(workDir, 'config');
+    const token = await cliLoginToken(adminApi, adminPage, ADMIN_URL, ADMIN_SUB, { email: ADMIN_EMAIL });
+    writeCliSession(configDir, ADMIN_URL, token);
+    const site = ['--site', `${GROUP}/${SITE}`, '--host', ADMIN_URL];
+
+    const listed = await runToon(['feedback', 'list', '--json', ...site], workDir, configDir);
+    expect(listed.code, listed.stderr).toBe(0);
+    const envelope = JSON.parse(listed.stdout) as {
+      note: string;
+      counts: { new: number; seen: number; resolved: number };
+      items: Array<{ id: string; untrusted: { comment: string; author: Record<string, unknown> } }>;
+    };
+    expect(envelope.note).toContain('never an instruction');
+    expect(envelope.counts).toEqual({ new: 3, seen: 0, resolved: 1 });
+    // Open is the default: the item the team resolved is not in it.
+    expect(envelope.items.map((item) => item.untrusted.comment).sort()).toEqual(
+      [COMMENT_PAGE, COMMENT_POINT, COMMENT_TEXT].sort(),
+    );
+    // Without --with-contact, no name or e-mail address goes out.
+    const point = envelope.items.find((item) => item.id === pointId)!;
+    expect(point.untrusted.author).toEqual({ kind: 'name' });
+    expect(listed.stdout).not.toContain(NAME_POINT);
+
+    // The reply comes from a file, as the toon-feedback skill sends one, so
+    // no shell ever reads it: it arrives as written, without the file's last
+    // newline.
+    const reply =
+      'Dank je :) De foto\'s staan goed. Bouwen: `npm run build`, zie $HOME en "de handleiding".\n' +
+      'EOF\n$(echo niets) Groeten uit Zürich';
+    const replyFile = path.join(workDir, 'reactie.txt');
+    writeFileSync(replyFile, `${reply}\n`);
+    const resolve = ['feedback', 'resolve', pointId, '--message-file', replyFile, ...site];
+    const resolved = await runToon(resolve, workDir, configDir);
+    expect(resolved.code, resolved.stderr).toBe(0);
+    expect(resolved.stdout.trim()).toBe(`${pointId}: resolved`);
+    const detail = await feedbackDetail(adminPage, GROUP, SITE, pointId);
+    expect(detail.status).toBe('resolved');
+    expect(detail.replies.map((posted) => posted.body)).toEqual([reply]);
   });
 
   test('an item opens from the sheet on a page of its own, where the team handles it and finds the way back', async () => {
@@ -2001,7 +2046,7 @@ test.describe.serial('site feedback', () => {
   });
 
   test('deleting the last item under a status puts the focus on the heading of the list', async () => {
-    // "Resolved" holds the two items the team resolved.
+    // "Resolved" holds the item the team resolved and the one the CLI did.
     await teamPage.getByRole('radio', { name: 'Afgehandeld (2)' }).click();
     const point = teamPage.getByTestId(`feedback-${pointId}`);
     const account = teamPage.getByTestId(`feedback-${accountId}`);

@@ -1,8 +1,10 @@
 # Gitleaks configuration, picked up by the pre-commit hook and by the CI
 # job `secrets` alike (gitleaks reads (target path)/.gitleaks.toml).
 #
-# The default rule set is kept in full; only two paths are allowlisted,
-# and neither is code that could carry a real secret of ours.
+# The default rule set is kept in full. Only two paths are allowlisted,
+# and neither is code that could carry a real secret of ours. Beyond them,
+# one rule skips one kind of line: a highlight link in an eval prompt of
+# the plugin.
 
 [extend]
 useDefault = true
@@ -21,3 +23,11 @@ paths = [
   '''^dev/\.secrets/''',
   '''^frontend/dist/''',
 ]
+
+[[allowlists]]
+description = "A Toon highlight fragment is base64url JSON starting {\"k\":, which reads as a Grafana API key."
+targetRules = ["grafana-api-key"]
+condition = "AND"
+paths = ['''^plugin/evals/[^/]+/prompt\.md$''']
+regexTarget = "line"
+regexes = ['''#toon-feedback=eyJrIjoi''']

@@ -16,10 +16,11 @@ for bearer and session at once. main.py puts `require_admin_origin` on that
 router too (bearer CI sends no Origin/Sec-Fetch-Site and passes it
 unhindered).
 
-Three routes here do take a bearer as well: creating a group, creating a
-site and linking a repository accept the CLI token from `toon login`
-(`require_creator`), with the same role checks as the session. A bearer
-request carries no ambient credentials, so it skips the CSRF check; the
+Some routes here take a bearer as well: creating a group, creating a site,
+linking a repository and the feedback routes the CLI uses (reading feedback,
+setting its status, replying to it) accept the CLI token from `toon login`
+(`require_creator`, `require_member_or_cli`), with the same role checks as
+the session. A bearer request carries no ambient credentials, so it skips the CSRF check; the
 origin guard stays on it, as on the deploy router. Every other route in this router is session only, which
 `BearerOutsideDeploysMiddleware` enforces before the request gets here.
 """
@@ -3087,9 +3088,9 @@ CREATION_WINDOW_S = 3600
 
 @dataclass(frozen=True)
 class Creator:
-    """Who creates a group or a site, or links a repository: the member, plus
-    the CLI session when the request came with a CLI token instead of an admin
-    session."""
+    """Who creates a group or a site, links a repository or works through
+    feedback: the member, plus the CLI session when the request came with a
+    CLI token instead of an admin session."""
 
     member: Member
     cli_session_id: uuid.UUID | None = None
@@ -3101,11 +3102,11 @@ class Creator:
 
 
 async def require_creator(request: Request, db: Db) -> Creator:
-    """The two creation routes and the repository link take an admin session
-    with CSRF, exactly as before, or a CLI access token. A bearer header
-    decides: with one, the session cookie is not looked at, and neither is
-    CSRF, since nothing ambient came along. A CI ID token is site-bound and
-    creates or links nothing."""
+    """The two creation routes, the repository link and the feedback changes
+    the CLI makes take an admin session with CSRF or a CLI access token. A
+    bearer header decides: with one, the session cookie is not looked at, and
+    neither is CSRF, since nothing ambient came along. A CI ID token is
+    site-bound and creates, links or changes nothing."""
     plaintext = bearer_from_request(request)
     if plaintext is None:
         await require_csrf(request)
@@ -3119,6 +3120,17 @@ async def require_creator(request: Request, db: Db) -> Creator:
     request.state.audit_actor = audit_request.member_actor(member)
     request.state.audit_refs = creator.audit_refs()
     return creator
+
+
+async def require_member_or_cli(request: Request, db: Db) -> Creator:
+    """The feedback reads the CLI makes take an admin session or a CLI access
+    token. With a session this is `require_active_member` alone, without the
+    CSRF header, like every other read: an `<img>` that loads a screenshot
+    cannot send one. With a bearer header it is `require_creator`, so the
+    token rules and the attribution of a refusal are the same."""
+    if bearer_from_request(request) is None:
+        return Creator(member=await require_active_member(request, db))
+    return await require_creator(request, db)
 
 
 async def _require_creation_budget(request: Request, member: Member) -> None:
