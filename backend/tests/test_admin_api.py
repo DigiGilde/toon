@@ -3,7 +3,7 @@
 Authorization per endpoint (non-member 403, inactive 403, platform actions for
 admins only), CSRF double-submit on mutations, origin guarding on the
 whole router, and the delete cascade including file trees. Uploads over the
-session run through the same app via api/deploys.py (bearer as well as
+session run through the same app via api/deploys/ (bearer as well as
 session).
 """
 

@@ -11,7 +11,7 @@ Every route declares its response as a pydantic model on the ApiModel base
 API documentation on `/-/api/docs` lives off.
 
 The two deploy endpoints (`POST .../deploys` and `DELETE .../previews/{ref}`)
-deliberately do NOT live in this router: `api/deploys.py` serves those paths
+deliberately do NOT live in this router: `api/deploys/routes.py` serves those paths
 for bearer and session at once. main.py puts `require_admin_origin` on that
 router too (bearer CI sends no Origin/Sec-Fetch-Site and passes it
 unhindered).
@@ -65,7 +65,7 @@ def make_admin_router() -> APIRouter:
     previews.add_routes(router)
     add_feedback_routes(router)
 
-    # NB: POST .../deploys and DELETE .../previews/{ref} live in api/deploys.py
+    # NB: POST .../deploys and DELETE .../previews/{ref} live in api/deploys/routes.py
     # (bearer as well as session); see the module docstring.
 
     return router

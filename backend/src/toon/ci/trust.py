@@ -121,7 +121,7 @@ def _not_trusted() -> CiTokenError:
 async def trusted_repository(
     db: AsyncSession, token: VerifiedCiToken, site: Site, providers: ProviderClient
 ) -> TrustedRepository:
-    # api/deploys.py only asks about the site a bound token names; this keeps
+    # api/deploys/auth.py only asks about the site a bound token names; this keeps
     # any other caller from trusting it elsewhere.
     if token.bound_site_id is not None and token.bound_site_id != site.id:
         raise CiTokenError(f"{vocabulary.CI_AUDIENCE_MISMATCH}.site")

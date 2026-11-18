@@ -158,7 +158,7 @@ without a role in its group changes its title but not its address: a 409 on a
 taken slug would tell them about the other sites of the group. Any role in the
 group is enough, since a reader there sees those sites already.
 
-Code: `api/admin/`, `api/deploys.py`, `api/authorization.py`. Guarded by:
+Code: `api/admin/`, `api/deploys/`, `api/authorization.py`. Guarded by:
 `test_admin_api.py`, `test_deploy_api.py`, `test_audit_api.py`,
 `test_names_and_titles.py`.
 
@@ -1009,7 +1009,7 @@ token (§8). The feedback widget API on the content host authenticates with a
 scheme of its own, `Authorization: Toon-Feedback <token>`, which that
 middleware leaves alone (§16.8).
 
-Code: `api/origin_guard.py`, `api/admin/`, `api/deploys.py`. Guarded by:
+Code: `api/origin_guard.py`, `api/admin/`, `api/deploys/`. Guarded by:
 `test_origin_guard.py`, `test_admin_api.py`, `test_deploy_api.py`,
 `test_cli_api.py`, `test_cli_creation.py`, `test_feedback_admin_api.py`.
 
@@ -1118,7 +1118,7 @@ site first, whatever the address: a repository not linked to it gets the
 the site's own included, so the address tells it nothing; the linked
 repository publishes at the site's own address and gets 409 `SITE_MOVED`
 with the site's current address anywhere else. No answer names a site id
-(`api/deploys.py`, `_target_site`). A token without
+(`api/deploys/auth.py`, `_target_site`). A token without
 a site id is accepted only by a link from before migration 0004 of a
 repository linked to that one site (`site_repositories.site_id_required`
 false; a repository linked to several sites lost it on every link, since
@@ -1208,7 +1208,7 @@ same default as problem+json (`api/openapi_i18n.py`).
 The workflow examples, the curl fallback and the `publish` action
 (`actions/publish/`) are in `docs/publishing.md`.
 
-Code: `api/deploys.py`, `api/cli.py`, `api/admin/`, `api/errors.py`,
+Code: `api/deploys/`, `api/cli.py`, `api/admin/`, `api/errors.py`,
 `api/docs.py`, `ci/tokens.py`, `ci/trust.py`, `ci/providers.py`,
 `cli/service.py`, `ingest/service.py`, `previews/cleanup_job.py`. Guarded by:
 `test_deploy_api.py`, `test_cli_api.py`, `test_cli_service.py`,
@@ -2503,7 +2503,7 @@ AI assistant, and the text in it comes from people outside the site team:
 The Claude Code plugin carries a skill for it, `toon-feedback`, which runs
 these commands in a Claude session. `docs/skill.md` holds its rules.
 
-Code: `api/admin/feedback/`, `api/admin/dependencies.py`, `api/deploys.py`, `api/docs.py`,
+Code: `api/admin/feedback/`, `api/admin/dependencies.py`, `api/deploys/`, `api/docs.py`,
 `api/openapi_nl.py`, `cli/toon_cli/feedback.py`,
 `plugin/skills/toon-feedback/SKILL.md`, `references/errors.md`, `references/output.md`,
 `frontend/src/components/site/TabFeedback.vue`, `FeedbackInbox.vue`,
