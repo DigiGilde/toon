@@ -21,7 +21,7 @@ import asyncio
 import contextlib
 import logging
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, time, timedelta
@@ -436,7 +436,7 @@ async def cleanup_job(
     feedback_open_retention_days: int,
     occurred_at: time = TIMESTAMP_DEFAULT,
     tmp_older_than: timedelta = TMP_OLDER_THAN_DEFAULT,
-) -> AsyncIterator[asyncio.Task]:
+) -> AsyncGenerator[asyncio.Task]:
     """Background task that runs the sweep daily at `occurred_at` (UTC).
 
     Meant to be opened inside the lifespan of main.py:

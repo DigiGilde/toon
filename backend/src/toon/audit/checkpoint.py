@@ -274,7 +274,7 @@ async def _at(session: AsyncSession, shard: int, seq: int) -> tuple[str, str] | 
     return None if row is None else (bytes(row.chain_hash).hex(), bytes(row.recomputed).hex())
 
 
-def _matches(found: tuple[str, str], published_hex: str) -> bool:
+def _matches(found: tuple[str, str], published_hex: str | None) -> bool:
     return found == (published_hex, published_hex)
 
 

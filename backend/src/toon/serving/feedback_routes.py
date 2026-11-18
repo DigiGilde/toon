@@ -169,8 +169,13 @@ class _Neutral404:
         await neutral_404_response()(scope, receive, send)
 
 
-# Last: a route matches in the order it was added.
-router.add_route(f"{PATH_CONTENT_FEEDBACK_PREFIX}{{rest:path}}", _Neutral404(), include_in_schema=False)
+# Last: a route matches in the order it was added. Starlette's annotation
+# names only a request function, although Route takes an ASGI app as well.
+router.add_route(
+    f"{PATH_CONTENT_FEEDBACK_PREFIX}{{rest:path}}",
+    _Neutral404(),  # ty: ignore[invalid-argument-type]
+    include_in_schema=False,
+)
 
 
 __all__ = ["router"]

@@ -28,7 +28,7 @@ api/errors.py cover the whole app but reshape `/-/api/` paths only.
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from urllib.parse import urlsplit
 
@@ -140,7 +140,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     content_host = settings.content_host
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         # Names the IdP configuration in the log, so a wrong issuer or client id is
         # visible in the first lines instead of only in a failing login. Never
         # the client secret or the private key.
@@ -296,7 +296,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # before it counts against any rate-limit budget.
         # Two origins share this one app: besides the admin host,
         # the content host is on the allowlist too.
-        allowed_hosts = {urlsplit(settings.base_url).hostname, content_host}
+        allowed_hosts = {urlsplit(settings.base_url).hostname or "", content_host}
         app.add_middleware(TrustedHostMiddleware, allowed_hosts=sorted(allowed_hosts))
 
     # Outermost middleware: 400/429 responses from TrustedHost and ratelimit

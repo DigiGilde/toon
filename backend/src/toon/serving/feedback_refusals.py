@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, suppress
 from enum import StrEnum
 
@@ -95,7 +95,7 @@ async def _close_every(interval: float) -> None:
 
 
 @asynccontextmanager
-async def refused_token_sweep() -> AsyncIterator[asyncio.Task]:
+async def refused_token_sweep() -> AsyncGenerator[asyncio.Task]:
     """Background task that ends a window whose time is up even when no
     refusal follows it, for the lifespan of main.py."""
     task = asyncio.create_task(_close_every(SWEEP_INTERVAL_S))

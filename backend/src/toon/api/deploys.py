@@ -452,7 +452,7 @@ async def _spool_upload(
         raise _invalid_multipart(error) from error
 
     spool_path = store.new_spool_file()
-    spool: IO[bytes] = await run_in_threadpool(spool_path.open, "xb")
+    spool: IO[bytes] = await run_in_threadpool(lambda: spool_path.open("xb"))
     read_bytes_count = 0
     succeeded = False
     try:
@@ -604,11 +604,11 @@ async def _target_site(
     found = await _group_and_site(db, Group.slug == group_slug, Site.slug == site_slug)
     if auth.ci is not None and found is not None:
         refs["site_id"] = str(found[1].id)
-    bound = auth.ci.token.bound_site_id if auth.ci is not None else None
-    if bound is None:
+    if auth.ci is None or auth.ci.token.bound_site_id is None:
         if found is None:
             raise ApiError(404, "UNKNOWN_SITE.deploy")
         return found
+    bound = auth.ci.token.bound_site_id
     named = await _group_and_site(db, Site.id == bound)
     if named is None or not await _linked_to(request, db, auth.ci.token, named[1]):
         raise ApiError(401, f"{vocabulary.CI_AUDIENCE_MISMATCH}.site", headers=WWW_AUTHENTICATE_BEARER)
@@ -638,7 +638,8 @@ async def _authorize(
     and its actor pseudonymised on the stored repository id. A trusted token
     that names the repository differently renames the link."""
     if auth.ci is None:
-        await require_site_role(db, auth.member, site, Role.EDITOR)
+        # _authenticate sets a member on every auth without a CI principal.
+        await require_site_role(db, auth.member, site, Role.EDITOR)  # ty: ignore[invalid-argument-type]
         return auth
     providers: ProviderClient = request.app.state.ci_providers
     try:

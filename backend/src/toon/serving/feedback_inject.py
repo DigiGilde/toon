@@ -310,7 +310,8 @@ async def prepare(
         token = mint_page_token(
             settings.session_secret,
             site_id=site_id,
-            kind=kind,
+            # Only reached where feedback_page(kind, ...) holds, which admits live and preview.
+            kind=kind,  # ty: ignore[invalid-argument-type]
             ref=ref,
             version_id=decision.version_id,
             session_id=session.id if session is not None and consented else None,

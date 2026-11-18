@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, time
 
@@ -64,7 +64,7 @@ async def _run_daily(dsn: str, *, occurred_at: time, stop: asyncio.Event) -> Non
 
 
 @asynccontextmanager
-async def audit_retention_job(dsn: str, *, occurred_at: time = TIMESTAMP_DEFAULT) -> AsyncIterator[asyncio.Task]:
+async def audit_retention_job(dsn: str, *, occurred_at: time = TIMESTAMP_DEFAULT) -> AsyncGenerator[asyncio.Task]:
     """Background task that runs `run_once` daily at `occurred_at` (UTC).
 
     Meant to be opened inside the lifespan of main.py:

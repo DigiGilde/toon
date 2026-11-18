@@ -11,7 +11,7 @@ from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Mapped, mapped_column
 
-from toon.constants import RESERVED_SLUGS, Role
+from toon.constants import RESERVED_SLUGS, AccessBase, Role
 from toon.models.base import ACCESS_BASE_ENUM, ROLE_ENUM, Base, IDMixin
 
 
@@ -84,7 +84,7 @@ class Group(IDMixin, Base):
     slug: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String, nullable=False)
     # What a new site in this group starts on; existing sites never follow.
-    default_access_base: Mapped[str] = mapped_column(ACCESS_BASE_ENUM, nullable=False)
+    default_access_base: Mapped[AccessBase] = mapped_column(ACCESS_BASE_ENUM, nullable=False)
     default_access_keys: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=false(), default=False
     )

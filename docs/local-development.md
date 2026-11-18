@@ -39,9 +39,12 @@ also runs. Install it once per clone:
 uvx pre-commit install
 ```
 
-From then on every `git commit` runs ruff, the whitespace and
-end-of-file fixers, the YAML/JSON/TOML checks, a gitleaks scan of the
-staged diff and the em dash/en dash check.
+From then on every `git commit` runs ruff, the ty type check, the
+whitespace and end-of-file fixers, the YAML/JSON/TOML checks, a gitleaks
+scan of the staged diff and the em dash/en dash check.
+`uvx pre-commit run ty --all-files` runs only the type check: ty on
+`backend/src`, configured under `[tool.ty]` in `backend/pyproject.toml`
+(TDR-0017).
 `uvx pre-commit run --all-files` runs the whole set over the tree, which
 is what CI does. The gitleaks hook is the one that only works locally:
 it reads the staged diff, so with `--all-files` there is nothing for it

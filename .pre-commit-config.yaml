@@ -43,6 +43,18 @@ repos:
     hooks:
       - id: ruff-check
 
+  # Type check with ty (docs/tdr/0017-type-check-with-ty.md). The hook runs
+  # `uv check` on the exact ty version its tag names. A new ty release can
+  # bring new diagnostics, so the Dependabot `tooling` pull request that
+  # bumps this pin may need fixes. --directory makes uv sync and use the
+  # backend project and its lockfile, and ty read its [tool.ty] config,
+  # which checks src/ only.
+  - repo: https://github.com/astral-sh/ty-pre-commit
+    rev: 91e0bd1d7b352efe4c3af0d60bdc1645ef58e2b6 # v0.0.106
+    hooks:
+      - id: ty
+        args: [--directory, backend, --locked]
+
   # Scans the staged diff, so this is a local gate: under
   # `pre-commit run --all-files` nothing is staged and the hook is a no-op.
   # The CI job `secret-scan` covers that side. Rules and allowlist come

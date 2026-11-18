@@ -126,8 +126,9 @@ async def purge(dsn: str, *, batch: int = BATCH_DEFAULT) -> int:
                             refs={"audit_log_entries": deleted_audit, "content_viewers": deleted_viewers},
                         )
                     )
-            if audit_error is not None or viewers_error is not None:
-                raise audit_error or viewers_error
+            error = audit_error or viewers_error
+            if error is not None:
+                raise error
     finally:
         await engine.dispose()
     return total
