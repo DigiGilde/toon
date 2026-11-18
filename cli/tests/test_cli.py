@@ -41,7 +41,7 @@ import yaml
 
 # Mode bits and a uid mean nothing on NTFS (chmod there only toggles the
 # read-only flag), so what rests on them only exists outside Windows.
-posix_only = pytest.mark.skipif(cli.WINDOWS, reason="POSIX mode bits and uid")
+posix_only = pytest.mark.skipif(cli.config.WINDOWS, reason="POSIX mode bits and uid")
 
 
 def _parse_multipart(content_type: str, body: bytes) -> dict[str, dict[str, Any]]:
@@ -161,10 +161,10 @@ def _json_step(status: int, data: dict[str, Any]) -> Callable[[dict], tuple[int,
 @pytest.fixture(autouse=True)
 def _fresh_client(monkeypatch):
     """The CLI keeps one httpx client per run; every test starts without one."""
-    monkeypatch.setattr(cli, "_client", None)
+    monkeypatch.setattr(cli.transport, "_client", None)
     yield
-    if cli._client is not None:
-        cli._client.close()
+    if cli.transport._client is not None:
+        cli.transport._client.close()
 
 
 @pytest.fixture(autouse=True)
@@ -172,7 +172,7 @@ def _no_real_sleep(monkeypatch):
     """The login poll waits `interval` seconds between polls; the stub server
     answers at once, so waiting for real only slows the suite. A test that
     checks the waits patches sleep again with its own recorder."""
-    monkeypatch.setattr(cli.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(cli.auth.time, "sleep", lambda _seconds: None)
 
 
 @pytest.fixture
@@ -257,7 +257,7 @@ def memory_keyring(tmp_path, monkeypatch):
     real default host."""
     monkeypatch.setenv("TOON_CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.delenv("TOON_HOST", raising=False)
-    monkeypatch.setattr(cli, "DEFAULT_HOST", TEST_DEFAULT_HOST)
+    monkeypatch.setattr(cli.hosts, "DEFAULT_HOST", TEST_DEFAULT_HOST)
     backend = _MemoryKeyring()
     previous = keyring.get_keyring()
     keyring.set_keyring(backend)
@@ -810,7 +810,8 @@ def no_request(monkeypatch):
     def refuse(*_args, **_kwargs):
         raise AssertionError("a request went out")
 
-    monkeypatch.setattr(cli, "_http", refuse)
+    for module in (cli.transport, cli.session, cli.auth):
+        monkeypatch.setattr(module, "_http", refuse)
 
 
 # One host per kind of mistake.
@@ -1138,7 +1139,7 @@ def test_login_device_flow_success_stores_the_tokens_in_the_keyring(
         "refresh_token": "refresh-1",
     }
     hosts_path = cli._hosts_path()
-    if not cli.WINDOWS:
+    if not cli.config.WINDOWS:
         assert stat.S_IMODE(hosts_path.stat().st_mode) == 0o600
         assert stat.S_IMODE(hosts_path.parent.stat().st_mode) == 0o700
     # hosts.json holds where the session lives, never the tokens themselves.
@@ -1282,7 +1283,7 @@ def test_stored_session_is_refreshed_transparently_when_expired(
     assert _stored_tokens(host) == ("fresh-access", "refresh-new")
     entry = cli._read_hosts()["hosts"][host]
     assert entry["storage"] == "keyring"
-    assert entry["access_expires_at"] > cli.time.time()
+    assert entry["access_expires_at"] > cli.session.time.time()
 
 
 def test_refresh_failure_asks_to_log_in_again(stub_server, host, isolated_cwd, capsys):
@@ -1313,22 +1314,29 @@ def test_version_flag_prints_the_installed_version(capsys):
 
 
 def test_every_http_call_goes_through_the_shared_helper():
-    tree = ast.parse(Path(cli.__file__).read_text())
-    helper = next(
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef) and node.name == "_http"
-    )
-    inside_helper = {id(node) for node in ast.walk(helper)}
-    direct = [
-        node.lineno
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Attribute)
-        and isinstance(node.value, ast.Name)
-        and node.value.id == "httpx"
-        and node.attr in {"get", "post", "put", "patch", "delete", "request", "stream", "Client"}
-        and id(node) not in inside_helper
-    ]
+    direct = []
+    # github.py talks to the GitHub API, with a client of its own.
+    for path in sorted(Path(cli.__file__).parent.glob("*.py")):
+        if path.name == "github.py":
+            continue
+        tree = ast.parse(path.read_text())
+        inside_helper = set()
+        if path.name == "transport.py":
+            helper = next(
+                node
+                for node in ast.walk(tree)
+                if isinstance(node, ast.FunctionDef) and node.name == "_http"
+            )
+            inside_helper = {id(node) for node in ast.walk(helper)}
+        direct += [
+            f"{path.name}:{node.lineno}"
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "httpx"
+            and node.attr in {"get", "post", "put", "patch", "delete", "request", "stream", "Client"}
+            and id(node) not in inside_helper
+        ]
     assert direct == []
 
 
@@ -1867,7 +1875,7 @@ def _run_action(
     """Runs the shell steps of action.yml the way a runner would: the ${{ }}
     expressions filled in, each step's own env applied, the `if:` conditions
     honoured, and the run stopping at the first step that fails."""
-    if cli.WINDOWS:
+    if cli.config.WINDOWS:
         # `bash` on a Windows runner can be the WSL launcher rather than Git
         # Bash, and the steps get Windows paths; the Windows leg is for the
         # CLI, not for the action.
@@ -2986,7 +2994,7 @@ def test_publish_and_preview_remove_need_no_host_flag(stub_server, host, dist_fo
 
 def test_the_built_in_default_host_is_used_without_anything_else(monkeypatch, stub_server, host):
     """Without --host, TOON_HOST or a login, a command goes to DEFAULT_HOST."""
-    monkeypatch.setattr(cli, "DEFAULT_HOST", host)
+    monkeypatch.setattr(cli.hosts, "DEFAULT_HOST", host)
     monkeypatch.setenv("TOON_ACCESS_TOKEN", "tok")
     stub_server.responder = _json_responder(200, {"member": {"email": "iemand@example.nl"}})
 
@@ -3036,7 +3044,7 @@ def test_hosts_file_readable_or_writable_by_others_is_ignored(mode, capsys):
 def test_hosts_file_owned_by_someone_else_is_ignored(monkeypatch, capsys):
     _write_raw_hosts(json.dumps({"default_host": "https://kwaad.example"}))
     real_uid = os.getuid()
-    monkeypatch.setattr(cli.os, "getuid", lambda: real_uid + 1)
+    monkeypatch.setattr(cli.config.os, "getuid", lambda: real_uid + 1)
 
     assert _resolved_host() == TEST_DEFAULT_HOST
     assert "it must be a file of yours with mode 0600" in capsys.readouterr().err
@@ -3171,7 +3179,7 @@ def test_odd_shapes_in_the_hosts_file_count_as_no_session(stub_server, host, con
 
 
 def test_config_dir_follows_toon_config_dir_then_xdg_then_home(tmp_path, monkeypatch):
-    monkeypatch.setattr(cli, "WINDOWS", False)
+    monkeypatch.setattr(cli.config, "WINDOWS", False)
     monkeypatch.setenv("TOON_CONFIG_DIR", str(tmp_path / "eigen"))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     # Path.home() reads USERPROFILE on Windows, HOME elsewhere.
@@ -3189,7 +3197,7 @@ def test_config_dir_follows_toon_config_dir_then_xdg_then_home(tmp_path, monkeyp
 def test_config_dir_on_windows_follows_toon_config_dir_then_xdg_then_appdata(
     tmp_path, monkeypatch
 ):
-    monkeypatch.setattr(cli, "WINDOWS", True)
+    monkeypatch.setattr(cli.config, "WINDOWS", True)
     monkeypatch.setenv("TOON_CONFIG_DIR", str(tmp_path / "eigen"))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     monkeypatch.setenv("APPDATA", str(tmp_path / "roaming"))
@@ -3212,9 +3220,9 @@ def test_config_dir_on_windows_follows_toon_config_dir_then_xdg_then_appdata(
 def windows(monkeypatch):
     """The Windows path on any platform: without the POSIX-only parts of os
     that broke the CLI there (#65), so touching one fails here too."""
-    monkeypatch.setattr(cli, "WINDOWS", True)
-    monkeypatch.delattr(cli.os, "O_NOFOLLOW", raising=False)
-    monkeypatch.delattr(cli.os, "getuid", raising=False)
+    monkeypatch.setattr(cli.config, "WINDOWS", True)
+    monkeypatch.delattr(cli.config.os, "O_NOFOLLOW", raising=False)
+    monkeypatch.delattr(cli.config.os, "getuid", raising=False)
 
 
 def test_on_windows_the_hosts_file_is_trusted_on_its_location(windows, capsys):
@@ -3292,7 +3300,7 @@ def test_login_without_a_system_keyring_falls_back_to_the_file_and_says_so(
     assert "keyrings.alt" not in error_output
     entry = cli._read_hosts()["hosts"][host]
     assert entry["storage"] == "file"
-    if not cli.WINDOWS:
+    if not cli.config.WINDOWS:
         assert stat.S_IMODE(cli._hosts_path().stat().st_mode) == 0o600
     assert _stored_tokens(host) == ("access-1", "refresh-1")
 
@@ -3790,7 +3798,7 @@ def test_python_dash_m_entry_point_uses_the_same_main():
 def test_publish_connection_failure_gives_exit_1(
     stub_server, host, dist_folder, token_env, monkeypatch, capsys
 ):
-    monkeypatch.setattr(cli.httpx.Client, "request", _raise_connect_error)
+    monkeypatch.setattr(cli.transport.httpx.Client, "request", _raise_connect_error)
 
     code = cli.main(["publish", str(dist_folder), "--host", host, "--site", "team-aurora/website"])
 
@@ -4115,7 +4123,7 @@ def test_publish_empty_folder_gives_exit_2_without_a_request(
 def test_preview_remove_connection_failure_gives_exit_1(
     stub_server, host, token_env, monkeypatch, capsys
 ):
-    monkeypatch.setattr(cli.httpx.Client, "request", _raise_connect_error)
+    monkeypatch.setattr(cli.transport.httpx.Client, "request", _raise_connect_error)
 
     code = cli.main(["preview-remove", "pr-42", "--host", host, "--site", "team-aurora/website"])
 
@@ -4127,7 +4135,7 @@ def test_preview_remove_connection_failure_gives_exit_1(
 def test_whoami_connection_failure_gives_exit_1(
     stub_server, host, token_env, monkeypatch, capsys
 ):
-    monkeypatch.setattr(cli.httpx.Client, "request", _raise_connect_error)
+    monkeypatch.setattr(cli.transport.httpx.Client, "request", _raise_connect_error)
 
     code = cli.main(["whoami", "--host", host])
 
@@ -4192,7 +4200,7 @@ def test_refresh_connection_failure_gives_exit_2(
     stub_server, host, isolated_cwd, monkeypatch, capsys
 ):
     _store_session(host, access="expired-access", refresh="refresh-old", expires_at=1.0)
-    monkeypatch.setattr(cli.httpx.Client, "request", _raise_connect_error)
+    monkeypatch.setattr(cli.transport.httpx.Client, "request", _raise_connect_error)
 
     code = cli.main(["whoami", "--host", host])
 
@@ -4223,7 +4231,7 @@ def test_oidc_connection_failure_gives_exit_2_without_a_deploy(
 ):
     monkeypatch.setenv("ACTIONS_ID_TOKEN_REQUEST_URL", f"{host}/oidc-token")
     monkeypatch.setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "runner-bearer")
-    monkeypatch.setattr(cli.httpx.Client, "request", _raise_connect_error)
+    monkeypatch.setattr(cli.transport.httpx.Client, "request", _raise_connect_error)
 
     code = cli.main(["publish", str(dist_folder), "--host", host, "--site", "team-aurora/website"])
 
@@ -4273,7 +4281,7 @@ def test_oidc_answer_without_a_value_gives_exit_2(
 def test_login_connection_failure_at_the_start_gives_exit_1(
     stub_server, host, isolated_cwd, monkeypatch, capsys
 ):
-    monkeypatch.setattr(cli.httpx.Client, "request", _raise_connect_error)
+    monkeypatch.setattr(cli.transport.httpx.Client, "request", _raise_connect_error)
 
     code = cli.main(["login", "--host", host, "--no-open"])
 
@@ -4333,7 +4341,7 @@ def test_login_unreadable_interval_falls_back_to_five_seconds(
     stub_server, host, isolated_cwd, monkeypatch, capsys
 ):
     sleeps: list[float] = []
-    monkeypatch.setattr(cli.time, "sleep", sleeps.append)
+    monkeypatch.setattr(cli.auth.time, "sleep", sleeps.append)
     stub_server.responder = _sequence_responder(
         {
             "/-/api/v1/cli/device-authorizations": [
@@ -4356,8 +4364,8 @@ def test_login_gives_up_when_the_device_code_expires(
 ):
     # One poll fits inside the window; the clock then jumps past the deadline.
     clock = iter([0.0, 0.0, 100.0])
-    monkeypatch.setattr(cli.time, "monotonic", lambda: next(clock))
-    monkeypatch.setattr(cli.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(cli.auth.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(cli.auth.time, "sleep", lambda _seconds: None)
     stub_server.responder = _sequence_responder(
         {
             "/-/api/v1/cli/device-authorizations": [
@@ -4381,14 +4389,14 @@ def test_login_gives_up_when_the_device_code_expires(
 def test_login_connection_failure_while_polling_gives_exit_1(
     stub_server, host, isolated_cwd, monkeypatch, capsys
 ):
-    real_request = cli.httpx.Client.request
+    real_request = cli.transport.httpx.Client.request
 
     def flaky_request(self, method, url, **kwargs):
         if url.endswith("/-/api/v1/cli/tokens"):
             _raise_connect_error()
         return real_request(self, method, url, **kwargs)
 
-    monkeypatch.setattr(cli.httpx.Client, "request", flaky_request)
+    monkeypatch.setattr(cli.transport.httpx.Client, "request", flaky_request)
     stub_server.responder = _sequence_responder(
         {"/-/api/v1/cli/device-authorizations": [_device_start_step(host)]}
     )
@@ -4437,7 +4445,7 @@ def test_login_unreadable_expires_in_stores_a_session_that_is_already_due(
     assert code == 0
     assert "Logged in." in capsys.readouterr().out
     assert _stored_tokens(host) == ("access-1", "refresh-1")
-    assert cli._read_hosts()["hosts"][host]["access_expires_at"] <= cli.time.time()
+    assert cli._read_hosts()["hosts"][host]["access_expires_at"] <= cli.auth.time.time()
 
 
 def test_login_opens_the_browser_on_a_terminal(
@@ -4445,7 +4453,7 @@ def test_login_opens_the_browser_on_a_terminal(
 ):
     opened: list[str] = []
     monkeypatch.setattr(sys.stderr, "isatty", lambda: True)
-    monkeypatch.setattr(cli.webbrowser, "open", lambda url: opened.append(url) or True)
+    monkeypatch.setattr(cli.auth.webbrowser, "open", lambda url: opened.append(url) or True)
     stub_server.responder = _sequence_responder(
         {
             "/-/api/v1/cli/device-authorizations": [_device_start_step(host)],
@@ -4466,7 +4474,7 @@ def test_login_reports_when_no_browser_can_be_opened(
     stub_server, host, isolated_cwd, monkeypatch, capsys
 ):
     monkeypatch.setattr(sys.stderr, "isatty", lambda: True)
-    monkeypatch.setattr(cli.webbrowser, "open", lambda url: False)
+    monkeypatch.setattr(cli.auth.webbrowser, "open", lambda url: False)
     stub_server.responder = _sequence_responder(
         {
             "/-/api/v1/cli/device-authorizations": [_device_start_step(host)],
@@ -4489,7 +4497,7 @@ def test_login_does_not_open_a_browser_with_no_open_even_on_a_terminal(
 ):
     monkeypatch.setattr(sys.stderr, "isatty", lambda: True)
     monkeypatch.setattr(
-        cli.webbrowser, "open", lambda url: pytest.fail("the browser must not be opened")
+        cli.auth.webbrowser, "open", lambda url: pytest.fail("the browser must not be opened")
     )
     stub_server.responder = _sequence_responder(
         {
@@ -4514,7 +4522,7 @@ def test_hosts_file_write_failure_leaves_the_old_file_and_no_temp_file(monkeypat
     def failing_replace(_src, _dst):
         raise OSError("schijf vol")
 
-    monkeypatch.setattr(cli.os, "replace", failing_replace)
+    monkeypatch.setattr(cli.config.os, "replace", failing_replace)
 
     with pytest.raises(OSError, match="schijf vol"):
         _store_session("https://ander.example")
@@ -4557,7 +4565,7 @@ def test_logout_with_an_unreachable_server_still_clears_locally(
     stub_server, host, isolated_cwd, monkeypatch, capsys
 ):
     _store_session(host)
-    monkeypatch.setattr(cli.httpx.Client, "request", _raise_connect_error)
+    monkeypatch.setattr(cli.transport.httpx.Client, "request", _raise_connect_error)
 
     code = cli.main(["logout", "--host", host])
 
@@ -4722,7 +4730,7 @@ def test_group_create_shows_the_problem_detail_and_gives_exit_1(stub_server, hos
 
 
 def test_group_create_connection_failure_gives_exit_1(stub_server, host, token_env, monkeypatch, capsys):
-    monkeypatch.setattr(cli.httpx.Client, "request", _raise_connect_error)
+    monkeypatch.setattr(cli.transport.httpx.Client, "request", _raise_connect_error)
 
     code = cli.main(["group", "create", "team", "--name", "Team", "--host", host])
 
@@ -4913,7 +4921,7 @@ def test_a_host_taken_from_the_stored_session_is_printed_but_its_tokens_never_ar
     if answer is not None:
         stub_server.responder = _json_responder(200 if argv[0] == "whoami" else 201, answer)
     if unreachable is not None:
-        monkeypatch.setattr(cli.httpx.Client, "request", _raise_connect_error)
+        monkeypatch.setattr(cli.transport.httpx.Client, "request", _raise_connect_error)
 
     cli.main(argv)
 
@@ -4971,7 +4979,7 @@ def _link_answer(**extra: Any) -> dict:
 @pytest.fixture
 def fake_run(monkeypatch) -> _FakeRun:
     fake = _FakeRun(gh=_completed(_gh_repository()), git=_completed("git@github.com:minbzk/prive.git\n"))
-    monkeypatch.setattr(cli.subprocess, "run", fake)
+    monkeypatch.setattr(cli.sites.subprocess, "run", fake)
     return fake
 
 
@@ -5510,7 +5518,7 @@ def test_site_link_shows_any_other_refusal_on_its_own(stub_server, host, token_e
 
 
 def test_site_link_connection_failure_gives_exit_1(stub_server, host, token_env, fake_run, monkeypatch, capsys):
-    monkeypatch.setattr(cli.httpx.Client, "request", _raise_connect_error)
+    monkeypatch.setattr(cli.transport.httpx.Client, "request", _raise_connect_error)
 
     code = cli.main(["site", "link", "team/docs", "o/r", "--host", host])
 
@@ -5536,7 +5544,7 @@ def test_site_link_names_the_repository_as_sent_without_one_in_the_answer_and_cl
 def _flaky_once(monkeypatch, error: Exception) -> list[str]:
     """The first request through the client fails with `error`, the rest go on
     to the stub server; returns the methods that were attempted."""
-    real_request = cli.httpx.Client.request
+    real_request = cli.transport.httpx.Client.request
     attempts: list[str] = []
 
     def request(self, method, url, **kwargs):
@@ -5545,13 +5553,13 @@ def _flaky_once(monkeypatch, error: Exception) -> list[str]:
             raise error
         return real_request(self, method, url, **kwargs)
 
-    monkeypatch.setattr(cli.httpx.Client, "request", request)
+    monkeypatch.setattr(cli.transport.httpx.Client, "request", request)
     return attempts
 
 
 def _recorded_sleeps(monkeypatch) -> list[float]:
     sleeps: list[float] = []
-    monkeypatch.setattr(cli.time, "sleep", sleeps.append)
+    monkeypatch.setattr(cli.transport.time, "sleep", sleeps.append)
     return sleeps
 
 
@@ -5559,11 +5567,11 @@ def test_every_request_of_a_run_goes_through_one_client(stub_server, host, token
     stub_server.responder = _json_responder(200, {"member": {"email": "a@b.nl"}})
 
     assert cli.main(["whoami", "--host", host]) == 0
-    first = cli._client
+    first = cli.transport._client
     assert cli.main(["whoami", "--host", host]) == 0
 
     assert first is not None
-    assert cli._client is first
+    assert cli.transport._client is first
 
 
 def test_a_delete_with_a_body_still_goes_out(stub_server, host, isolated_cwd):
@@ -5692,7 +5700,7 @@ def test_preview_remove_gives_up_after_one_more_try(
         attempts.append(method)
         raise httpx.ConnectError("refused")
 
-    monkeypatch.setattr(cli.httpx.Client, "request", request)
+    monkeypatch.setattr(cli.transport.httpx.Client, "request", request)
     _recorded_sleeps(monkeypatch)
 
     code = cli.main(["preview-remove", "pr-42", "--host", host, "--site", "team-aurora/website"])
@@ -5735,7 +5743,7 @@ def test_publish_does_not_try_again_after_a_connection_error(
         attempts.append(method)
         raise httpx.ConnectError("refused")
 
-    monkeypatch.setattr(cli.httpx.Client, "request", request)
+    monkeypatch.setattr(cli.transport.httpx.Client, "request", request)
 
     assert cli.main(["publish", str(dist_folder), "--host", host, "--site", "team-aurora/website"]) == 1
     assert attempts == ["POST"]
@@ -5807,14 +5815,14 @@ def test_a_folder_is_packed_into_a_file_that_is_closed_after_the_upload(
     stub_server, host, dist_folder, token_env, monkeypatch
 ):
     packed = []
-    real_pack = cli._pack_folder
+    real_pack = cli.publish._pack_folder
 
     def pack(folder):
         archive = real_pack(folder)
         packed.append(archive)
         return archive
 
-    monkeypatch.setattr(cli, "_pack_folder", pack)
+    monkeypatch.setattr(cli.publish, "_pack_folder", pack)
 
     assert cli.main(["publish", str(dist_folder), "--host", host, "--site", "team-aurora/website"]) == 0
 
@@ -5833,15 +5841,15 @@ def test_a_single_file_is_streamed_from_disk_and_closed_also_when_the_server_is_
     page = tmp_path / "page.html"
     page.write_text("<h1>hoi</h1>")
     opened = []
-    real_determine = cli._determine_upload
+    real_determine = cli.publish._determine_upload
 
     def determine(path):
         upload = real_determine(path)
         opened.append(upload[0])
         return upload
 
-    monkeypatch.setattr(cli, "_determine_upload", determine)
-    monkeypatch.setattr(cli.httpx.Client, "request", _raise_connect_error)
+    monkeypatch.setattr(cli.publish, "_determine_upload", determine)
+    monkeypatch.setattr(cli.transport.httpx.Client, "request", _raise_connect_error)
 
     assert cli.main(["publish", str(page), "--host", host, "--site", "team-aurora/website"]) == 1
 
@@ -6205,7 +6213,7 @@ class _MovedInstance:
 @pytest.fixture
 def moved_instance(monkeypatch) -> _MovedInstance:
     instance = _MovedInstance()
-    monkeypatch.setattr(cli, "_client", httpx.Client(transport=httpx.MockTransport(instance)))
+    monkeypatch.setattr(cli.transport, "_client", httpx.Client(transport=httpx.MockTransport(instance)))
     return instance
 
 

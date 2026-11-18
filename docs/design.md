@@ -2504,7 +2504,7 @@ The Claude Code plugin carries a skill for it, `toon-feedback`, which runs
 these commands in a Claude session. `docs/skill.md` holds its rules.
 
 Code: `api/admin/feedback/`, `api/admin/dependencies.py`, `api/deploys.py`, `api/docs.py`,
-`api/openapi_nl.py`, `cli/toon_cli/__init__.py`,
+`api/openapi_nl.py`, `cli/toon_cli/feedback.py`,
 `plugin/skills/toon-feedback/SKILL.md`, `references/errors.md`, `references/output.md`,
 `frontend/src/components/site/TabFeedback.vue`, `FeedbackInbox.vue`,
 `FeedbackSheet.vue`, `FeedbackSettings.vue`, `feedbackText.ts`,
