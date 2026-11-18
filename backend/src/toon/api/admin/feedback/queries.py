@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from toon.access import roles
-from toon.api.admin import _FEEDBACK_OPEN, _content_base
+from toon.api.admin.common import _FEEDBACK_OPEN
 from toon.api.admin.feedback.schemas import (
     FeedbackAuthorOut,
     FeedbackCurrentVersion,
@@ -24,6 +24,7 @@ from toon.api.admin.feedback.schemas import (
     FeedbackReply,
     FeedbackReplyAuthorOut,
 )
+from toon.api.admin.serialization import _content_base
 from toon.api.errors import ApiError
 from toon.api.schema import iso_utc
 from toon.constants import FeedbackStatus, Role

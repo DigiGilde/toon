@@ -10,7 +10,7 @@ A repository linked to several sites requires it on every link at once: one
 of them may be someone else's, made from their own site to the repository
 (a typo of an address, say), where a workflow without a site id that names
 that address would publish. The repository is (provider, host,
-repository_id), as on the relink in api/admin/__init__.py.
+repository_id), as on the relink in api/admin/sites/repository.py.
 
 A trigger keeps the rule in the database itself, so also for code that
 knows nothing of the column, such as the image before 0004 after a

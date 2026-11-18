@@ -1,4 +1,4 @@
-"""Tests for api/cli.py and the CLI side of api/admin/__init__.py: the device
+"""Tests for api/cli.py and the CLI side of api/admin/cli.py: the device
 authorization grant (RFC 8628) end to end, over HTTP.
 
 The app under test wires the CLI router, the admin router (for the member's
@@ -22,7 +22,8 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
 from toon.api import cli as cli_api
-from toon.api.admin import CLI_APPROVAL_MAX_ATTEMPTS, make_admin_router
+from toon.api.admin import make_admin_router
+from toon.api.admin.cli import CLI_APPROVAL_MAX_ATTEMPTS
 from toon.api.deploys import BearerOutsideDeploysMiddleware
 from toon.api.errors import register_error_handlers
 from toon.audit.log import AuditLog

@@ -1,6 +1,6 @@
 """Role checks for the admin API: a route demands a minimum role.
 
-Same shape as the existing `_require_*` helpers in api/admin/__init__.py: a call at the
+Same shape as the existing `_require_*` helpers in api/admin/: a call at the
 start of the route that returns nothing and otherwise raises a 403. The role
 computation itself lives in access/roles.py, so that the API and the access
 gate use the same answer.

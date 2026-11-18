@@ -93,7 +93,7 @@ function resolveExpiry(requested: string | null): ExpiryResolution {
   return { ok: true, expiresAt: requested };
 }
 
-// Mirrors _validate_text in api/admin/__init__.py plus the cap of the name and title
+// Mirrors _validate_text in api/admin/common.py plus the cap of the name and title
 // routes, in its order: strip, not empty, at most 200 characters (code points,
 // as Python counts them), no control or format characters.
 const TEXT_MAX_LENGTH = 200;

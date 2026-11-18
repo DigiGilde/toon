@@ -5,7 +5,7 @@ The CLI side lives here and needs no session: asking for a device code,
 polling the token endpoint, and logging out or asking who it is with its
 access token. The member side (looking up, approving and denying a user code,
 and the list of linked sessions) needs a fresh admin session with CSRF and
-lives in api/admin/__init__.py.
+lives in api/admin/cli.py.
 
 The token endpoint answers RFC 8628's error codes as problem+json 400 with
 `code` in SCREAMING_SNAKE (`AUTHORIZATION_PENDING`, `SLOW_DOWN`,

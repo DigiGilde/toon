@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from pydantic import ConfigDict, Field
 
-from toon.api.admin import _timestamp_schema
+from toon.api.admin.common import _timestamp_schema
 from toon.api.schema import ApiModel, SessionBody
 from toon.constants import FeedbackIdentity, FeedbackKind, FeedbackReplyAuthor, FeedbackStatus
 from toon.models.publication import VersionTarget

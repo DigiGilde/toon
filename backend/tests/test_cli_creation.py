@@ -25,9 +25,9 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
-from toon.api import admin
 from toon.api import cli as cli_api
-from toon.api.admin import CREATION_MAX_PER_WINDOW, CREATION_WINDOW_S, make_admin_router
+from toon.api.admin import dependencies, make_admin_router
+from toon.api.admin.dependencies import CREATION_MAX_PER_WINDOW, CREATION_WINDOW_S
 from toon.api.deploys import BearerOutsideDeploysMiddleware
 from toon.api.errors import register_error_handlers
 from toon.audit.log import AuditLog
@@ -774,7 +774,7 @@ class TestCreationBudget:
         assert row.refs["via"] == "cli"
 
     async def test_the_session_path_is_limited_too(self, client, app, factory, monkeypatch):
-        monkeypatch.setattr(admin, "CREATION_MAX_PER_WINDOW", 1)
+        monkeypatch.setattr(dependencies, "CREATION_MAX_PER_WINDOW", 1)
         await _member(factory, "druk")
         headers = _login(client, app, "druk")
         await client.post(f"{BASE}/groups", json={"name": "Een", "slug": "een"}, headers=headers)
@@ -786,7 +786,7 @@ class TestCreationBudget:
         assert not await _group_exists(factory, "twee")
 
     async def test_the_budget_is_per_member(self, client, factory, monkeypatch):
-        monkeypatch.setattr(admin, "CREATION_MAX_PER_WINDOW", 1)
+        monkeypatch.setattr(dependencies, "CREATION_MAX_PER_WINDOW", 1)
         first = await _member(factory, "eerste")
         second = await _member(factory, "tweede")
         first_token = await _token(factory, first)
@@ -800,7 +800,7 @@ class TestCreationBudget:
         assert response.status_code == 201
 
     async def test_invalid_input_and_a_refused_role_do_not_spend_the_budget(self, client, factory, monkeypatch):
-        monkeypatch.setattr(admin, "CREATION_MAX_PER_WINDOW", 1)
+        monkeypatch.setattr(dependencies, "CREATION_MAX_PER_WINDOW", 1)
         member = await _member(factory, "druk")
         await _group(factory, "team", members={member: Role.READER})
         token = await _token(factory, member)

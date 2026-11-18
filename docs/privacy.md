@@ -71,7 +71,7 @@ such rather than assumed.
 
 `refs` on audit rows generally carries structural identifiers (group/site
 slugs, ids), not raw personal data; this was spot-checked for `invitee_add`/
-`invitee_remove` (`backend/src/toon/api/admin/__init__.py`) but was not audited
+`invitee_remove` (`backend/src/toon/api/admin/sites/invitees.py`) but was not audited
 exhaustively across every action, so this is a strong indication, not a
 guarantee.
 
@@ -83,7 +83,7 @@ one, which stays on the group or site where it can be corrected at once. The
 row is an admin operation and so is kept for 3 years, and an audit row cannot
 be corrected, so a name corrected on the group or site stays readable in the
 log until its term ends. A name or title that a rename sets is at most 200
-characters (`TEXT_MAX_LENGTH` in `backend/src/toon/api/admin/__init__.py`). The create
+characters (`TEXT_MAX_LENGTH` in `backend/src/toon/api/admin/common.py`). The create
 routes accept longer ones: they have no maximum, because adding one would be a
 breaking change that needs a new API major. So the text a rename replaces can
 be longer than 200 characters, and a rename can write it into the log once.
@@ -249,7 +249,7 @@ supports it:
   requires the reverse lookup an operator performs through
   `POST /platform/audit/actor-identity` and the IP reveal endpoint
   (`audit_ip_reveal`), both themselves audited acts subject to a daily rate
-  limit (`backend/src/toon/api/admin/__init__.py`, `docs/audit-log.md`). There is no
+  limit (`backend/src/toon/api/admin/platform/queries.py`, `docs/audit-log.md`). There is no
   self-service report a data subject can request through the product itself.
 - **A person's name in a group name or site title**: the admin of the group
   or site corrects the current value at once (`PUT /groups/{group}/name`,
