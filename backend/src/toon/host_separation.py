@@ -9,7 +9,7 @@ own paths carved out of it (platform/spa.py). On the content host only content e
 to the admin landing page on `/` (platform/pages.py) and of the platform namespace exactly
 five things: the content login, its callback, the content logout, the code
 of a secret link shared without it (the segment `-` is never a slug), and
-everything under `/-/feedback/`: the site feedback widget API and its
+everything under `/-/feedback/`: the site feedback widget, its API and its
 pages, whose routes check the host themselves and answer the rest of the
 prefix with the neutral 404.
 Everything else under `/-/` is refused there, the API included - without that

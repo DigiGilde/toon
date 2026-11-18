@@ -39,7 +39,8 @@ from toon.auth.revalidation import revalidate_session
 from toon.auth.sessions import Session, SessionKind, SessionStore, Visitor, site_prefix
 from toon.models.identity import Group
 from toon.models.publication import Site
-from toon.serving.feedback_token import PageToken, parse_page_token
+from toon.serving.feedback_refusals import RefusedToken, refused
+from toon.serving.feedback_token import PageToken, page_token_expired, parse_page_token
 
 
 @dataclass(frozen=True)
@@ -89,16 +90,22 @@ async def decide_page(
 
 
 async def verify_page_token(request: Request, raw: object) -> FeedbackContext | None:
-    """The page token in `raw` checked against what holds now, or None."""
+    """The page token in `raw` checked against what holds now, or None. A
+    refusal of a token that `raw` holds counts in serving/feedback_refusals.py."""
     settings = request.app.state.settings
-    token = parse_page_token(settings.session_secret, raw, now=int(time.time()))
+    now = int(time.time())
+    token = parse_page_token(settings.session_secret, raw, now=now)
     if token is None:
-        return None
+        if raw is None:
+            return None
+        expired = page_token_expired(settings.session_secret, raw, now=now)
+        return _refuse(RefusedToken.EXPIRED if expired else RefusedToken.UNOPENED)
     session = None
     if token.session_id is not None:
-        session = await _consented_session(request, token.session_id, str(token.site_id))
-        if session is None:
-            return None
+        consented = await _consented_session(request, token.session_id, str(token.site_id))
+        if isinstance(consented, RefusedToken):
+            return _refuse(consented)
+        session = consented
     # The session the gate sees: the consented one, or else the one that let
     # the visitor in. A token never names both.
     seen = session
@@ -106,7 +113,7 @@ async def verify_page_token(request: Request, raw: object) -> FeedbackContext | 
     if token.access_session_id is not None:
         seen = await _access_session(request, token.access_session_id)
         if seen is None:
-            return None
+            return _refuse(RefusedToken.SESSION)
         gate_sub = seen.sub
     visitor = Visitor(
         sub=seen.sub if seen else None,
@@ -121,25 +128,37 @@ async def verify_page_token(request: Request, raw: object) -> FeedbackContext | 
             )
         ).one_or_none()
         if address is None:
-            return None
+            return _refuse(RefusedToken.SITE)
         group_slug, site_slug = address
         decision = await decide_page(db, group_slug, site_slug, token.ref, visitor)
+    if decision.kind is not DecisionKind.ALLOW:
+        return _refuse(RefusedToken.GATE)
     # Another site at these slugs, between finding them and deciding on them,
     # is a refusal like any other.
+    if decision.site_id != token.site_id:
+        return _refuse(RefusedToken.SITE)
     policy = open_feedback(decision, preview=token.ref is not None)
-    if policy is None or decision.site_id != token.site_id:
-        return None
+    if policy is None:
+        return _refuse(RefusedToken.FEEDBACK_OFF)
     return FeedbackContext(token, group_slug, site_slug, session, policy, gate_sub)
 
 
-async def _consented_session(request: Request, session_id: str, site: str) -> Session | None:
+def _refuse(reason: RefusedToken) -> None:
+    refused(reason)
+
+
+async def _consented_session(request: Request, session_id: str, site: str) -> Session | RefusedToken:
     store: SessionStore = request.app.state.session_store
     session = store.get_session(session_id)
-    if session is None or session.kind is not SessionKind.CONTENT or site not in session.feedback_sites:
-        return None
+    if session is None or session.kind is not SessionKind.CONTENT:
+        return RefusedToken.SESSION
+    if site not in session.feedback_sites:
+        return RefusedToken.CONSENT
     # The consent can end while the IdP is being asked.
     session = await revalidate_session(request, session)
-    return session if session is not None and site in session.feedback_sites else None
+    if session is None:
+        return RefusedToken.SESSION
+    return session if site in session.feedback_sites else RefusedToken.CONSENT
 
 
 async def _access_session(request: Request, session_id: str) -> Session | None:

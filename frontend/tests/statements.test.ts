@@ -96,7 +96,7 @@ describe('privacy statement', () => {
     [
       'nl',
       [
-        'Feedback: wat je over een pagina van een site stuurt',
+        'Feedback: wat je met de feedbackknop over een pagina stuurt',
         'Met een naam bewaart Toon alleen die naam, zonder naam geen naam, SSO-id of e-mailadres.',
         'Je tekst of de schermafbeelding kan nog wel iets over je zeggen.',
         'dus soms ook gegevens van anderen of van jezelf.',
@@ -104,23 +104,25 @@ describe('privacy statement', () => {
         'Om misbruik te beperken telt Toon wel hoeveel feedback er per site binnenkomt: per account als je feedback met je account geeft of moest inloggen om de pagina te zien, en anders per IP-adres.',
         'Bezoekgegevens en geslaagde inlogpogingen worden na 180 dagen verwijderd.',
         'Overige auditgegevens, zoals geweigerde toegang, mislukte of afgebroken inlogpogingen en beheerhandelingen, blijven drie jaar bewaard',
-        'Feedback die je met je account stuurde, kun je opvragen of laten verwijderen met een verzoek',
+        'Oudere feedback, of feedback op een site waar de knop niet meer staat, kun je opvragen of laten verwijderen met een verzoek',
         'Die telling staat alleen in het werkgeheugen. Ze loopt standaard over tien minuten en is uiterlijk even lang na afloop weg.',
         'de grootte en de pixelverhouding van je browservenster',
+        'dan onthoudt een cookie alleen dat, en niet langer dan 12 uur.',
         'een platformbeheerder zou de tijden naast elkaar kunnen leggen',
         'zodat het team van een site opmerkingen over die site kan lezen, beantwoorden en afhandelen',
         'Of een site feedback aanneemt, en van wie, is een instelling van die site.',
         'de schermafbeelding 30 dagen nadat de feedback is afgehandeld',
         'om afgeschermde content te bekijken of om feedback te geven met je account',
         'is alleen voor redacteuren en beheerders van de site',
-        'Feedback met alleen een naam of zonder naam hangt niet aan een account, dus een verzoek vindt die niet altijd terug.',
+        'Feedback met alleen een naam of zonder naam kun je later niet terugvinden of zelf verwijderen.',
         'ook op een openbare site, bijvoorbeeld om feedback te geven met je account',
+        'Mijn feedback staat in de knop zolang je op die site feedback geeft met je account. Kom je later terug, dan kies je eerst Met je account versturen of Feedback geven met je account, log je in en zeg je opnieuw ja. Dat beëindig je daarna weer met Stoppen met feedback via je account.',
       ],
     ],
     [
       'en',
       [
-        'Feedback: what you send about a page of a site',
+        'Feedback: what you send about a page with the feedback button',
         'With a name Toon keeps only that name, without a name no name, SSO ID or e-mail address.',
         'Your text or the screenshot can still say something about you.',
         'so sometimes data of other people or of yourself too.',
@@ -128,17 +130,19 @@ describe('privacy statement', () => {
         'To limit misuse, Toon does count how much feedback comes in per site: per account when you give feedback with your account or had to sign in to see the page, otherwise per IP address.',
         'Visit data and successful sign-ins are deleted after 180 days.',
         'Other audit data, such as refused access, failed or abandoned sign-ins and administrative actions, is kept for three years',
-        'To see or delete feedback you sent with your account, send a request',
+        'For older feedback, or feedback on a site that no longer shows the button, send a request to see or delete it',
         'That count is kept in working memory only. It runs over ten minutes by default, and is gone at most that long after it ends.',
         'the size and the pixel ratio of your browser window',
+        'a cookie remembers only that, and for 12 hours at most.',
         'a platform administrator could put the times side by side',
         'so the team of a site can read, answer and resolve remarks about that site',
         'Whether a site takes feedback, and from whom, is a setting of that site.',
         'the screenshot 30 days after the feedback was resolved',
         'to view restricted content or to give feedback with your account',
         'is for editors and administrators of the site only',
-        'Feedback sent with only a name or without a name is not tied to an account, so a request cannot always find it.',
+        'Feedback sent with only a name or without a name cannot be found again later, or deleted by its submitter.',
         'a public one included, for instance to give feedback with your account',
+        'My feedback is in the button while you give feedback on that site with your account. When you come back later, you first choose Send with your account or Give feedback with your account, sign in and say yes again. You end that again afterwards with Stop giving feedback with your account.',
       ],
     ],
   ] as const)('says in %s what feedback keeps, how long and who sees it', async (locale, sentences) => {
@@ -159,9 +163,8 @@ describe('privacy statement', () => {
     // and not the size of the screen.
     expect(wrapper.text()).not.toMatch(/gegevens over je browser|data about your browser/);
     expect(wrapper.text()).not.toMatch(/grootte van je scherm|size of your screen/);
-    // Nothing shows a site's pages a button, the site team the feedback, or
-    // lets a site administrator choose.
-    expect(wrapper.text()).not.toMatch(/feedbackknop|feedback button|Mijn feedback|My feedback/);
+    // Nothing shows the site team the feedback or lets a site administrator
+    // choose.
     expect(wrapper.text()).not.toMatch(/kiest de beheerder|chosen by the administrator|Reageert het siteteam|site team replies/);
     wrapper.unmount();
   });
@@ -169,17 +172,17 @@ describe('privacy statement', () => {
   it.each([
     [
       'nl',
-      'Op sites die feedback verzamelen, verwerkt Toon ook wat bezoekers als feedback sturen: hun opmerking, eventueel een schermafbeelding en hun naam, en met een account ook hun e-mailadres. Die feedback is bedoeld voor het team van de site.',
+      'Op sites die feedback verzamelen, verwerkt Toon ook wat bezoekers met de feedbackknop sturen: hun opmerking, eventueel een schermafbeelding en hun naam, en met een account ook hun e-mailadres. Die feedback is bedoeld voor het team van de site.',
     ],
     [
       'en',
-      'On sites that collect feedback, Toon also processes what visitors send as feedback: their remark, possibly a screenshot and their name, and with an account their e-mail address too. That feedback is meant for the team of the site.',
+      'On sites that collect feedback, Toon also processes what visitors send with the feedback button: their remark, possibly a screenshot and their name, and with an account their e-mail address too. That feedback is meant for the team of the site.',
     ],
-  ] as const)('says in its opening, in %s, that it covers what visitors send as feedback', async (locale, sentence) => {
+  ] as const)('says in its opening, in %s, that it covers what the feedback button sends', async (locale, sentence) => {
     serve(OPERATOR);
     const wrapper = await render(Privacy, locale);
 
-    // The consent page links here: the first paragraph says it.
+    // The widget and the consent page link here: the first paragraph says it.
     expect(wrapper.find('p').text()).toContain(sentence);
     wrapper.unmount();
   });

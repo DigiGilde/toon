@@ -258,9 +258,9 @@ class Settings(BaseSettings):
     ratelimit_code_max: int = Field(default=10)
     ratelimit_code_window_s: int = Field(default=900)
     ratelimit_code_global_max: int = Field(default=500)
-    # Everything under /-/feedback/ on the content host: the widget API and
-    # the pages around it. The widget's API calls send no cookies, so they
-    # count per client IP. The consent page and the stop page are top-level
+    # Everything under /-/feedback/ on the content host: the widget, its API
+    # and the pages around it. The widget's API calls send no cookies, so they
+    # count per client IP. The consent, stop and show pages are top-level
     # navigations that carry the content anchor cookie when the visitor has
     # one, and then count per SSO sub, like every signed-in request. The
     # consent form posts from an opaque origin, which brings no Lax cookie

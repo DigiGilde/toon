@@ -1,1 +1,3 @@
-- The content host takes site feedback under `/-/feedback/`, where the widget API answers any origin with `Access-Control-Allow-Origin: *` and accepts writes only under a sealed page token.
+- The content host takes site feedback under `/-/feedback/`, where the widget API answers any origin with `Access-Control-Allow-Origin: *` and accepts writes only under a sealed page token, and the pages of a site with feedback on get an injected script.
+- The widget's text editor runs in a sandboxed frame from `/-/feedback/editor.<hash>.html` on the content host, with a policy of its own and no `frame-ancestors`, so any page can frame it and gets an empty editor.
+- Accepted risk: on a site with the shielding from other sites off, another site without it can read a page's token and, for its twelve hours, send feedback in the name of a visitor who consented, and read, reply to and delete that visitor's own feedback.

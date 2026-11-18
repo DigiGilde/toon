@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc -b && vite build",
+    "build": "vue-tsc -b && vite build && vite build -c vite.widget.config.ts && vite build -c vite.editor.config.ts",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -14,7 +14,9 @@
     "coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@codemirror/state": "^6.7.1",
     "@nldd/design-system": "0.24.0",
+    "html-to-image": "1.11.13",
     "vue": "^3.5.45",
     "vue-router": "^5.4.0"
   },

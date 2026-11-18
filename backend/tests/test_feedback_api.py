@@ -7,11 +7,11 @@ Refusals first: every ground for FEEDBACK_UNAVAILABLE answers the same bytes
 per language, every other code answers its exact status and body, and the
 widget header set rides on every answer of `/-/feedback/v1/`. Then what an
 accepted item stores, the quotas under concurrency, the write counters, the
-giver's own items, replies and deletes, and the catch-all. The validation of
-an item lives in test_feedback_input.py, the bodies and their budget in
-test_feedback_body.py, the HTTP-level access matrix in test_feedback_matrix.py
-and the consent pages in test_feedback_consent.py. All build on the helpers
-here.
+giver's own items, replies and deletes, the bundle and the catch-all. The
+validation of an item lives in test_feedback_input.py, the bodies and their
+budget in test_feedback_body.py, the HTTP-level access matrix in
+test_feedback_matrix.py and the consent pages in test_feedback_consent.py.
+All build on the helpers here.
 """
 
 from __future__ import annotations
@@ -63,6 +63,7 @@ from toon.serving.feedback_api import PREFLIGHT_HEADERS, write_counter_sweep
 from toon.serving.feedback_body import BodyBudget
 from toon.serving.feedback_routes import router as feedback_router
 from toon.serving.feedback_token import TOKEN_LIFETIME_S, mint_consent_nonce, mint_page_token
+from toon.serving.feedback_widget import WidgetBundle
 from toon.serving.response import NEUTRAL_404_BODY
 
 BASE_URL = "https://toon.example"
@@ -833,6 +834,35 @@ class TestUnavailable:
         assert anonymous.status_code == 201
         (stored,) = await stored_items(environment.factory)
         assert (stored.author_sub, stored.author_name, stored.author_email) == (None, None, None)
+
+
+class TestWithoutTheShielding:
+    """The API does not look at the shielding. A token with a consented
+    session holds on a site that turned it off, as the page there carries one
+    too (docs/security.md, the accepted risk of sites without the shielding)."""
+
+    @pytest.mark.parametrize(
+        ("call", "status"), [("create", 201), ("mine", 200), ("reply", 201), ("delete", 204)]
+    )
+    async def test_a_consented_session_holds(self, client, environment, call, status):
+        app, world, factory = environment.app, environment.world, environment.factory
+        async with factory() as db:
+            await db.execute(update(Site).where(Site.id == world.site_id).values(sandbox=False))
+            await db.commit()
+        session = consented_session(app, world.site_id)
+        token = page_token(app, world.site_id, session_id=session.id)
+        own = await account_item(factory, world.site_id)
+        if call == "create":
+            response = await create(client, token, item(author={"kind": "account"}))
+        elif call == "mine":
+            response = await client.get(ITEMS, headers=auth(token))
+        elif call == "reply":
+            response = await reply(client, token, own)
+        else:
+            response = await client.delete(f"{ITEMS}/{own}", headers=auth(token))
+        assert response.status_code == status
+        if call == "mine":
+            assert [entry["id"] for entry in response.json()["items"]] == [str(own)]
 
 
 # --- What an accepted item stores ------------------------------------------------
@@ -2230,10 +2260,43 @@ class TestNoAuditTrail:
         assert recorder.records == []
 
 
-# --- The catch-all and the admin host ----------------------------------------
+# --- The bundle, the catch-all and the admin host -----------------------------
+
+
+class TestTheBundle:
+    BUNDLE = WidgetBundle(content=b"(()=>{})();\n", hash="0123456789abcdef")
+
+    async def test_the_current_bundle_under_its_hash(self, client, environment):
+        environment.app.state.feedback_widget = self.BUNDLE
+        response = await client.get("/-/feedback/widget.0123456789abcdef.js")
+        assert response.status_code == 200
+        assert response.content == self.BUNDLE.content
+        assert response.headers["content-type"] == "text/javascript; charset=utf-8"
+        assert response.headers["cache-control"] == "public, max-age=31536000, immutable"
+        assert response.headers["x-content-type-options"] == "nosniff"
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/-/feedback/widget.fedcba9876543210.js",
+            "/-/feedback/widget.js",
+            "/-/feedback/widget.0123456789abcdef.js.map",
+            "/-/feedback/widget.0123456789ABCDEF.js",
+            "/-/feedback/widget.0123456789abcdef.mjs",
+        ],
+    )
+    async def test_any_other_name_is_the_neutral_404(self, client, environment, path):
+        environment.app.state.feedback_widget = self.BUNDLE
+        assert is_neutral_404(await client.get(path))
+
+    async def test_without_a_bundle_there_is_none(self, client):
+        assert is_neutral_404(await client.get("/-/feedback/widget.0123456789abcdef.js"))
 
 
 KNOWN_PATHS = [
+    "/-/feedback/widget.0123456789abcdef.js",
+    "/-/feedback/hide",
+    "/-/feedback/show",
     "/-/feedback/account",
     "/-/feedback/account/stop",
     ITEMS,
@@ -2252,6 +2315,9 @@ UNKNOWN_PATHS = [
 ]
 # What each known path answers itself. Everything else is the catch-all.
 ROUTED = {
+    ("GET", "/-/feedback/widget.0123456789abcdef.js"),
+    ("POST", "/-/feedback/hide"),
+    ("GET", "/-/feedback/show"),
     ("GET", "/-/feedback/account"),
     ("POST", "/-/feedback/account"),
     ("GET", "/-/feedback/account/stop"),
@@ -2306,6 +2372,7 @@ class TestTheAdminHost:
     @pytest.mark.parametrize(("method", "path"), sorted(ROUTED))
     async def test_every_feedback_route_is_the_neutral_404_there(self, tmp_path, method, path):
         app = _neutral_app(tmp_path)
+        app.state.feedback_widget = TestTheBundle.BUNDLE
         async with client_for(app, ADMIN_URL) as client:
             response = await client.request(
                 method,

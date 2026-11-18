@@ -6,7 +6,8 @@ refuse early; nothing else says that a copy still matches. The frontend and
 the CLI sources are read as text: the CLI is not installed in this venv, and
 the frontend is TypeScript. The admin SPA and the API docs page also read the
 CSRF cookie by its name, and a mismatch there refuses every mutation in the
-browser.
+browser. The feedback widget reads a config no longer than the one the
+backend still puts in a page.
 """
 
 import re
@@ -15,11 +16,13 @@ from pathlib import Path
 from toon.auth.sessions import CSRF_COOKIE
 from toon.config import Settings
 from toon.constants import SLUG_RE
+from toon.serving.feedback_inject import MAX_CONFIG_LENGTH
 
 ROOT = Path(__file__).resolve().parents[2]
 SLUG_TS = ROOT / "frontend" / "src" / "composables" / "slug.ts"
 PACKING_TS = ROOT / "frontend" / "src" / "components" / "site" / "packing.ts"
 CLIENT_TS = ROOT / "frontend" / "src" / "api" / "client.ts"
+WIDGET_CONFIG_TS = ROOT / "frontend" / "src" / "feedback-widget" / "config.ts"
 DOCS_INIT = ROOT / "backend" / "src" / "toon" / "static" / "docs" / "docs-init.js"
 CLI = ROOT / "cli" / "toon_cli" / "__init__.py"
 UNPACKER = ROOT / "backend" / "src" / "toon" / "ingest" / "unpacker.py"
@@ -89,3 +92,7 @@ def test_the_archive_extensions_of_the_frontend_are_the_ones_of_the_backend():
     alternatives = _capture(r"^const ARCHIVE_OR_PAGE = /\\\.\(([^)]*)\)\$/i;", PACKING_TS)
     extensions = {"." + alternative.replace("\\.", ".") for alternative in alternatives.split("|")}
     assert extensions == _backend_extensions()
+
+
+def test_the_widget_reads_the_longest_config_the_backend_puts_in_a_page():
+    assert int(_capture(r"^const MAX_RAW_LENGTH = (\d+);", WIDGET_CONFIG_TS)) == MAX_CONFIG_LENGTH

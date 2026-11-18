@@ -95,10 +95,15 @@ def _make_client(
         ("/-/api/docs", RateLimitClass.API),
         # Handing in the code of a secret link: its own, strictest class.
         ("/-/code", RateLimitClass.CODE),
-        # Site feedback: the widget API and the pages around it.
+        # Site feedback: the widget, its API and the pages around it.
         ("/-/feedback/", RateLimitClass.FEEDBACK),
+        ("/-/feedback/widget.0123456789abcdef.js", RateLimitClass.FEEDBACK),
+        ("/-/feedback/editor.0123456789abcdef.js", RateLimitClass.FEEDBACK),
+        ("/-/feedback/editor.0123456789abcdef.html", RateLimitClass.FEEDBACK),
         ("/-/feedback/v1/items", RateLimitClass.FEEDBACK),
         ("/-/feedback/v1/items/0b9f4c3e-1d2a-4e5f-8a9b-0c1d2e3f4a5b/replies", RateLimitClass.FEEDBACK),
+        ("/-/feedback/hide", RateLimitClass.FEEDBACK),
+        ("/-/feedback/show", RateLimitClass.FEEDBACK),
         ("/-/feedback/account", RateLimitClass.FEEDBACK),
         ("/-/feedback/account/stop", RateLimitClass.FEEDBACK),
         ("/-/feedback/onbekend", RateLimitClass.FEEDBACK),
@@ -641,7 +646,7 @@ async def test_feedback_has_a_budget_of_its_own() -> None:
     )
     async with _make_client(settings, clock=_FakeClock()) as client:
         statuses = [
-            (await client.get("/-/feedback/account/stop")).status_code,
+            (await client.get("/-/feedback/widget.0123456789abcdef.js")).status_code,
             (await client.post("/-/feedback/v1/items")).status_code,
             (await client.get("/team-aurora/website/")).status_code,
             (await client.get("/team-aurora/website/")).status_code,
@@ -693,7 +698,7 @@ async def test_a_widget_preflight_over_budget_reaches_the_app(cause: str) -> Non
 
 
 @pytest.mark.parametrize(
-    "path", ["/-/feedback/account", "/-/feedback/account/stop", "/-/feedback/v1", "/team-aurora/website/"]
+    "path", ["/-/feedback/account", "/-/feedback/widget.0123456789abcdef.js", "/-/feedback/v1", "/team-aurora/website/"]
 )
 async def test_an_options_outside_the_widget_api_over_budget_is_refused(path: str) -> None:
     settings = _make_settings(
@@ -744,11 +749,11 @@ async def test_a_refusal_on_the_widget_api_speaks_the_language_the_widget_asks_f
     assert "Te veel verzoeken" in body["detail"]
 
 
-@pytest.mark.parametrize("path", ["/-/feedback/account/stop", "/-/feedback/account", "/-/login"])
+@pytest.mark.parametrize("path", ["/-/feedback/widget.0123456789abcdef.js", "/-/feedback/account", "/-/login"])
 async def test_a_refusal_outside_the_widget_api_keeps_the_plain_headers(path: str) -> None:
     """The widget headers belong to the API the widget calls with fetch. The
-    pages around it are loaded by the browser itself, and the other classes
-    have nothing to do with the widget at all."""
+    bundle and the pages around it are loaded by the browser itself, and the
+    other classes have nothing to do with the widget at all."""
     settings = _make_settings(
         ratelimit_feedback_max=1,
         ratelimit_feedback_window_s=60,

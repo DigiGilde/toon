@@ -1,7 +1,7 @@
-"""Tests for serving/feedback_token.py: the page token, the link ticket and
-the consent nonce of site feedback. Every ground for refusal has its own
-case, then what a valid token reads back as and what minting writes. No
-database needed."""
+"""Tests for serving/feedback_token.py: the page token, the link ticket, the
+consent nonce and the hide mark of site feedback. Every ground for refusal
+has its own case, then what a valid token reads back as and what minting
+writes. No database needed."""
 
 from __future__ import annotations
 
@@ -11,20 +11,25 @@ from dataclasses import dataclass
 
 import pytest
 
-from toon.serving.feedback_seal import PURPOSE_CONSENT, PURPOSE_PAGE, seal, unseal
+from toon.serving.feedback_seal import PURPOSE_CONSENT, PURPOSE_HIDE, PURPOSE_PAGE, seal, unseal
 from toon.serving.feedback_token import (
     CONSENT_LIFETIME_S,
+    HIDE_LIFETIME_S,
     LINK_LIFETIME_S,
     MAX_RETURN_TO_LENGTH,
     PURPOSE_LINK,
     TOKEN_LIFETIME_S,
     ConsentNonce,
+    HideMark,
     LinkTicket,
     PageToken,
     mint_consent_nonce,
+    mint_hide_mark,
     mint_link_ticket,
     mint_page_token,
+    page_token_expired,
     parse_consent_nonce,
+    parse_hide_mark,
     parse_link_ticket,
     parse_page_token,
 )
@@ -74,6 +79,12 @@ def _consent_payload(**changes: object) -> dict[str, object]:
     return payload
 
 
+def _hide_payload(**changes: object) -> dict[str, object]:
+    payload: dict[str, object] = {"site": str(SITE), "exp": NOW + HIDE_LIFETIME_S}
+    payload.update(changes)
+    return payload
+
+
 def _without(payload: dict[str, object], field: str) -> dict[str, object]:
     return {name: value for name, value in payload.items() if name != field}
 
@@ -114,6 +125,12 @@ def _mint_consent(**changes: object) -> str:
     fields: dict[str, object] = {"session_id": SESSION, "site_id": SITE, "return_to": RETURN_TO, "now": NOW}
     fields.update(changes)
     return mint_consent_nonce(SECRET, **fields)
+
+
+def _mint_hide(**changes: object) -> str:
+    fields: dict[str, object] = {"site_id": SITE, "now": NOW}
+    fields.update(changes)
+    return mint_hide_mark(SECRET, **fields)
 
 
 UUID_SPELLINGS = [
@@ -163,11 +180,15 @@ CONSENT = Kind(
     {"return_to": "/"},
     "no consent nonce",
 )
-NAMED = {"page-token": PAGE, "link-ticket": LINK, "consent-nonce": CONSENT}
+HIDE = Kind(
+    parse_hide_mark, _mint_hide, _hide_payload, PURPOSE_HIDE, HIDE_LIFETIME_S, {"site_id": "geen-uuid"}, "no hide mark"
+)
+NAMED = {"page-token": PAGE, "link-ticket": LINK, "consent-nonce": CONSENT, "hide-mark": HIDE}
 FIELDS = {
     "page-token": ["v", "site", "kind", "ref", "ver", "ses", "acc", "key", "exp"],
     "link-ticket": ["key", "site", "exp"],
     "consent-nonce": ["ses", "site", "key", "returnTo", "exp"],
+    "hide-mark": ["site", "exp"],
 }
 
 
@@ -358,6 +379,46 @@ class TestPageToken:
         assert _mint_page() != _mint_page()
 
 
+class TestExpiredOrNot:
+    """What the count of refused tokens tells apart: a page token Toon minted
+    whose time ran out, from anything else parsing refuses."""
+
+    def test_a_token_whose_time_ran_out(self):
+        token = seal(SECRET, PURPOSE_PAGE, _page_payload())
+        assert page_token_expired(SECRET, token, now=NOW + TOKEN_LIFETIME_S)
+        assert page_token_expired(SECRET, token, now=NOW + 10 * TOKEN_LIFETIME_S)
+
+    def test_a_token_still_valid(self):
+        token = seal(SECRET, PURPOSE_PAGE, _page_payload())
+        assert not page_token_expired(SECRET, token, now=NOW + TOKEN_LIFETIME_S - 1)
+
+    @pytest.mark.parametrize(
+        "token",
+        [
+            None,
+            "nep",
+            seal(OTHER_SECRET, PURPOSE_PAGE, _page_payload(exp=NOW)),
+            seal(SECRET, PURPOSE_HIDE, _page_payload(exp=NOW)),
+            seal(SECRET, PURPOSE_PAGE, _page_payload(exp=float(NOW))),
+            seal(SECRET, PURPOSE_PAGE, _page_payload(exp=True)),
+            seal(SECRET, PURPOSE_PAGE, _without(_page_payload(), "exp")),
+            seal(SECRET, PURPOSE_PAGE, _page_payload(exp=NOW, kind="elders")),
+        ],
+        ids=[
+            "none",
+            "garbage",
+            "another-secret",
+            "another-purpose",
+            "float-expiry",
+            "bool-expiry",
+            "no-expiry",
+            "bad-field",
+        ],
+    )
+    def test_anything_else_is_not_expired(self, token):
+        assert not page_token_expired(SECRET, token, now=NOW + TOKEN_LIFETIME_S)
+
+
 class TestLinkTicketRefusals:
     """A ticket arrives in an address anyone can type: only one Toon sealed
     for this purpose, unexpired, with exactly its fields, counts."""
@@ -458,3 +519,26 @@ class TestConsentNonce:
         assert len(return_to) < MAX_RETURN_TO_LENGTH
         with pytest.raises(ValueError, match="longer than unseal reads"):
             _mint_consent(return_to=return_to)
+
+
+class TestHideMarkRefusals:
+    """The value of the hide cookie is anything a page's own script or a
+    sibling host cares to write: only a mark Toon sealed counts."""
+
+    @pytest.mark.parametrize("site", [*UUID_SPELLINGS, pytest.param(None, id="null")])
+    def test_site(self, site):
+        assert _sealed(HIDE, _hide_payload(site=site)) is None
+
+
+class TestHideMark:
+    def test_a_mark_reads_back(self):
+        assert parse_hide_mark(SECRET, _mint_hide(), now=NOW) == HideMark(
+            site_id=SITE, expires_at=NOW + HIDE_LIFETIME_S
+        )
+
+    def test_a_mark_lasts_twelve_hours(self):
+        assert HIDE_LIFETIME_S == 12 * 3600
+
+    def test_a_mark_is_written_in_cookie_characters_only(self):
+        """Base64url: nothing a Set-Cookie line would have to quote."""
+        assert set(_mint_hide()) <= set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")

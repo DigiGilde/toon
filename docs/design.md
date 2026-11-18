@@ -19,8 +19,9 @@ Toon publishes static sites for government organisations: public, behind SSO
 Rijk, for invitees on an email address, or through a secret link. Every pull
 request can get a preview of its own. A site is a tree of files that Toon does
 not interpret; what Toon owns is who may see it, which version is live and who
-may change that. Beside that, Toon keeps site feedback (§16): what visitors
-send about a site's pages, stored with the site.
+may change that. The one exception is site feedback (§16): on a site that
+takes feedback, Toon adds a script of its own to the HTML pages it serves,
+and the stored files stay as they were.
 
 One application answers on two hosts (§4a), serves content and the admin
 interface itself, and keeps one PostgreSQL database. There is no nginx logic in
@@ -194,7 +195,7 @@ and `docs/security.md`.
 | `/{group}/{site}/_version/{version-id}/...` | an older version, for the site team only |
 | `/-/login`, `/-/oauth2/callback`, `/-/logout` | OIDC login, callback and logout, spelled the same on both hosts |
 | `/-/code` | hands in the code of a secret link (content host only) |
-| `/-/feedback/...` | site feedback: the widget API under `/-/feedback/v1/` and the consent page (content host only, §16) |
+| `/-/feedback/...` | site feedback: the widget bundle, its API under `/-/feedback/v1/`, the consent page and hiding the button (content host only, §16) |
 | `/-/api/v1/...` | JSON and deploy API (admin host only) |
 | `/-/api/docs` | API documentation, self-hosted UI, publicly readable |
 | `/-/oidc/backchannel-logout` | back-channel logout from the OP (admin host only) |
@@ -273,7 +274,9 @@ nginx exists only in the dev compose stack, passing the `Host` through.
 Order per request: service worker refusal, path validation, access decision
 (with the lookup of an old address where the gate found nothing, §5.11),
 audit, key redeem or removal (§7.4), file resolution, `If-None-Match`,
-response. The lexical 301 sits before all of it (§5.2).
+response. The lexical 301 sits before all of it (§5.2). A navigation to a
+feedback page (§16.2) skips `If-None-Match` and gets the feedback widget where
+the page takes it (§16.3).
 
 On the content host HEAD is the GET without the body (`head_requests.py`): the
 app gets a GET, the client gets its headers, so the gate, the audit and a
@@ -336,9 +339,14 @@ That reaches what revalidates: public HTML, which is `no-cache`; restricted
 content is not stored at all (§5.5). Any other file of a public site is
 `immutable` and never revalidates, so a worker script or an SVG
 opened on its own keeps the policy it was first served with until it leaves
-the cache. Code:
+the cache.
+
+A feedback page (§16.2) is the exception (§16.3): a navigation to it never
+gets a 304, and every answer for it, the 304 included, carries
+`Sec-Fetch-Dest` in `Vary`. A page with the widget in it has no
+`ETag` at all, because its bytes carry a token of their own. Code:
 `serving/response.py` (`etag_for`, `if_none_match_matches`, `make_304`).
-Guarded by: `test_serving.py`.
+Guarded by: `test_serving.py`, `test_feedback_inject.py`.
 
 ### 5.4a Compression
 
@@ -362,6 +370,9 @@ in the same second, so a date cannot tell them apart. Range on a copy covers
 its compressed bytes. `_encoded` is refused in the root of a bundle, and the
 store never serves a path under it, so a site's own files and these never
 meet. Versions published before this keep their files as they were.
+A page that gets the feedback widget is the one answer that ignores the copy
+the request picks: it is decoded from the file as published or its gzip copy
+and goes out without `Content-Encoding`, `ETag` or Range (§16.3).
 Code:
 `ingest/precompress.py`, `ingest/store.py`,
 `serving/resolution.py` (`locate`, `choose_encoding`, `representation`),
@@ -383,9 +394,13 @@ the server and so the access gate. `no-cache` is not enough, because
 `only-if-cached` and `force-cache` skip the revalidation too (#152). An
 origin per site would make the browser refuse that read, and is the moment
 to cache restricted content again. The login redirect and the directory 301
-carry `no-store`, because a 301 is heuristically cacheable. Code:
-`serving/response.py` (`cache_control`), `serving/router.py`. Guarded by:
-`test_serving.py`, `e2e/tests/shared-origin.spec.ts`.
+carry `no-store`, because a 301 is heuristically cacheable. A navigation to a
+feedback page (§16.2) is `no-store` too, public or not and with or without the
+widget in it: the page carries a token for this visitor and this view
+(§16.3). Code:
+`serving/response.py` (`cache_control`), `serving/router.py`.
+Guarded by: `test_serving.py`, `test_feedback_inject.py`,
+`e2e/tests/shared-origin.spec.ts`.
 
 ### 5.6 The neutral 404
 
@@ -465,6 +480,16 @@ this, only defaulted safe.
 
 Every policy comes out of one directive table with one addition per switch, so
 the four combinations cannot drift apart.
+
+On a route that collects feedback (§16.2) Toon adds a script of its own to the
+HTML pages it serves: `/-/feedback/widget.<hash>.js`, a classic deferred
+script from the content host itself. The policy does not change for it.
+`script-src 'self'` admits it under every combination, the shielding
+included, because a classic script loads without CORS. Its calls to
+`/-/feedback/v1` are `connect-src 'self'`, and its styles sit in one
+`<style>` in its shadow root, under `style-src 'unsafe-inline'`. On a shielded
+page those calls go out with `Origin: null`, which is why the widget API
+answers with CORS headers (§16.8).
 
 The platform's own answers on the content host, the root redirect, the code page
 for a secret link and the neutral 404 (§5.6), carry a policy of their own
@@ -931,7 +956,8 @@ therefore have to pass the login once more, without the IdP as long as the
 anchor session holds.
 
 Code: `auth/sessions.py`, `platform/pages.py`, `serving/feedback_consent.py`.
-Guarded by: `test_sessions.py`, `test_feedback_consent.py`.
+Guarded by: `test_sessions.py`, `test_feedback_consent.py`,
+`test_feedback_inject.py`.
 
 ### 7.7 OIDC
 
@@ -1366,12 +1392,17 @@ Code: `alembic/versions/`, `models/`. Guarded by:
   fail-closed ingest, serving (redirects, MIME, 304, header set), rate limiting,
   the deploy API (CI trust, idempotent teardown, concurrent preview upsert,
   problem+json), storage lifecycle, host separation, origin guarding, OIDC, the
-  audit log and the migrations. For site feedback (§16): the tokens and the
+  audit log and the migrations. For site feedback (§16): the injection with each of its
+  conditions (`test_feedback_inject.py`), the tokens and the
   consent pages with every refusal, the widget API with every code, the
   quotas under concurrency, the purge, and a matrix over HTTP that holds every
   policy and visitor to the gate (`test_feedback_matrix.py`).
 - **Frontend**: vitest (`npm test` in `frontend/`), including a check on the
-  built `index.html` for inline scripts against the CSP of §9.
+  built `index.html` for inline scripts against the CSP of §9. The feedback
+  widget is covered the same way, with a guard that imports every module under
+  `src/feedback-widget/` and holds the source to its rules, and a check of the
+  built bundle (`tests/feedback-widget-modules.test.ts`,
+  `tests/feedback-widget-bundle.test.ts`).
 - **E2E**: Playwright against the compose stack with mock OIDC on
   `http://localhost`, across both origins: logging in, creating a group and a
   site, uploading a dist fixture, deploying a preview through the API, viewing
@@ -1425,18 +1456,18 @@ guessing:
 
 A site can let visitors give feedback on its pages: a remark about a point or
 an area on a page, a selected text or the page as a whole, with a screenshot if
-the visitor wants one. Toon takes that in through the widget API on the
-content host (§16.8) and keeps what comes in with the site. No page carries a
-widget yet (§16.2). The sections on the widget itself follow with it, so the
-numbers below have gaps.
+the visitor wants one. For that Toon adds a widget of its own to the site's
+HTML pages on the content host and keeps what comes in with the site. The
+stored files of a site do not change: the widget goes into the answer, not
+into the version.
 
 ### 16.1 Settings and roles
 
 Three columns on `sites` hold the setting, which nothing in the admin sets
 yet:
 
-- `feedback_enabled`, false by default: whether the site takes feedback at
-  all.
+- `feedback_enabled`, false by default: whether the widget goes into the
+  site's pages at all.
 - `feedback_identity`, `account` by default: who may give feedback. The levels
   are ordered and each takes the author kinds of the ones before it:
   `account` takes feedback from an SSO account only, `name` also with a name
@@ -1446,12 +1477,12 @@ yet:
 
 A preview always follows the site's own setting: an override (§7.2) changes
 who may look at a preview, never whether it collects feedback. Switching
-feedback off refuses every widget call for the site from that moment (§16.5).
-What was given stays.
+feedback off takes the widget out of the next page view, and every widget call
+for the site is refused from that moment (§16.5). What was given stays.
 
 Every allow of the gate carries the site's id and its feedback setting, read
 from the site row the gate loads anyway, so a public page view stays one
-query.
+query, also with the widget in it.
 
 Code: `models/publication.py`, `constants.py`, `access/decision.py`,
 `access/gate.py`. Guarded by: `test_constants.py`, `test_access_gate.py`,
@@ -1459,8 +1490,233 @@ Code: `models/publication.py`, `constants.py`, `access/decision.py`,
 
 ### 16.2 Which pages get the widget
 
-No page gets a widget yet. The widget API (§16.8) and the consent page
-(§16.6) stand ready for one.
+A **feedback route** is a live or preview route, never `_version`, of a site
+with feedback on, where the route is a preview or the site collects on its
+live site too. On such a route a **feedback page** is an HTML file (what
+`mime.determine` calls `text/html`) answered with 200, except the site's root
+`404.html`, also when that is asked for by name. A version's own 404 page,
+served with status 404, never is one.
+
+Only a navigation gets the widget: a request with `Sec-Fetch-Dest: document`,
+a header page script cannot set (§7.6). A browser that sends no fetch metadata
+never gets it, and a script, a `fetch` or an iframe gets the file as
+published. A navigation to a feedback page gets the widget unless:
+
+- `TOON_BASE_URL` is not set, since the widget links the privacy statement
+  on the admin host,
+- the visitor hid the button on this site: a value of the cookie
+  `__Secure-toon-feedback-off` opens as an unexpired hide mark for this site
+  (§16.7),
+- the page is larger than 10 MiB decoded (`FEEDBACK_INJECT_MAX_BYTES` in
+  `constants.py`),
+- it starts with a UTF-16 byte order mark, since the tag is ASCII,
+- there is no place for the tag in its first 64 KiB,
+- the bundle is missing (§16.4), no token can be minted for the page
+  (§16.5), or its `<config>` would be longer than the 16384 characters the
+  widget reads, even without a way back.
+
+Without the widget such a navigation gets the file as published, under the
+caching rules of §16.3 all the same.
+
+The tag goes in front of the document, right after the doctype. It is found by
+skipping only what the HTML tokenizer lets pass before a doctype without
+leaving standards mode: a UTF-8 byte order mark, ASCII whitespace, and
+comments and bogus comments as WHATWG HTML reads them (13.2.5). Without a
+doctype the tag goes in front of the first other token. Never in front of a
+doctype, which would put the page in quirks mode, and never further on, where
+a script string, a comment, an attribute value or a template could swallow
+it. A page whose first 64 KiB end before that is decided gets no widget. The
+parser moves a `defer` script found before `<html>` into the head, and the
+page keeps its mode.
+
+```html
+<script src="/-/feedback/widget.<hash>.js" defer data-toon-feedback="<config>"></script>
+```
+
+`<config>` is base64url without padding over the compact UTF-8 JSON of the
+widget's configuration: `v` (1), `token` (§16.5), `api` (`/-/feedback/v1`),
+`identity` (the site's setting), `account` (whether the token carries a
+consented session), `accountUrl` and `showUrl` (the consent page and the show
+route, with the way back to the page as `returnTo`, and `accountUrl` with a
+link ticket in `link`, §16.6), `hideUrl`, `privacyUrl` (`TOON_BASE_URL` plus
+`/-/privacy`), `screenshotMaxBytes` (§16.9) and, when Toon has an editor,
+`editorUrl` (§16.15). It holds no name, no email address and no readable
+session reference. A page's own scripts can still tell from it whether the
+visitor consented on this site (`account`) and, on a page that is not public,
+whether a secret link let them in (`link` in `accountUrl`, and the token's
+length, which grows with `key`, `ses` and `acc`). Those scripts can also
+rewrite the attribute before the widget reads it, so the widget refuses a
+configuration that does not hold up: an address that leaves `/-/feedback/`, an
+`editorUrl` that is not `/-/feedback/editor.<hash>.html`, or a privacy
+statement that is not an absolute http(s) URL. Without `TOON_BASE_URL` Toon
+therefore puts no widget in a page at all.
+
+The way back is what the consent page, the hide form and the show link
+take as `returnTo` (§16.6, §16.7): fewer than 2048 characters, unchanged by
+the login's rule, on a site's path, without a `.` or `..` segment (also
+percent-encoded, as `%2e%2E`, which a browser resolves before it requests the
+path, so `/g/s/../../other/` would name one site and lead to another), and
+without any `key`. It is the page's path
+and query without any `key` when they pass and the `<config>` fits the
+widget with them. Otherwise it is the page's path alone, and the visitor
+comes back to the page without its query. When even that does not pass or
+fit, the page still gets the widget, without `accountUrl` and `showUrl`: it
+offers neither feedback with an account nor hiding the button, and takes
+feedback with a name or anonymously as before.
+
+Code: `serving/feedback_inject.py`, `serving/router.py`,
+`frontend/src/feedback-widget/config.ts`. Guarded by:
+`test_feedback_inject.py`, `test_parity.py`,
+`frontend/src/feedback-widget/config.test.ts`.
+
+### 16.3 The injected page: caching, size and streaming
+
+The token in a page belongs to this visitor and this view (§16.5), so no
+cache may keep or confirm a copy:
+
+- Every answer for a feedback page, the 304 included, carries
+  `Sec-Fetch-Dest` in `Vary`, next to `Service-Worker` (§7.4) and, for a page
+  kept compressed, `Accept-Encoding`. No cache hands a navigation what another
+  request left.
+- A navigation never gets a 304 and always gets `Cache-Control: no-store`,
+  whether the widget goes in or not.
+- Every other request keeps the caching of §5.4 and §5.5, 304 included.
+
+A page with the widget in it is a representation of its own: no `ETag`, no
+`Content-Encoding` and no `Accept-Ranges`, and `Range` and `If-Range` are
+ignored. Every other header of the file response stays, the CSP and the
+`Referrer-Policy` among them. `Content-Length` is the decoded size plus the
+length of the tag.
+
+Every page the widget goes into is decoded in Toon's one process on every
+view, so the cost is bounded before anything is decoded. The decoded size is
+the file's own size, or the ISIZE trailer of its gzip copy (RFC 1952) for a
+page kept compressed only (§5.4a). A page above 10 MiB
+(`FEEDBACK_INJECT_MAX_BYTES`) is never decoded, and finding the place of
+the tag decodes at most the first 64 KiB and skips its comments in one pass.
+
+The page then streams, decoded in pieces of at most 512 KiB, each read in a
+worker thread, with the tag spliced in and without compression, so memory is
+bounded by the piece and not by the page. A brotli copy is never used for it:
+the gzip copy is decoded whatever the request accepts. A page that turns out
+longer or shorter than its `Content-Length` (a lying ISIZE, a truncated copy)
+breaks the response off rather than send a body that disagrees with it. A
+HEAD runs the same decision and so reads the first 64 KiB and never more,
+because the headers differ with and without the widget.
+
+Code: `serving/feedback_inject.py`, `serving/response.py`,
+`serving/router.py`, `constants.py`. Guarded by: `test_feedback_inject.py`,
+`test_serving.py`, `test_head_requests.py`.
+
+### 16.4 The widget in the page
+
+The bundle is one minified classic script, an IIFE that defines no global,
+for ES2020, without a sourcemap. `npm run build` builds it after the SPA
+(`frontend/vite.widget.config.ts`) into `dist/feedback-widget.js`. Its legal
+comment names Toon's licence (EUPL-1.2), the repository and the MIT notice of
+`html-to-image`, which it bundles for the screenshots, pinned at exactly
+1.11.13.
+
+Toon reads the file from `TOON_SPA_PATH` once, at startup, and serves it at
+`/-/feedback/widget.<hash>.js` on the content host, where `<hash>` is the
+first 16 hex characters of its SHA-256, with
+`Cache-Control: public, max-age=31536000, immutable` and `nosniff`. Any other
+name there is the neutral 404, so a page always loads the bundle it was
+served with. A missing, unreadable or empty file does not stop Toon: pages go
+out without the widget, and one warning says why. A new build needs a
+restart. The fields for a comment and a reply load a second bundle, a
+Markdown editor, in a sandboxed frame of its own (§16.15).
+
+In the page the widget keeps to itself. It adds one element,
+`<div data-toon-feedback-host>`, at the end of `body`, with an open shadow
+root that holds its markup and its one `<style>`. The host resets whatever
+the page sets on it (`all: initial`), takes no room in the layout and sizes
+everything in px, so a site's root font size changes nothing. It reads its
+configuration once and removes the attribute. It uses no `localStorage`,
+`sessionStorage`, `document.cookie` or `indexedDB`, registers no custom
+element that could clash with a site's own, writes no `innerHTML` and calls
+no `eval`. Key and input events that start inside it stop at the host, so a
+site's own shortcuts do not eat what someone types. It is hidden in print.
+
+Its language is the page's `<html lang>` when that is Dutch or English, else
+the first of the browser's languages that is, else English. It sends that as
+`Accept-Language`. Words of the page that it quotes or announces keep the
+language the page gives them.
+
+**The screenshot** is made in the browser with `html-to-image`, of the
+viewport, with the widget left out: by itself for a point or an area, and for
+a text or the whole page only when the visitor asks. The copy of the page is
+moved to the scroll position by negative margins on its root, not by a
+transform, so fixed and sticky parts stay where the window shows them. In the
+copy alone, the overflow of the root and the body is let show, also against
+an important declaration in the page's own style: otherwise a rule such as
+Material for MkDocs's `html { height: 100%; overflow-x: hidden }` clips the
+copy to the first window, and the picture of a page scrolled down is blank.
+
+The screenshot fetches images from the page's own origin only
+(`mode: same-origin`). On a shielded page that origin is opaque, so the
+browser refuses each of those fetches before it goes out, and the images, the
+site's own included, appear as grey areas, which the widget says. Such a fetch
+would carry no cookie of the site, so where the page is not public the gate
+would log a refusal or a login redirect for three years with the visitor's IP
+address (§16.13). Not closed: `html-to-image` keeps no element's scroll
+position, so a part of the page that scrolls on its own, such as the main
+pane of an app shell or an NLDD app in nested scroll mode, shows from its top
+in the picture. A mark drawn in that part lands on other content, and the
+notice beside the picture still says it shows what is on the screen.
+
+**The menu** follows the site's setting and the token: pointing at a spot or
+an area, the selected text (also from a button beside a selection), the page
+as a whole, feedback with an account ("Mijn feedback" and a way to stop with
+a consented session, the way to the consent page of §16.6 without one) and
+hiding the button (§16.7). On a site that takes feedback with an account
+only, a visitor without a consented session gets "Feedback geven met je
+account" (give feedback with your account) and hiding the button, nothing
+else: nobody starts on a remark they cannot send. On a page without a way
+back (§16.2) the menu has no way to the consent page or to stop, and no
+hiding. Every menu, and the
+composer under its buttons, links the privacy statement, in the same tab on a
+shielded page. That statement and the consent page say what a sign-in keeps:
+one that fails, that the visitor stops, or whose session the identity
+provider ends early keeps the IP address three years in the access log
+(§16.13, `docs/audit-log.md`). While text typed in the widget has not been
+sent, a link that leaves for a page of Toon in the same tab says the text is
+lost there. After sending without an account the widget says that the giver
+cannot see the team's replies.
+
+**Keyboard and pointer.** An overlay (pointing, choosing a part, covering)
+holds Tab between itself and its bar, takes back focus that a page script
+moves to the page, and says in the bar how it works with a pointer and, once
+the keyboard is in use, with the keyboard. The bar takes at most half the
+window and scrolls beyond that, so the picture keeps the other half with any
+font, also at 400% zoom. One pointing mode takes a point or an area: a press
+that moves less than `POINT_SLOP` (6 CSS px) is a point, a press that moves
+further draws a rectangle, and a rectangle smaller than `MIN_AREA` (12 px) on
+a side is a point at its centre. On touch the overlay lets the page scroll and
+zoom, so a drag scrolls. Dragging is never the only way to an area (WCAG
+2.5.7): "Gebied zonder slepen" (area without dragging) opens a frame over the
+live page, set with two clicks or taps on its corners, a drag, or the arrow
+keys and Enter. In the composer, "Ander punt of gebied kiezen" (choose another
+spot or area) points again and keeps what was typed. Escape steps back one
+step. Below 600 px the panel is a sheet at the bottom that holds Tab. On a
+wide window the panel is not modal, and the button and the panel move out of
+the way of a page element with keyboard focus (WCAG 2.4.11), following focus
+into open shadow roots, while focus in a closed one counts on its host.
+
+While "Mijn feedback" (§16.8) is open, each item given on a spot, an area or a
+text of this page has a pin there: a ring like the one that marks a place
+from a link (§16.11), which lets presses through to the page and which the
+keyboard reaches as a button that leads to the item. The pins lie under the
+button, the panel and the sheet. The ring and the marks of a place from a
+link lie over the button and under the panel.
+
+Code: `frontend/src/feedback-widget/`, `frontend/src/i18n/widget.nl.ts`,
+`widget.en.ts`, `frontend/vite.widget.config.ts`, `serving/feedback_widget.py`,
+`serving/feedback_routes.py`, `main.py`. Guarded by: the tests under
+`frontend/src/feedback-widget/`, `frontend/tests/feedback-widget-modules.test.ts`,
+`frontend/tests/feedback-widget-bundle.test.ts`,
+`test_feedback_widget_bundle.py`, `test_feedback_api.py`,
+`test_app_integration.py`.
 
 ### 16.5 The page token
 
@@ -1475,16 +1731,28 @@ is what let the visitor in (the page's effective access, an override
 included, is not public and no secret link did it). `acc` is there for the
 gate, so a signed-in visitor who never consented can still send with a name
 or without one where only their session lets them see the page. A public
-page never carries `acc`. Minting stores nothing, and the token never goes
+page never carries `acc`. Either role needs a request that carried the
+site cookie once: one that carries it twice, one of them possibly planted
+from elsewhere, gets a token without a session. The secret link is in it
+only when the gate let the visitor in through the key cookie. Minting
+stores nothing, and the token never goes
 into an address (§16.6).
+
+Feedback with an account is offered on every feedback page, served with the
+shielding (the sandbox of §5.7) or without it. A page without the shielding
+shares its origin with every other site without it, whose pages can open it
+in a window and read the token from its configuration. With `ses` in it they
+can send feedback in that visitor's name, and read, answer and delete that
+visitor's own feedback, until the token expires. That risk is accepted
+(TDR-0015, `docs/security.md`).
 
 The token is sealed, not signed, because it sits where a site's own scripts
 read it and has to hide the session it names: AES-256-GCM under a key derived
 with HKDF-SHA256 from `TOON_SESSION_SECRET` (no salt, info
 `toon-feedback-v1`), written as base64url of a random 96-bit nonce, the
 ciphertext and its tag, with its purpose (`toon-feedback-page-v1`) as the
-associated data. A link ticket or a consent nonce (§16.6) therefore never
-opens as a page token, nor the other way round, and a new session secret ends
+associated data. A link ticket, a consent nonce (§16.6) or a hide mark
+(§16.7) therefore never opens as a page token, nor the other way round, and a new session secret ends
 every token. Parsing is as strict as minting, and minting runs the same
 check: exactly the fields minting writes, each in its one spelling, never
 `ses` and `acc` together, an expiry at most twelve hours and a minute ahead,
@@ -1510,10 +1778,27 @@ Only a session in `ses` stands behind what needs an account: the author
 fields, the visitor's own items, replies and deletes. Nothing of a session in
 `acc` goes with an item: its `sub` only keys the author counter (§16.10).
 
+Every refusal answers the same, so each process counts the page tokens that
+the widget API and the hide route (§16.7) refuse, per reason: the token does
+not open (`unopened`), it expired (`expired`), its session is gone or fails
+revalidation (`session`), its consent is gone (`consent`), the gate refuses
+(`gate`), the target takes no feedback (`feedback_off`), or its site is gone
+or another site answers at its address (`site`). A request without a token
+counts for nothing. When a window of ten minutes ends with more than 100
+refused tokens, the process logs one WARNING for it with the total and the
+count per reason, and nothing about a visitor: no address, no `sub`, no site,
+no token. A window ends at the first refusal after it, or within a minute by a
+sweep. The counts live in memory and start again on a restart.
+`docs/deploying-on-zad.md` names the line to alert on (BIO2, ISO 27002:2022
+8.16).
+
 Code: `serving/feedback_seal.py`, `serving/feedback_token.py`,
-`serving/feedback_access.py`, `auth/revalidation.py`. Guarded by:
-`test_feedback_seal.py`, `test_feedback_token.py`, `test_feedback_api.py`,
-`test_feedback_matrix.py`, `test_sessions.py`, `test_session_revalidation.py`.
+`serving/feedback_inject.py`, `serving/feedback_access.py`,
+`serving/feedback_refusals.py`, `auth/sessions.py`, `auth/revalidation.py`.
+Guarded by: `test_feedback_seal.py`, `test_feedback_token.py`,
+`test_feedback_inject.py`, `test_feedback_api.py`, `test_feedback_matrix.py`,
+`test_feedback_refusals.py`, `test_sessions.py`,
+`test_session_revalidation.py`.
 
 ### 16.6 Consent for feedback with an account
 
@@ -1527,7 +1812,8 @@ visitor knowing.
 
 - `GET /-/feedback/account?returnTo=<page>` answers a top-level navigation
   only (`Sec-Fetch-Dest: document`). `returnTo` passes the login's rule
-  (§7.6), has to be a site's path and loses every `key`. A request that
+  (§7.6), has to be a site's path without a `.` or `..` segment (§16.2) and
+  loses every `key`. A request that
   carries the anchor cookie more than once is the neutral 404: the session
   read could be one planted from elsewhere, and a login cannot clear a cookie
   at another path. Without a content session the visitor goes to `/-/login`
@@ -1536,18 +1822,19 @@ visitor knowing.
   and anything but an allow on a feedback route is the neutral 404.
 - The key cookie of a secret link belongs to the site's path, or the
   preview's, and never reaches `/-/`. So where the page token carries a secret
-  link and no consented session, the way to the consent page carries `link`:
-  a link ticket sealed like the page token under a purpose of its own
-  (`toon-feedback-link-v1`), with the key id, the site id and the page token's
-  own expiry, and nothing about the visitor. Unlike the page token it goes
-  into an address, and so into the browser's history. On its own it opens
-  the consent page and nothing else: the site's pages still take the key
-  cookie. It rides through the sign-in inside the login's `returnTo`. A
-  `link` that comes twice, does not open or has expired is the neutral 404
-  before any sign-in, and so is a ticket whose site is not the one the gate
-  decides on at `returnTo` after it. The gate decides with the ticket's link
-  beside the session, so a link revoked, expired or switched off since lets
-  in only whom the session alone lets in. A consented session gets no ticket.
+  link and no consented session, the way to the consent page (`accountUrl`,
+  §16.2) carries `link`: a link ticket sealed like the page token under a
+  purpose of its own (`toon-feedback-link-v1`), with the key id, the site id
+  and the page token's own expiry, and nothing about the visitor. Unlike the
+  page token it goes into an address, and so into the browser's history. On
+  its own it opens the consent page and nothing else: the site's pages still
+  take the key cookie. It rides through the sign-in inside the login's
+  `returnTo`. A `link` that comes twice, does not open or has expired is the
+  neutral 404 before any sign-in, and so is a ticket whose site is not the one
+  the gate decides on at `returnTo` after it. The gate decides with the
+  ticket's link beside the session, so a link revoked, expired or switched off
+  since lets in only whom the session alone lets in. A consented session gets
+  no ticket.
 - The page carries the platform policy (§5.7) with its form, plus
   `sandbox allow-forms`. Its origin is therefore opaque: no script on the
   content host can read it, fill it in or press its button, and
@@ -1573,7 +1860,8 @@ visitor knowing.
   their page views on the site after the consent carry their account in the
   access log (`docs/audit-log.md`). With `TOON_BASE_URL` set it links the
   privacy statement. A visitor pushed into somebody else's session sees a
-  foreign name or account id there.
+  foreign name or account id there. The widget's composer points back to
+  this page and names nothing itself.
 - Its form posts to `/-/feedback/account` with a sealed nonce (purpose
   `toon-feedback-consent-v1`) that binds the session, the site, the secret
   link of the ticket when the page had one, and the way back for ten
@@ -1613,10 +1901,69 @@ Accepted:
   be told from the visitor's own.
 
 Code: `serving/feedback_consent.py`, `serving/feedback_token.py`,
-`auth/sessions.py`, `auth/revalidation.py`, `platform/pages.py`, `i18n.py`.
+`serving/feedback_inject.py`, `auth/sessions.py`, `auth/revalidation.py`, `platform/pages.py`, `i18n.py`.
 Guarded by: `test_feedback_consent.py`, `test_feedback_token.py`,
-`test_access_gate.py`, `test_sessions.py`, `test_session_revalidation.py`,
+`test_feedback_inject.py`, `test_access_gate.py`, `test_sessions.py`, `test_session_revalidation.py`,
 `test_i18n.py`.
+
+### 16.7 Hiding the button
+
+The widget's menu offers "Knop verbergen" (hide the button) with two choices,
+also to a visitor without a consented session on a site that takes feedback
+with an account only (§16.4). "Een minuut" (one minute) hides it on this page
+for 60 seconds, in the widget's memory alone, and gives focus back to the page
+element that had it, without scrolling the page. "Tot je de browser sluit"
+(until you close the browser) first shows the link that brings it back, then
+posts a form to `/-/feedback/hide` with the page token and the page as
+`returnTo`. That POST takes a top-level navigation, an urlencoded body of at
+most 16 KiB that arrives whole (§16.6), a token that opens and is unexpired,
+and a `returnTo` at the current address of the token's site, so the form of a
+page served before a new address is the neutral 404. It does not ask the gate
+again, so a visitor whose session ended can still hide the button. It sets
+`__Secure-toon-feedback-off` with `Path=/{group}/{site}/`, `Secure`,
+`HttpOnly`, `SameSite=Lax` and no expiry, and answers with a 303 back. Its
+value is a hide mark: the site's id and an expiry twelve hours on, sealed like
+the page token under a purpose of its own (`toon-feedback-hide-v1`). While a
+value of that name opens as an unexpired mark for the site, the site's pages,
+live and previews alike, get no widget (§16.2). So the button stays away until
+the browser closes, twelve hours at most.
+
+The server reads every value the request carries under that name, from the
+raw Cookie headers, because `request.cookies` keeps one value of a name sent
+twice. A value that does not open, has expired or names another site does
+nothing, whatever the script of a page without the shielding (§5.7), or a
+sibling host, writes under the name. A real mark does hide the button,
+wherever it came from: anyone who can get a page token of the site can get
+one (below), and a mark copied from one browser into another hides the
+button on its one site, for twelve hours at most. The show link clears the
+cookie on this host alone, at the site's path and at `/`. So a mark that the
+script of a page without the shielding writes at another path that reaches
+the site's pages (the group's path, the site's path without its slash, or a
+path below it) outlasts it, and so does one that a sibling host under the
+same registrable domain (another `*.rijks.app` host) sets with
+`Domain=rijks.app`, at the site's path or at `/` too. Each keeps the button
+away until the mark expires, twelve hours at most, and a page or host that
+keeps writing fresh marks keeps it away for as long as it does. The impact
+stays the same: the button stays away for that visitor on that site.
+
+`GET /-/feedback/show?returnTo=` clears the cookie at the site's path and at
+`/` on a top-level navigation and goes back. The cookie names no person: it holds the site and the moment the
+hiding ends.
+
+Accepted: any page that can get a page token of a site can hide the button on
+that site, until the browser closes and for twelve hours at most, by posting
+the form itself. A public site's page hands a token to anyone. No header check
+can close this: the widget's own post from a shielded page is a cross-site
+navigation with `Origin: null`, which a foreign page can send as well.
+Closing the browser undoes it, and so does the show link for a mark at the
+site's path or at `/` on this host.
+
+Code: `serving/feedback_consent.py`, `serving/feedback_token.py`,
+`serving/feedback_inject.py`, `auth/sessions.py`,
+`frontend/src/feedback-widget/widget.ts`, `views.ts`. Guarded by:
+`test_feedback_consent.py`, `test_feedback_inject.py`,
+`test_feedback_token.py`, `test_sessions.py`,
+`frontend/src/feedback-widget/widget.test.ts`.
 
 ### 16.8 The widget API
 
@@ -1628,6 +1975,8 @@ as well.
 
 | Method and path | Credential | Answer |
 |---|---|---|
+| `GET /-/feedback/widget.<hash>.js` | none | the bundle (§16.4) |
+| `POST /-/feedback/hide`, `GET /-/feedback/show` | a page token in the form (hide), none (show) | §16.7 |
 | `GET` and `POST /-/feedback/account`, `GET /-/feedback/account/stop` | a content session (GET), the nonce (POST) | §16.6 |
 | `OPTIONS /-/feedback/v1/items`, `.../items/{id}`, `.../items/{id}/replies` | none | 204, the preflight |
 | `POST /-/feedback/v1/items` | a page token | 201 `{id, status, createdAt}` |
@@ -1637,11 +1986,12 @@ as well.
 
 A call authenticates with `Authorization: Toon-Feedback <token>`, a scheme of
 its own, so the bearer guard of §7.8 leaves it alone. Nothing under
-`/-/feedback/v1/` reads a cookie, and a caller needs to send none. The
-visitor's own items are the items this session's `sub` sent with an account
+`/-/feedback/v1/` reads a cookie, and the widget sends none
+(`credentials: 'omit'`). The visitor's own items, under "Mijn feedback" (my
+feedback) in the widget, are the items this session's `sub` sent with an account
 on the token's site: newest first, at most 20, each with its 10 newest
 replies, oldest first, and `replyCount`. `more` is true when older items were
-left out. An item given on a preview that is gone or past its `expires_at`
+left out, and the widget then says so. An item given on a preview that is gone or past its `expires_at`
 carries `page.url` null, since the gate answers that preview with the
 neutral 404. A reply of the team names the member by the name the member has
 now, and none once the member is deleted, never an email address. A token
@@ -1684,7 +2034,7 @@ off.
 | 404 | `FEEDBACK_UNAVAILABLE` | the token is missing, malformed, sealed with another secret or for another purpose, or expired, a session it names is gone, expired or ended at the IdP, or holds no consent where the token says it does, the gate refuses or decides on another site, the site is gone, feedback is off for this target, the item is not there or not the visitor's own, the item id does not read. One answer for all of these, the same bytes per language |
 | 403 | `FEEDBACK_ACCOUNT_REQUIRED` | the action needs feedback with an account and the token has no consented session. A site that takes feedback with an account only answers it to every create without one, before reading its body |
 | 422 | `FEEDBACK_INVALID` | the input does not hold up. The detail names the field from a fixed list, never from the input. A reply's body above its limit is one of these |
-| 422 | `FEEDBACK_PAGE_MOVED` | the `page.path` of a create lies outside the root of the token's site at its current address: the page was served before the site or its group got a new address (§16.9). Only a new page view gives a token for the new address |
+| 422 | `FEEDBACK_PAGE_MOVED` | the `page.path` of a create lies outside the root of the token's site at its current address: the page was served before the site or its group got a new address (§16.9). Only a new page view gives a token for the new address, and the widget offers to copy the text first |
 | 422 | `FEEDBACK_AUTHOR_NOT_ALLOWED` | the author kind is one the site's setting does not take |
 | 413 | `FEEDBACK_SCREENSHOT_TOO_LARGE` | the screenshot is above its limit, or the body of a create above its own |
 | 422 | `FEEDBACK_SCREENSHOT_INVALID` | not PNG, JPEG or WebP by its bytes, too many pixels, or animated |
@@ -1709,9 +2059,9 @@ while the server moves on.
 
 Code: `serving/feedback_routes.py`, `serving/feedback_api.py`,
 `serving/feedback_access.py`, `ratelimit.py`, `messages.py`, `constants.py`,
-`main.py`. Guarded by: `test_feedback_api.py`, `test_feedback_matrix.py`,
+`main.py`, `frontend/src/feedback-widget/mine.ts`. Guarded by: `test_feedback_api.py`, `test_feedback_matrix.py`,
 `test_host_separation.py`, `test_ratelimit.py`, `test_app_integration.py`,
-`test_messages.py`.
+`test_messages.py`, `frontend/src/feedback-widget/mine.test.ts`.
 
 ### 16.9 What a create holds to
 
@@ -1757,9 +2107,15 @@ code is named, and never with a 500:
   not show), Cs (a lone surrogate) and Co (private use). The zero-width
   non-joiner (U+200C) and joiner (U+200D) pass, because a word in Persian and
   an emoji sequence need them. An unassigned code point (Cn) passes, because
-  the submitter's device can know newer emoji than the server. A page title
-  is the page's, not the submitter's: it is cleaned of what the rule refuses
-  and cut to 300 characters rather than refused.
+  the submitter's device can know newer emoji than the server. The widget
+  removes the other format characters from what a giver types before it
+  checks it. A page title is the page's, not the submitter's: it is cleaned of
+  what the rule refuses and cut to 300 characters rather than refused. The
+  quote and its context are the page's too, so the widget cleans the page
+  text it quotes before it sends, and re-anchoring reads the page the same
+  way, so an icon-font glyph or a stray control character near a selection
+  never makes a remark unsendable. In a `CssSelector` the widget writes a
+  refused character as a CSS escape.
 - The JSON is strict: no NaN or Infinity, no key twice, no key outside the
   closed schema, and a number such as `1e400` fails its range.
 - `kind` is `page`, `point`, `area` or `text`, and a comment is 1 to 5000
@@ -1770,7 +2126,9 @@ code is named, and never with a 500:
   2048 characters, with no dot segment (`%2e` counts), no empty segment but a
   trailing one, and no `_preview`, `_version` or `_encoded` first. It is
   stored relative to that root. A path outside the site's root at its
-  current address is 422 `FEEDBACK_PAGE_MOVED` instead (§16.8).
+  current address is 422 `FEEDBACK_PAGE_MOVED` instead (§16.8): the widget
+  keeps the text and offers to copy it. The hide form on such a page is the
+  neutral 404 (§16.7).
 - The anchor uses the selector objects of the W3C Web Annotation Data Model.
   A `point` item has exactly one `CssSelector` (up to 1000 characters) and a
   `point` with `x` and `y` as fractions of that element's box and `pageX` and
@@ -1808,16 +2166,24 @@ code is named, and never with a 500:
   refused on the dimensions its header declares (422
   `FEEDBACK_SCREENSHOT_INVALID`). That check runs on the event loop, so the
   walk to the header reads at most 64 markers or chunks within the first
-  64 KiB, and a header beyond those bounds is refused the same way.
+  64 KiB, and a header beyond those bounds is refused the same way. The widget encodes a JPEG under the smaller of
+  `screenshotMaxBytes` (§16.2) and its own 2 MiB, at falling quality, and
+  offers another part or sending without when none fits. A
+  `screenshotMaxBytes` that is not a positive integer turns the widget off.
 
 A reply from a submitter (`POST .../replies`) is `application/json` with
 exactly `{"body": "..."}`, at most 64 KiB, under the same text rule and 1 to
 5000 characters after trimming. How many replies an item takes is in §16.10.
 
 Code: `serving/feedback_input.py`, `serving/feedback_body.py`,
-`serving/feedback_api.py`, `serving/feedback_images.py`. Guarded by:
+`serving/feedback_api.py`, `serving/feedback_images.py`,
+`serving/feedback_inject.py`, `frontend/src/feedback-widget/anchor.ts`,
+`text.ts`, `api.ts`, `config.ts`, `screenshot.ts`. Guarded by:
 `test_feedback_input.py`, `test_feedback_body.py`, `test_feedback_api.py`,
-`test_feedback_matrix.py`, `test_feedback_images.py`, `test_migrations.py`.
+`test_feedback_matrix.py`, `test_feedback_images.py`,
+`test_feedback_inject.py`, `test_migrations.py`,
+`frontend/src/feedback-widget/text.test.ts`, `anchor.test.ts`,
+`api.test.ts`, `config.test.ts`, `screenshot.test.ts`.
 
 ### 16.10 Quotas and counters
 
@@ -1840,7 +2206,8 @@ settings.
   the platform-wide cap first come, first served. Ten full sites leave no
   room on any other, and one author can fill a site within one window of the
   write counters (25 creates with a 2 MiB screenshot). The room comes back
-  when items are deleted or their screenshots purged (§16.12).
+  when items are deleted or their screenshots purged (§16.12). Meanwhile the
+  widget offers to send without the screenshot.
 - **Under a lock.** Both are checked in the transaction of the create, under a
   transaction-scoped advisory lock on the site and, for a create with a
   screenshot, a second one for every screenshot on the platform, always taken
@@ -1916,11 +2283,44 @@ settings.
   (§16.8): 20 items with 10 replies each.
 - **The rate limiter** has a class of its own for every path under
   `/-/feedback/` (§10).
+- **Refused tokens.** The page tokens the widget API and the hide route
+  refuse are counted per process and per reason, in windows of
+  `REFUSED_TOKENS_WINDOW_S` (600 s). A window that ends with more than
+  `REFUSED_TOKENS_THRESHOLD` (100) is one WARNING with counts alone (§16.5).
+  Both are constants in `serving/feedback_refusals.py`. The count refuses
+  nothing itself.
 
-Code: `serving/feedback_api.py`, `serving/feedback_body.py`, `constants.py`,
-`ratelimit.py`, `config.py`, `main.py`. Guarded by: `test_feedback_api.py`,
-`test_feedback_body.py`, `test_feedback_matrix.py`, `test_ratelimit.py`,
+Code: `serving/feedback_api.py`, `serving/feedback_body.py`,
+`serving/feedback_refusals.py`, `constants.py`, `ratelimit.py`, `config.py`,
+`main.py`. Guarded by: `test_feedback_api.py`, `test_feedback_body.py`,
+`test_feedback_matrix.py`, `test_feedback_refusals.py`, `test_ratelimit.py`,
 `test_config.py`, `test_app_integration.py`.
+
+### 16.11 Links to a place
+
+A page that gets the widget can be opened at a place: its address with the
+fragment `#toon-feedback=`, base64url of compact JSON with `k` (the kind), `s`
+(the selector), `x`, `y`, `px`, `py` (the point, or the top left corner of an
+area), `w`, `h`, `pw`, `ph` (the size of an area in its element and on the
+page) and `q` (the quote). The widget takes at most 2048 bytes of JSON, so at
+most 2731 base64url characters after `#toon-feedback=`. The anchor of an item
+under "Mijn feedback" has the same reduced form (§16.8), but comes in the
+widget API's answer and has no such cap. The widget reads the fragment, takes
+it off the address, brings the place into view (also inside parts of the page
+that scroll on their own) and marks it with a ring, a frame for an area and a
+tint over each line of a quote, visible on light and dark bands and in forced
+colours. No mark takes a click. It never scrolls the window sideways while the
+root or the body hides what overflows sideways, since the visitor could not
+scroll back. It shows nothing from the fragment as text: it announces the
+place in the page's own words, never the link's. For a place it can no longer
+find it shows a note beside the button, "De plek van deze feedback is op deze
+pagina niet meer te vinden." (the spot of this feedback can no longer be found
+on this page).
+
+Code: `frontend/src/feedback-widget/fragment.ts`, `boot.ts`, `widget.ts`,
+`rect.ts`, `anchor.ts`, `styles.ts`, `screenshot.ts`. Guarded by: `frontend/src/feedback-widget/fragment.test.ts`,
+`boot.test.ts`, `widget.test.ts`, `rect.test.ts`, `anchor.test.ts`,
+`screenshot.test.ts`.
 
 ### 16.12 Retention
 
@@ -1928,8 +2328,8 @@ Feedback outlives preview teardown, redeploys and the cleanup of old live
 versions: an item names its version as a hint only. It goes in four ways.
 
 - With its site or its group (§8). Its replies and its screenshot go with it.
-- When the visitor who sent it with their account deletes it through the
-  widget API (§16.8).
+- When the visitor who sent it with their account deletes it under "Mijn
+  feedback".
 - By the nightly cleanup (§8), in one transaction: resolved items
   `TOON_FEEDBACK_RESOLVED_RETENTION_DAYS` (90) after `resolved_at`, items still
   `new` or `seen` `TOON_FEEDBACK_OPEN_RETENTION_DAYS` (365) after `created_at`,
@@ -1957,3 +2357,130 @@ Code: `previews/cleanup_job.py`, `config.py`, `main.py`,
 
 What site feedback writes to the audit log, and what it does not, is in
 `docs/audit-log.md`.
+
+### 16.14 Formatting in comments and replies
+
+A comment and a reply are stored as typed. Mijn feedback in the widget
+renders them as a small fixed subset of Markdown: paragraphs, bullet and numbered lists one level deep, inline code,
+fenced code blocks, strong and emphasis, blockquotes one level deep,
+backslash escapes and links. Everything else stays the text it was typed as:
+headings, tables, rules, images, HTML, entities and footnotes.
+
+One parser, `frontend/src/feedback-text/markdown.ts`, turns the text into a
+tree of a few node types. The widget builds DOM from that tree with
+`createElement` and text nodes (`renderFeedbackText`). No step reads a string as markup, so nothing needs
+sanitising. The parser is linear in the length of the text: no backtracking
+regular expression runs over it, and emphasis is paired with CommonMark's
+delimiter algorithm and its lower bounds.
+
+A link never hides where it goes. Only an absolute `http:` or `https:`
+address becomes one, typed bare or as `[label](address)`, and its visible
+text is always the address: `[label](https://x)` reads "label (https://x)".
+An address with a user name or an `@` before its host, or with an invisible
+or direction-changing character (Unicode Cf, the Hangul fillers, variation
+selectors), stays text. A host typed in another form than the browser
+resolves it (an internationalised name, a percent-encoded or numeric host) is
+shown resolved, in ASCII, so a look-alike stands out. A link carries
+`rel="noopener noreferrer nofollow ugc"` and `dir="ltr"` and opens in a new
+tab, except in the widget on a shielded page, where a new tab would inherit
+the sandbox and it opens in the same tab (§16.4). The accessible name of a pin
+shows a one-line plain-text excerpt (`feedbackPlainText`), since a button
+cannot hold a link.
+
+The editor (§16.15) formats more than this subset as it is typed, headings
+among them. It keeps the Markdown markers in sight, so the text on screen is
+the text that is stored, but a heading reads as its `#` and words once it is
+rendered here.
+
+Code: `frontend/src/feedback-text/markdown.ts`, `styles.ts`,
+`frontend/src/feedback-widget/mine.ts`. Guarded by:
+`frontend/src/feedback-text/markdown.test.ts`, `mine.test.ts`.
+
+### 16.15 Writing in the editor
+
+The field for a comment in the composer and the field for a reply under Mijn
+feedback start as a plain textarea. When the field first gets focus, the
+widget puts `nldd-text-editor` of `@nldd/design-system` (0.24.0) in its
+place, in an `<iframe sandbox="allow-scripts">` of its own: a Markdown
+editor on CodeMirror 6 that keeps the markers in sight (its `syntax` stays
+`visible`), so what is on screen is the text that is sent. Why a frame, why
+on demand, and what was not chosen:
+`docs/tdr/0014-feedback-editor-in-a-sandboxed-frame.md`. In short, custom
+elements have one registry per document, so an editor defined in the page
+would clash with a site that uses NLDD itself, and the editor is ten times
+the widget's size.
+
+The textarea stays the field. Until the frame says it is ready, it takes no
+room and the textarea takes the typing. A frame that is not ready within 8
+seconds (`EDITOR_TIMEOUT`), or that reports a failure later, goes, and the
+textarea comes back with the text so far. That field does not try again
+until it is built anew. Each change in the editor is written into the
+textarea as an input event, so the checks, the limit message and the drafts
+work as they did. The editor holds the field's limit of 5000 characters in
+UTF-16 units, as `maxlength` counts them, and takes the field's label and
+invalid mark, because `aria-describedby` cannot point into a frame. Escape
+closes a list the editor shows, and otherwise steps back in the widget: the
+frame decides that before CodeMirror sees the key, which would otherwise
+swallow it.
+
+The frame and the widget talk over one port. The frame says hello to its
+parent once, with `postMessage` to any origin, because its own origin is
+opaque and the parent's may be too. The widget answers only a hello from the
+window of its own iframe, by transferring one end of a new `MessageChannel`,
+and everything after goes over that port. The frame takes one port, from its
+parent only. The messages are in `feedback-editor/protocol.ts`.
+
+`npm run build` builds the frame's script from `frontend/src/feedback-editor/`
+(`frontend/vite.editor.config.ts`) into `dist/feedback-editor.js`: one
+minified classic script with every dynamic import inlined, because a module
+script is fetched in CORS mode, which the frame's opaque origin cannot pass.
+Its legal comment names every package in it with its version and licence.
+Toon reads the file at startup, as it does the widget, and serves the script
+at `/-/feedback/editor.<hash>.js` and the frame document, which names the
+script, at `/-/feedback/editor.<hash>.html` under its own hash. Both are
+`immutable` with `nosniff`, any other name and either address on the admin
+host is the neutral 404, and both count in the rate-limit class `feedback`
+(§10). The frame document is the same for every page and every visitor: one
+script element, no inline script or style, nothing a visitor or a site wrote.
+It carries `Referrer-Policy: no-referrer` and a policy of its own:
+
+```
+default-src 'none'; script-src <content origin>/-/feedback/editor.<hash>.js;
+base-uri 'none'; form-action 'none'; sandbox allow-scripts
+```
+
+- `default-src 'none'`: the frame loads its script and nothing else. With no
+  `connect-src` it can fetch nothing.
+- `script-src` names the one script by its full URL, not `'self'`, which
+  would admit every published site's own scripts on the content host.
+- `base-uri 'none'` and `form-action 'none'`: no `<base>` and no form take
+  effect in the frame.
+- `sandbox allow-scripts`: the document has an opaque origin wherever it is
+  opened, also outside the widget's iframe. It has no cookies and no storage,
+  and it is same-origin with nothing on the content host, so the frame and
+  the page cannot read each other's DOM.
+- No `style-src`: no style element or attribute from markup applies. Lit and
+  CodeMirror style through constructed stylesheets, which CSP does not
+  govern, and the frame loads no web font, which would be fetched in CORS
+  mode.
+- No `frame-ancestors` and no `X-Frame-Options`: a sandboxed parent page, as
+  every shielded page is (TDR-0002), matches no `frame-ancestors` source in
+  Chromium and WebKit and only `*` in Firefox, so any value would keep the
+  editor out of shielded sites. What that accepts is in `docs/security.md`.
+
+A missing, unreadable or empty `feedback-editor.js` does not stop Toon: the
+configuration goes out without `editorUrl`, the fields stay plain textareas,
+and one warning says why.
+
+Code: `frontend/src/feedback-editor/`, `frontend/src/feedback-widget/editor.ts`,
+`composer.ts`, `mine.ts`, `widget.ts`, `config.ts`, `platform.ts`,
+`frontend/vite.editor.config.ts`, `serving/feedback_editor.py`,
+`serving/feedback_routes.py`, `serving/feedback_inject.py`, `main.py`.
+Guarded by:
+`frontend/src/feedback-editor/frame.test.ts`, `editor.test.ts`,
+`limit.test.ts`, `styles.test.ts`,
+`frontend/tests/feedback-editor-bundle.test.ts`,
+`frontend/src/feedback-widget/editor.test.ts`,
+`composer.test.ts`, `mine.test.ts`, `widget.test.ts`, `config.test.ts`,
+`test_feedback_editor.py`, `test_feedback_inject.py`,
+`test_app_integration.py`, `test_host_separation.py`, `test_ratelimit.py`.

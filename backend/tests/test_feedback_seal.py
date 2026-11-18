@@ -13,7 +13,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from toon.serving import feedback_seal
-from toon.serving.feedback_seal import MAX_TOKEN_LENGTH, PURPOSE_CONSENT, PURPOSE_PAGE, seal, unseal
+from toon.serving.feedback_seal import MAX_TOKEN_LENGTH, PURPOSE_CONSENT, PURPOSE_HIDE, PURPOSE_PAGE, seal, unseal
 
 SECRET = "sessie-geheim-van-minstens-32-bytes!"
 OTHER_SECRET = "ander-geheim-van-minstens-32-bytes!!"
@@ -24,7 +24,7 @@ PAYLOAD: dict[str, object] = {
     "exp": 1_790_000_000,
 }
 ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
-PURPOSES = [PURPOSE_PAGE, PURPOSE_CONSENT]
+PURPOSES = [PURPOSE_PAGE, PURPOSE_CONSENT, PURPOSE_HIDE]
 
 
 def _key(secret: str) -> bytes:

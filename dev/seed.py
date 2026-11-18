@@ -26,7 +26,8 @@ What it puts down:
   - sites on every access base, with the interesting extras combined: a public
     site with a secret link beside it, and a closed site on invitees alone;
   - real published versions plus two previews, unpacked through the normal
-    ingest path from a bundle this script builds in memory.
+    ingest path from a bundle this script builds in memory;
+  - the feedback button on the previews of the public annual report.
 """
 
 from __future__ import annotations
@@ -44,7 +45,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from toon.access import keys as access_keys
 from toon.config import Settings, load_settings
-from toon.constants import AccessBase, Role
+from toon.constants import AccessBase, FeedbackIdentity, Role
 from toon.db import make_engine, make_session_factory
 from toon.ingest.service import Deployer, IngestService
 from toon.ingest.store import ContentStore, version_ref
@@ -350,6 +351,12 @@ async def seed(settings: Settings, *, only_if_empty: bool = False) -> SeedResult
         # second road): that second case is the one the old single enum could
         # not express at all.
         annual = _site(public_group, "jaarverslag", "Jaarverslag 2025", AccessBase.PUBLIC, admin)
+        # Feedback on the previews only, from anyone who can see them: the
+        # widget then shows on the two previews below, and the live site
+        # stays as it is.
+        annual.feedback_enabled = True
+        annual.feedback_identity = FeedbackIdentity.ANONYMOUS
+        annual.feedback_live = False
         figures = _site(
             public_group, "kerncijfers", "Kerncijfers open data", AccessBase.NOBODY, admin, keys=True
         )

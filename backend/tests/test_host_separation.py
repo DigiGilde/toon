@@ -93,6 +93,9 @@ class TestClassification:
         "path",
         [
             "/-/feedback/",
+            "/-/feedback/widget.0123456789abcdef.js",
+            "/-/feedback/editor.0123456789abcdef.js",
+            "/-/feedback/editor.0123456789abcdef.html",
             "/-/feedback/v1/items",
             "/-/feedback/v1/items/9a1c/replies",
             "/-/feedback/account/stop",

@@ -201,7 +201,7 @@ anybody an administrator.
 | `TOON_OPERATOR_NAME` | env-vars | optional, empty by default: the organisation that runs this installation, as people should read it (`Digi Gilde`). The public privacy and accessibility pages and `GET /-/api/v1/operator` show it |
 | `TOON_OPERATOR_EMAIL` | env-vars | optional, empty by default: where people reach that organisation about privacy, accessibility and questions (`digigilde@rijksoverheid.nl`). It is also the mail `Contact` in `security.txt`, after the GitHub advisory form, so security reports about this installation reach the operator. A plain address without a display name, or the app does not start |
 | `TOON_SECURITY_TXT_NCSC` | env-vars | optional, default `false`. `true` lists the CVD routes of NCSC-NL in `security.txt`, the central reporting point for the Dutch central government. The Digi Gilde's installation sets `true`. Leave it off for an installation outside the central government |
-| `TOON_FEEDBACK_SCREENSHOT_MAX_BYTES` | env-vars | optional, bytes, default `2097152` (2 MiB), from 1 to `16777216` (16 MiB). The largest screenshot sent with feedback. It sets how much memory feedback uploads take (below) |
+| `TOON_FEEDBACK_SCREENSHOT_MAX_BYTES` | env-vars | optional, bytes, default `2097152` (2 MiB), from 1 to `16777216` (16 MiB). The largest screenshot sent with feedback. The widget makes none larger than this, nor larger than 2 MiB. It sets how much memory feedback uploads take (below) |
 | `TOON_FEEDBACK_RESOLVED_RETENTION_DAYS` | env-vars | optional, default `90`, from 0 to 3650, `0` keeps. The nightly cleanup deletes a resolved feedback item this many days after it was resolved |
 | `TOON_FEEDBACK_SCREENSHOT_RETENTION_DAYS` | env-vars | optional, default `30`, from 0 to 3650, `0` keeps. The same for the screenshot of a resolved item |
 | `TOON_FEEDBACK_OPEN_RETENTION_DAYS` | env-vars | optional, default `365`, from 0 to 3650, `0` keeps. The same for an item still new or seen, counted from when it came in |
@@ -232,10 +232,25 @@ Once the platform-wide cap is reached, a WARNING that starts with
 `The platform-wide cap on feedback screenshots is reached` appears at most
 once every ten minutes per process, and every site refuses a screenshot that
 does not fit until items are deleted or screenshots pass their retention.
+Alert as well on a WARNING that starts with `Refused feedback page tokens:`.
+Each process writes it once for a window of ten minutes in which the
+feedback widget API and the route that hides the button refused more than
+100 page tokens, with the total and the count per reason (`unopened`,
+`expired`, `session`, `consent`, `gate`, `feedback_off`, `site`). Many
+`unopened` or `site` point at somebody trying tokens, unless
+`TOON_SESSION_SECRET` was just rotated: then every page still open from
+before sends a token that no longer opens. A burst of `session` usually
+follows a restart, which ends the sessions in memory, and `expired` comes
+from pages left open past twelve hours (design.md §16.5). The line holds no
+address, account, site or token.
 In the pod's memory, feedback uploads in flight take at most 32 times
 `TOON_FEEDBACK_SCREENSHOT_MAX_BYTES` plus 64 KiB, plus about an eighth, plus
 two copies of one screenshot (design.md §16.10): about 78 MiB at the default.
-Keep that well under the memory of the pod.
+Keep that well under the memory of the pod. The widget and its
+editor ship in the image (`/app/spa/feedback-widget.js` and
+`/app/spa/feedback-editor.js`, read at startup) and need no setting. The
+widget does need `TOON_BASE_URL`, for its link to the privacy statement,
+which production sets anyway.
 
 Besides the host separation, `TOON_BASE_URL` is also the exact CI audience: a
 GitHub or Forgejo workflow requests its ID token with this value as

@@ -1,6 +1,7 @@
-"""Tests for Toon's own pages around site feedback
+"""Tests for Toon's own pages around the feedback widget
 (serving/feedback_consent.py): the consent page for feedback with an account,
-the consent itself and ending it. Against the real PostgreSQL test container, with the app of test_feedback_api.py.
+the consent itself, ending it, and hiding and showing the button. Against the
+real PostgreSQL test container, with the app of test_feedback_api.py.
 
 Refusals first, each the neutral 404 byte for byte. Then the consent page's
 shielding (the sandbox, frame-ancestors, no script, its one style by hash),
@@ -27,7 +28,7 @@ import pytest_asyncio
 from helpers_audit import install_audit_recorder
 from helpers_csp import assert_runs_no_script_and_only_its_own_style, directives
 from helpers_oidc import MockIdP, make_client_jwk, make_oidc_client
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from test_feedback_api import (
     ADMIN_URL,
     ITEMS,
@@ -57,9 +58,12 @@ from toon.auth.sessions import (
     sign,
 )
 from toon.constants import (
+    FEEDBACK_HIDE_COOKIE,
     PATH_CONTENT_LOGIN,
     PATH_FEEDBACK_ACCOUNT,
     PATH_FEEDBACK_ACCOUNT_STOP,
+    PATH_FEEDBACK_HIDE,
+    PATH_FEEDBACK_SHOW,
     AccessBase,
     AccessPolicy,
     FeedbackIdentity,
@@ -75,14 +79,18 @@ from toon.serving.feedback_consent import (
     consent_page_html,
     page_route,
     return_target,
+    ways_back,
     without_key,
 )
 from toon.serving.feedback_token import (
     CONSENT_LIFETIME_S,
+    HIDE_LIFETIME_S,
     LINK_LIFETIME_S,
+    MAX_RETURN_TO_LENGTH,
     mint_consent_nonce,
     mint_link_ticket,
     parse_consent_nonce,
+    parse_hide_mark,
 )
 from toon.serving.response import NEUTRAL_404_BODY, neutral_404_response
 
@@ -104,10 +112,15 @@ BAD_RETURNS = [
     "/",
     "/aurora",
     "/aurora/",
-    "/-/feedback/account/",
+    "/-/feedback/hide/",
     "/robots.txt/x/",
     "/Aurora/site/",
     "/aurora/site/" + "a" * 2040,
+    "/aurora/site/../../kwaad/",
+    "/aurora/site/%2e%2e/%2e%2e/kwaad/",
+    "/aurora/site/.%2E/%2E./kwaad/?x=1",
+    "/aurora/site/./",
+    "/aurora/site/docs/%2E",
 ]
 BAD_RETURN_IDS = [
     "other-host",
@@ -124,6 +137,11 @@ BAD_RETURN_IDS = [
     "reserved-group",
     "not-a-slug",
     "too-long",
+    "dot-dot",
+    "encoded-dot-dot",
+    "mixed-dot-dot",
+    "dot",
+    "encoded-dot-at-the-end",
 ]
 
 
@@ -223,12 +241,54 @@ class TestTheWayBack:
     def test_a_way_back_off_a_site_is_no_way_back(self, value):
         assert return_target([value]) is None
 
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "/aurora/site/.../",
+            "/aurora/site/.well-known/x",
+            "/aurora/site/a.b/..c/",
+            "/aurora/site/%2e%2e%2e/",
+            "/aurora/site/%252e%252e/",
+            "/aurora/site/docs/?q=../../kwaad/",
+            "/aurora/site/docs/#/../../kwaad/",
+        ],
+    )
+    def test_dots_that_are_no_dot_segment_hold(self, value):
+        target = return_target([value])
+        assert target is not None
+        assert (target.path, target.prefix) == (value, "/aurora/site/")
+
     def test_one_way_back_and_only_one(self):
         assert return_target([]) is None
         assert return_target([ROOT, ROOT]) is None
         target = return_target(["/aurora/site/docs/?key=abc&x=1"])
         assert target is not None
-        assert (target.path, target.group, target.site) == ("/aurora/site/docs/?x=1", "aurora", "site")
+        assert (target.path, target.group, target.site, target.prefix) == (
+            "/aurora/site/docs/?x=1",
+            "aurora",
+            "site",
+            "/aurora/site/",
+        )
+
+    @pytest.mark.parametrize(
+        ("return_to", "expected"),
+        [
+            pytest.param("/aurora/site/docs/?x=1", ["/aurora/site/docs/?x=1", "/aurora/site/docs/"], id="with-query"),
+            pytest.param("/aurora/site/docs/", ["/aurora/site/docs/"], id="no-query-once"),
+            pytest.param(
+                "/aurora/site/docs/?q=" + "a" * MAX_RETURN_TO_LENGTH, ["/aurora/site/docs/"], id="query-too-long"
+            ),
+            pytest.param("/aurora/site/docs/?q=a\\b", ["/aurora/site/docs/"], id="query-with-a-backslash"),
+            pytest.param("/aurora/site/docs/?q=a\tb", ["/aurora/site/docs/"], id="query-with-a-tab"),
+            pytest.param("/aurora/site/" + "a" * MAX_RETURN_TO_LENGTH + "?x=1", [], id="path-too-long"),
+            pytest.param("/aurora/site/\tx/?x=1", [], id="path-with-a-tab"),
+            pytest.param("/aurora/site/%2e%2e/kwaad/?x=1", [], id="path-with-a-dot-segment"),
+        ],
+    )
+    def test_the_ways_back_best_first(self, return_to, expected):
+        """The path and query, else the path alone, else none."""
+        assert ways_back(return_to) == expected
+        assert all(return_target([value]) is not None for value in expected)
 
     @pytest.mark.parametrize(
         ("path", "route"),
@@ -972,7 +1032,9 @@ class TestGivingConsent:
     async def test_and_the_way_back_keeps_the_browser_in_its_own_session(self, client, environment):
         """The visitor whose browser posted it is signed in and has a site
         cookie of their own. After the login they hold their own session and
-        nothing else, and that session never consented."""
+        nothing else, and that session never consented. What their page
+        token then says is in test_feedback_inject.py
+        (`TestTheWholeContentHost`)."""
         with_the_login(environment)
         other = consented_session(environment.app, sub="ander", name="Ander Persoon")
         own = with_anchor(client, environment)
@@ -1179,9 +1241,70 @@ class TestEndingConsent:
         assert environment.store.get_session(session.id).feedback_sites == frozenset()
 
 
+# --- Hiding and showing the button ------------------------------------------------
+
+
+async def hide(client: httpx.AsyncClient, data: dict[str, object] | str, headers: dict[str, str] | None = None):
+    if isinstance(data, str):
+        return await client.post(PATH_FEEDBACK_HIDE, content=data, headers=headers or FORM)
+    return await client.post(PATH_FEEDBACK_HIDE, data=data, headers=headers or FORM)
+
+
+class TestHidingRefuses:
+    async def test_without_a_top_level_navigation(self, client, environment):
+        token = page_token(environment.app, environment.world.site_id)
+        for headers in ({"Content-Type": "application/x-www-form-urlencoded"}, {**FORM, "Sec-Fetch-Dest": "empty"}):
+            assert is_neutral_404(await hide(client, {"token": token, "returnTo": ROOT}, headers))
+
+    async def test_another_kind_of_body_or_too_large(self, client, environment):
+        token = page_token(environment.app, environment.world.site_id)
+        as_json = await client.post(
+            PATH_FEEDBACK_HIDE,
+            json={"token": token, "returnTo": ROOT},
+            headers=DOCUMENT,
+        )
+        assert is_neutral_404(as_json)
+        large = await hide(client, {"token": token, "returnTo": ROOT, "x": "a" * MAX_FORM_BYTES})
+        assert is_neutral_404(large)
+
+    async def test_no_or_two_tokens(self, client, environment):
+        token = page_token(environment.app, environment.world.site_id)
+        assert is_neutral_404(await hide(client, {"returnTo": ROOT}))
+        assert is_neutral_404(await hide(client, f"token={token}&token={token}&returnTo=%2Faurora%2Fsite%2F"))
+
+    @pytest.mark.parametrize("value", BAD_RETURNS, ids=BAD_RETURN_IDS)
+    async def test_a_way_back_that_does_not_hold(self, client, environment, value):
+        token = page_token(environment.app, environment.world.site_id)
+        assert is_neutral_404(await hide(client, {"token": token, "returnTo": value}))
+
+    async def test_no_way_back(self, client, environment):
+        token = page_token(environment.app, environment.world.site_id)
+        assert is_neutral_404(await hide(client, {"token": token}))
+
+    async def test_a_token_that_does_not_open(self, client, environment):
+        expired = page_token(environment.app, environment.world.site_id, now=int(time.time()) - 13 * 3600)
+        for token in ("nep", expired):
+            assert is_neutral_404(await hide(client, {"token": token, "returnTo": ROOT}))
+
+    async def test_a_token_of_another_site(self, client, environment):
+        """The way back has to lie on the site the page token belongs to,
+        which is where the cookie goes: a token of one site hides nothing on
+        another."""
+        token = page_token(environment.app, environment.world.other_site_id)
+        assert is_neutral_404(await hide(client, {"token": token, "returnTo": ROOT}))
+
+    async def test_a_token_of_a_site_that_is_gone(self, client, environment):
+        token = page_token(environment.app, environment.world.site_id)
+        async with environment.factory() as db:
+            await db.execute(delete(Site).where(Site.id == environment.world.site_id))
+            await db.commit()
+        assert is_neutral_404(await hide(client, {"token": token, "returnTo": ROOT}))
+
+
 class TestAFormTheClientGaveUpOn:
+    @pytest.mark.parametrize("path", [PATH_FEEDBACK_ACCOUNT, PATH_FEEDBACK_HIDE], ids=["consent", "hide"])
     @pytest.mark.parametrize("received", [[], [b"nonce=abc&token="]], ids=["before-the-body", "midway"])
-    async def test_is_the_neutral_404_and_no_traceback(self, environment, caplog, received):
+    async def test_is_the_neutral_404_and_no_traceback(self, environment, caplog, path, received):
         """A POST cut off after its headers, as anyone can send one at the
         rate limit. Nobody reads the answer: what matters is that the route
         ends as every refusal does, not in a 500 whose traceback lands in
@@ -1192,8 +1315,8 @@ class TestAFormTheClientGaveUpOn:
             "http_version": "1.1",
             "method": "POST",
             "scheme": "https",
-            "path": PATH_FEEDBACK_ACCOUNT,
-            "raw_path": PATH_FEEDBACK_ACCOUNT.encode(),
+            "path": path,
+            "raw_path": path.encode(),
             "query_string": b"",
             "root_path": "",
             "server": ("toon.example", 443),
@@ -1224,6 +1347,71 @@ class TestAFormTheClientGaveUpOn:
         assert [record for record in caplog.records if record.levelno >= logging.WARNING] == []
 
 
+class TestHidingAndShowing:
+    async def test_hiding_sets_a_cookie_for_the_site_until_the_browser_closes(self, client, environment):
+        """No expiry on the cookie, so it goes with the browser. The mark in
+        it names the site and stops counting after twelve hours."""
+        token = page_token(environment.app, environment.world.site_id, ref="pr-1")
+        before = int(time.time())
+        response = await hide(client, {"token": token, "returnTo": f"{PREVIEW_ROOT}docs/?key=abc&x=1"})
+        assert response.status_code == 303
+        assert response.headers["location"] == f"{PREVIEW_ROOT}docs/?x=1"
+        assert response.headers["cache-control"] == "no-store"
+        cookie = response.headers["set-cookie"]
+        assert cookie.startswith(f"{FEEDBACK_HIDE_COOKIE}=")
+        attributes = {part.strip().lower() for part in cookie.split(";")[1:]}
+        assert attributes == {"httponly", "path=/aurora/site/", "samesite=lax", "secure"}
+        mark = parse_hide_mark(SECRET, response.cookies[FEEDBACK_HIDE_COOKIE], now=int(time.time()))
+        assert mark is not None
+        assert mark.site_id == environment.world.site_id
+        assert before + HIDE_LIFETIME_S <= mark.expires_at <= int(time.time()) + HIDE_LIFETIME_S
+
+    async def test_any_page_that_holds_a_token_of_the_site_can_hide_it(self, client, environment):
+        """Accepted, and pinned here so nobody takes it for closed. A public
+        site's page hands a token to anyone, and a form another site submits
+        looks like the widget's own: from a shielded page that is a
+        cross-site navigation with `Origin: null` too. It costs the visitor
+        the button on this one site until the browser closes, twelve hours at
+        most, and the show link brings it back."""
+        token = page_token(environment.app, environment.world.site_id)
+        for headers in (CROSS_SITE_FORM, {**CROSS_SITE_FORM, "Origin": "null"}):
+            response = await hide(client, {"token": token, "returnTo": ROOT}, headers)
+            assert response.status_code == 303
+            assert response.headers["set-cookie"].startswith(f"{FEEDBACK_HIDE_COOKIE}=")
+
+    @pytest.mark.parametrize("dest", [None, "empty"])
+    async def test_showing_needs_a_top_level_navigation(self, client, dest):
+        headers = {} if dest is None else {"Sec-Fetch-Dest": dest}
+        response = await client.get(PATH_FEEDBACK_SHOW, params={"returnTo": ROOT}, headers=headers)
+        assert is_neutral_404(response)
+
+    @pytest.mark.parametrize("value", BAD_RETURNS, ids=BAD_RETURN_IDS)
+    async def test_showing_needs_a_way_back_that_holds(self, client, value):
+        response = await client.get(PATH_FEEDBACK_SHOW, params={"returnTo": value}, headers=DOCUMENT)
+        assert is_neutral_404(response)
+
+    async def test_showing_clears_the_cookie_of_the_site_and_at_the_root(self, client):
+        """At the site's path, where hiding sets it, and at `/`, where the
+        script of a page without the shielding can write one: a browser
+        removes a cookie only at the path it was set for."""
+        response = await client.get(
+            PATH_FEEDBACK_SHOW, params={"returnTo": "/aurora/site/docs/?key=abc&x=1"}, headers=DOCUMENT
+        )
+        assert response.status_code == 303
+        assert response.headers["location"] == "/aurora/site/docs/?x=1"
+        assert response.headers["cache-control"] == "no-store"
+        cleared = response.headers.get_list("set-cookie")
+        assert len(cleared) == 2
+        paths = []
+        for cookie in cleared:
+            assert cookie.startswith(f'{FEEDBACK_HIDE_COOKIE}="";')
+            attributes = {part.strip().lower() for part in cookie.split(";")[1:]}
+            assert "max-age=0" in attributes
+            assert {"httponly", "samesite=lax", "secure"} <= attributes
+            paths += [part for part in attributes if part.startswith("path=")]
+        assert sorted(paths) == ["path=/", "path=/aurora/site/"]
+
+
 class TestSessionsStayApart:
     async def test_an_admin_session_never_opens_the_consent_page(self, environment):
         """Only a content session counts on the content host."""
@@ -1237,13 +1425,17 @@ class TestSessionsStayApart:
 
 
 class TestNoAuditTrail:
-    async def test_consent_and_its_end_write_no_audit_row(self, client, environment):
-        """The login itself is audited where it happens. Consenting and
-        ending it are not."""
+    async def test_consent_its_end_and_the_button_write_no_audit_row(self, client, environment):
+        """The login itself is audited where it happens. Consenting, ending
+        it and hiding or showing the button are not."""
         recorder = install_audit_recorder(environment.app)
         with_anchor(client, environment)
         page = await consent_page(client)
         assert (await give(client, nonce_of(page))).status_code == 303
         assert (await stop(client)).status_code == 303
+        token = page_token(environment.app, environment.world.site_id)
+        assert (await hide(client, {"token": token, "returnTo": ROOT})).status_code == 303
+        shown = await client.get(PATH_FEEDBACK_SHOW, params={"returnTo": ROOT}, headers=DOCUMENT)
+        assert shown.status_code == 303
         assert is_neutral_404(await give(client, "nep"))
         assert recorder.records == []
