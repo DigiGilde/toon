@@ -890,7 +890,7 @@ count towards the directory depth, the size and those 1000 files: a deep
 
 Two limits do apply to the whole archive, including what you do not
 publish. The number of entries: fifty times the file limit, so
-50,000 by default, because every entry Toon walks past costs memory. And
+50,000 by default, because every entry Toon walks past costs time. And
 with a `.tar.gz` the unpacked size of all members together: a tar has
 no index, so to get to the next header everything in between has to be
 decompressed. A `.zip` does have that index and there counts only
@@ -904,6 +904,18 @@ solution.
 The check on unsafe paths applies to every entry in the archive,
 published or not. So does a fixed limit on the length of a path: at most
 1024 bytes (UTF-8), or `422` with `PATH_TOO_LONG`.
+
+A `.tar.gz` has a few limits of its own on what sits around the files. A
+sparse file is refused (`422`, `SPECIAL_FILE`). The headers of one entry may
+hold at most 64 KiB and 64 pax records, with at most 8 extension headers in
+front of it, or `422` with `INVALID_ARCHIVE` (naming the entry where it can).
+Extended attributes, which `tar` on a Mac writes along with every file that
+has them, are skipped: they do not count towards the 64 KiB, but each one
+does count as a record, twice. Over the whole archive, the headers Toon reads
+may hold 2 KiB for every entry the archive may hold, and the extended
+attributes and other skipped header data no more than the unpacked size of
+the archive (`413`, `TOTAL_TOO_LARGE`). An entry whose size does not match
+its data is refused with `INVALID_ARCHIVE`.
 
 Beyond the one bundle, the site itself has a ceiling: every version of it
 together may occupy at most 500 MiB by default. A deploy that would cross it is

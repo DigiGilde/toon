@@ -146,7 +146,8 @@ def _unpack_zip(source: Path, destination: Destination, limits: Limits, base: tu
     _check_zip_entry_bound(source, limits)
     try:
         archive = zipfile.ZipFile(source)
-    except (zipfile.BadZipFile, OSError) as error:
+    # UnicodeDecodeError: a name flagged as UTF-8 that is not.
+    except (zipfile.BadZipFile, OSError, UnicodeDecodeError) as error:
         raise BundleError("INVALID_ARCHIVE.zip", params={"error": _unreadable(error)}) from error
 
     with archive:

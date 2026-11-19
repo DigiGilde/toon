@@ -290,10 +290,10 @@ EN: Final[dict[str, str]] = {
     "VERSION_OTHER_SITE": "This version does not belong to this site.",
     "ROLLBACK_TARGET_PREVIEW": "Versions targeting 'preview' are never a rollback target.",
     # -- Bundles: paths -------------------------------------------------------
-    "NULL_BYTE": "Path contains a null byte: {path!r}",
+    "NULL_BYTE": "Path contains a null byte: '{path}'",
     "ABSOLUTE_PATH": "Absolute path refused: {path}",
     "PATH_TRAVERSAL": "Path with a '..' segment refused: {path}",
-    "EMPTY_PATH": "Empty path refused: {path!r}",
+    "EMPTY_PATH": "Empty path refused: '{path}'",
     "TOO_DEEP": "Path deeper than {max_depth} levels: {path}",
     "PATH_TOO_LONG": "Path longer than {max_bytes} bytes: {path}",
     "DUPLICATE_PATH": "Path occurs more than once, or as both a directory and a file: {path}",
@@ -319,6 +319,7 @@ EN: Final[dict[str, str]] = {
     "FILE_TOO_LARGE": "File '{path}' is larger than {max_file} bytes unpacked.",
     "TOTAL_TOO_LARGE": "The bundle is larger than {max_total} bytes unpacked.",
     "TOTAL_TOO_LARGE.archive": "The archive is larger than {max_total} bytes unpacked.",
+    "TOTAL_TOO_LARGE.archive_headers": "The headers in the archive are larger than {limit} bytes together.",
     "SITE_QUOTA_EXCEEDED": (
         "This site already uses {used} of {max_bytes} bytes, which leaves no room for the "
         "{added} bytes of this version. Old live versions beyond the number kept are removed "
@@ -333,11 +334,20 @@ EN: Final[dict[str, str]] = {
     "SYMLINK_REFUSED": "Symlink in the archive refused: {name}",
     "HARDLINK_REFUSED": "Hard link in the archive refused: {name}",
     "SPECIAL_FILE": "Not a regular file, refused: {name}",
+    "SPECIAL_FILE.sparse": "Sparse file refused: {name}",
     "INVALID_ARCHIVE.zip": "Zip archive unreadable: {error}",
     "INVALID_ARCHIVE.zip_entry": "Zip entry unreadable: {error}",
     "INVALID_ARCHIVE.tar": "Tar.gz archive unreadable: {error}",
     "INVALID_ARCHIVE.tar_header": "Tar.gz archive unreadable: header data larger than {limit} bytes",
+    "INVALID_ARCHIVE.tar_extensions": (
+        "Tar.gz archive unreadable: more than {limit} extension headers in front of an entry"
+    ),
     "INVALID_ARCHIVE.tar_entry": "Tar entry unreadable: {name}",
+    "INVALID_ARCHIVE.tar_entry_header": (
+        "Tar entry unreadable: the header data of '{name}' is larger than {limit} bytes "
+        "or holds more than {records} records"
+    ),
+    "INVALID_ARCHIVE.tar_size": "Tar entry unreadable: the size of '{name}' does not match its data",
     "INVALID_ARCHIVE.html": "Html file unreadable: {error}",
     "UNKNOWN_FORMAT": "Only .html, .zip, .tar.gz or .tgz is accepted.",
     "EMPTY_ARCHIVE": (
@@ -636,10 +646,10 @@ NL: Final[dict[str, str]] = {
     "VERSION_OTHER_SITE": "Versie hoort niet bij deze site.",
     "ROLLBACK_TARGET_PREVIEW": "Versies met doel 'preview' zijn nooit rollback-doel.",
     # -- Bundles: paths -------------------------------------------------------
-    "NULL_BYTE": "Pad bevat een null-byte: {path!r}",
+    "NULL_BYTE": "Pad bevat een null-byte: '{path}'",
     "ABSOLUTE_PATH": "Absoluut pad geweigerd: {path}",
     "PATH_TRAVERSAL": "Pad met '..'-segment geweigerd: {path}",
-    "EMPTY_PATH": "Leeg pad geweigerd: {path!r}",
+    "EMPTY_PATH": "Leeg pad geweigerd: '{path}'",
     "TOO_DEEP": "Pad dieper dan {max_depth} niveaus: {path}",
     "PATH_TOO_LONG": "Pad langer dan {max_bytes} bytes: {path}",
     "DUPLICATE_PATH": "Pad komt meermaals of als map en bestand voor: {path}",
@@ -665,6 +675,7 @@ NL: Final[dict[str, str]] = {
     "FILE_TOO_LARGE": "Bestand '{path}' is uitgepakt groter dan {max_file} bytes.",
     "TOTAL_TOO_LARGE": "Bundel is uitgepakt groter dan {max_total} bytes.",
     "TOTAL_TOO_LARGE.archive": "Archief is uitgepakt groter dan {max_total} bytes.",
+    "TOTAL_TOO_LARGE.archive_headers": "De headers in het archief zijn samen groter dan {limit} bytes.",
     "SITE_QUOTA_EXCEEDED": (
         "Deze site gebruikt al {used} van {max_bytes} bytes. Daar passen de {added} bytes van "
         "deze versie niet meer bij. Oude live-versies boven het bewaarde aantal worden 's nachts "
@@ -679,11 +690,18 @@ NL: Final[dict[str, str]] = {
     "SYMLINK_REFUSED": "Symlink in archief geweigerd: {name}",
     "HARDLINK_REFUSED": "Hardlink in archief geweigerd: {name}",
     "SPECIAL_FILE": "Geen gewoon bestand, geweigerd: {name}",
+    "SPECIAL_FILE.sparse": "Sparse-bestand geweigerd: {name}",
     "INVALID_ARCHIVE.zip": "Zip-archief onleesbaar: {error}",
     "INVALID_ARCHIVE.zip_entry": "Zip-entry onleesbaar: {error}",
     "INVALID_ARCHIVE.tar": "Tar.gz-archief onleesbaar: {error}",
     "INVALID_ARCHIVE.tar_header": "Tar.gz-archief onleesbaar: headergegevens groter dan {limit} bytes",
+    "INVALID_ARCHIVE.tar_extensions": "Tar.gz-archief onleesbaar: meer dan {limit} extensieheaders voor een entry",
     "INVALID_ARCHIVE.tar_entry": "Tar-entry onleesbaar: {name}",
+    "INVALID_ARCHIVE.tar_entry_header": (
+        "Tar-entry onleesbaar: de headergegevens van '{name}' zijn groter dan {limit} bytes "
+        "of bevatten meer dan {records} records"
+    ),
+    "INVALID_ARCHIVE.tar_size": "Tar-entry onleesbaar: de grootte van '{name}' klopt niet met de gegevens",
     "INVALID_ARCHIVE.html": "Html-bestand onleesbaar: {error}",
     "UNKNOWN_FORMAT": "Alleen .html, .zip, .tar.gz of .tgz wordt geaccepteerd.",
     "EMPTY_ARCHIVE": (

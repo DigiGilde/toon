@@ -47,7 +47,7 @@ its root: reaching the next header means decompressing everything in between
 in a gzip stream, so that pass refuses on those same claimed sizes and adds
 them up against `max_total`.
 
-Entries that are walked cost memory even when they write nothing, and are
+Entries that are walked cost time even when they write nothing, and are
 therefore bounded separately: `max_files` applies to what lands in the
 site (directory entries included), `max_archive_entries` to everything the
 archive contains, so also to what falls outside the chosen root.
@@ -64,14 +64,22 @@ from toon.ingest.unpacker.paths import (
     is_archive_junk,
 )
 from toon.ingest.unpacker.root import MAX_INDEX_SUGGESTIONS
-from toon.ingest.unpacker.tar_archive import MAX_TAR_HEADER_BYTES
+from toon.ingest.unpacker.tar_archive import (
+    MAX_TAR_EXTENSION_HEADERS,
+    MAX_TAR_GLOBAL_BYTES,
+    MAX_TAR_HEADER_BYTES,
+    MAX_TAR_HEADER_RECORDS,
+)
 from toon.ingest.unpacker.writing import READ_CHUNK, Destination
 
 __all__ = [
     "ARCHIVE_ENTRY_FACTOR",
     "MAX_INDEX_SUGGESTIONS",
     "MAX_PATH_BYTES",
+    "MAX_TAR_EXTENSION_HEADERS",
+    "MAX_TAR_GLOBAL_BYTES",
     "MAX_TAR_HEADER_BYTES",
+    "MAX_TAR_HEADER_RECORDS",
     "PATH_ECHO_CHARS",
     "READ_CHUNK",
     "SECRETS_DIR",

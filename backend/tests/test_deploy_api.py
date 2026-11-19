@@ -14,6 +14,7 @@ import asyncio
 import base64
 import io
 import logging
+import tarfile
 import tracemalloc
 import uuid
 import zipfile
@@ -797,6 +798,44 @@ async def test_bundle_without_index_422_with_suggestion(environment: Environment
     assert content["code"] == "NO_INDEX"
     assert content["indexCandidates"] == ["dist/index.html"]
     assert "dist/index.html" in content["detail"]
+
+
+def _targz_bytes(names: list[str]) -> bytes:
+    """A tar.gz whose member names may hold bytes that are not UTF-8, as lone
+    surrogates."""
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz", format=tarfile.GNU_FORMAT, errors="surrogateescape") as archive:
+        for name in names:
+            info = tarfile.TarInfo(name)
+            info.size = 1
+            archive.addfile(info, io.BytesIO(b"x"))
+    return buffer.getvalue()
+
+
+@pytest.mark.parametrize(
+    ("names", "code", "candidates"),
+    [
+        (["b/index.html", "\udcff/../x"], "PATH_TRAVERSAL", None),
+        (["b/x.txt", "\udcff/index.html"], "BASE_PATH_WITHOUT_INDEX", ["\\xff/index.html"]),
+    ],
+    ids=["detail", "index-candidates"],
+)
+async def test_a_refusal_naming_a_name_that_is_not_utf8_is_a_422(
+    environment: Environment, names: list[str], code: str, candidates: list[str] | None
+) -> None:
+    """A tar name that is not UTF-8 reaches the problem+json answer as
+    escapes, not as text the JSON encoding cannot carry. The base path keeps
+    that name off the disk, where macOS would refuse it first."""
+    upload = {"file": ("site.tar.gz", _targz_bytes(names), "application/gzip")}
+    async with environment.client() as client:
+        resp = await client.post(
+            DEPLOY_PATH, files=upload, data={"basePath": "b"}, headers=_bearer(environment.ci_token)
+        )
+
+    content = _assert_problem(resp, 422)
+    assert content["code"] == code
+    assert "\\xff" in content["detail"]
+    assert content.get("indexCandidates") == candidates
 
 
 async def test_refused_bundle_leaves_nothing_behind(environment: Environment) -> None:

@@ -3,6 +3,7 @@ guard and streaming (the archive is never held in memory as a whole)."""
 
 from __future__ import annotations
 
+import base64
 import gzip
 import io
 import stat
@@ -17,10 +18,14 @@ from typing import IO, ClassVar
 
 import pytest
 
+from toon import messages
 from toon.config import Settings
 from toon.ingest.unpacker import (
     MAX_PATH_BYTES,
+    MAX_TAR_EXTENSION_HEADERS,
+    MAX_TAR_GLOBAL_BYTES,
     MAX_TAR_HEADER_BYTES,
+    MAX_TAR_HEADER_RECORDS,
     PATH_ECHO_CHARS,
     BundleError,
     Limits,
@@ -30,8 +35,9 @@ from toon.ingest.unpacker import (
     unpack as unpack_archive,
 )
 from toon.ingest.unpacker.paths import _safe_segments
-from toon.ingest.unpacker.tar_archive import _TarSource
+from toon.ingest.unpacker.tar_archive import TAR_HEADER_ROOM_PER_ENTRY, _in_blocks, _TarSource
 from toon.ingest.unpacker.writing import _Tree, _write_entry
+from toon.messages import Msg
 
 LIMITS = Limits(max_file=100_000, max_total=200_000, max_files=10, max_depth=5)
 
@@ -1180,7 +1186,8 @@ HEADER_PAYLOAD = 16 * 1024 * 1024
 def _write_targz_with_extended_header(path: Path, kind: bytes, size: int) -> None:
     """A tar.gz that opens with an extended header of `kind` followed by
     `size` real payload bytes, then an index.html. Written in chunks, so the
-    test itself never holds the payload."""
+    test itself never holds the payload. A pax payload is one `comment`
+    record of that size."""
     header = tarfile.TarInfo("././@LongLink")
     header.type = kind
     header.size = size
@@ -1188,6 +1195,16 @@ def _write_targz_with_extended_header(path: Path, kind: bytes, size: int) -> Non
     with gzip.open(path, "wb", compresslevel=1) as out:
         out.write(header.tobuf(format=tarfile.GNU_FORMAT))
         left = size
+        if kind in (tarfile.XHDTYPE, tarfile.XGLTYPE):
+            head = b"%d comment=" % size
+            out.write(head)
+            left -= len(head) + 1
+            out.write(chunk[: left % len(chunk)])
+            left -= left % len(chunk)
+            for _ in range(left // len(chunk)):
+                out.write(chunk)
+            out.write(b"\n")
+            left = 0
         while left:
             out.write(chunk[: min(left, len(chunk))])
             left -= min(left, len(chunk))
@@ -1232,25 +1249,48 @@ def _refusal_and_peak(path: Path, limits: Limits = LIMITS) -> tuple[BundleError,
     return error.value, peak
 
 
+EXTENDED_KINDS = pytest.mark.parametrize(
+    "kind",
+    [tarfile.GNUTYPE_LONGNAME, tarfile.GNUTYPE_LONGLINK, tarfile.XHDTYPE, tarfile.XGLTYPE],
+    ids=["long-name", "long-link", "pax", "pax-global"],
+)
+
+
 class TestTarHeaderLimit:
     """tarfile reads a long name, a long link, pax records and a sparse map
     in full while it parses a header, before the member reaches any check
-    here. What it reads for one member is bounded by MAX_TAR_HEADER_BYTES, and
-    a header claiming more is refused before its payload is read."""
+    here. What is kept for one member is bounded by MAX_TAR_HEADER_BYTES,
+    and what the archive holds in header data altogether by its own
+    allowance, held against before a payload is read."""
 
-    @pytest.mark.parametrize(
-        "kind",
-        [tarfile.GNUTYPE_LONGNAME, tarfile.GNUTYPE_LONGLINK, tarfile.XHDTYPE, tarfile.XGLTYPE],
-        ids=["long-name", "long-link", "pax", "pax-global"],
-    )
-    def test_an_extended_header_over_the_limit_is_refused_unread(self, tmp_path: Path, kind: bytes):
+    @EXTENDED_KINDS
+    def test_an_extended_header_over_the_archive_allowance_is_refused_unread(self, tmp_path: Path, kind: bytes):
         source = tmp_path / "groot.tar.gz"
         _write_targz_with_extended_header(source, kind, HEADER_PAYLOAD)
         assert source.stat().st_size < HEADER_PAYLOAD // 100
 
         error, peak = _refusal_and_peak(source)
 
-        assert error.message.key == "INVALID_ARCHIVE.tar_header"
+        assert error.message.key == "TOTAL_TOO_LARGE.archive_headers"
+        assert peak < 2 * 1024 * 1024, f"peak {peak} bytes for a header of {HEADER_PAYLOAD} bytes"
+
+    @EXTENDED_KINDS
+    def test_an_extended_header_over_the_member_limit_is_refused_by_name(self, tmp_path: Path, kind: bytes):
+        # Within the allowance for the archive, the payload is read in chunks
+        # and let go of: a long name or long link is kept up to just past the
+        # path limit, so the path check refuses it with the name; pax records
+        # are cut off at the member limit and the member they belong to is
+        # refused by name.
+        source = tmp_path / "groot.tar.gz"
+        _write_targz_with_extended_header(source, kind, HEADER_PAYLOAD)
+
+        error, peak = _refusal_and_peak(source, GENEROUS)
+
+        if kind in (tarfile.GNUTYPE_LONGNAME, tarfile.GNUTYPE_LONGLINK):
+            assert error.message.key == "PATH_TOO_LONG"
+        else:
+            assert error.message.key == "INVALID_ARCHIVE.tar_entry_header"
+            assert error.message.params["name"] == "index.html"
         assert peak < 2 * 1024 * 1024, f"peak {peak} bytes for a header of {HEADER_PAYLOAD} bytes"
 
     def test_a_long_name_within_the_limit_reaches_the_path_check(self, tmp_path: Path):
@@ -1295,41 +1335,546 @@ class TestTarHeaderLimit:
             archive.addfile(info, io.BytesIO(b"h"))
         assert unpack("site.tar.gz", buf.getvalue()) == {"index.html": b"h"}
 
-    def test_pax_records_are_not_kept_per_member(self, tmp_path: Path):
-        # tarfile keeps every member it walks; pax records within the limit
-        # would otherwise add up with every one of them.
-        buf = io.BytesIO()
-        with tarfile.open(fileobj=buf, mode="w:gz", format=tarfile.PAX_FORMAT) as archive:
-            for i in range(400):
-                info = tarfile.TarInfo(f"d{i}")
-                info.type = tarfile.DIRTYPE
-                info.pax_headers = {f"k{j}": "" for j in range(600)}
-                archive.addfile(info)
-            index = tarfile.TarInfo("d0/index.html")
-            index.size = 1
-            archive.addfile(index, io.BytesIO(b"h"))
-        source = tmp_path / "pax.tar.gz"
-        source.write_bytes(buf.getvalue())
-        target = tmp_path / "target"
-        target.mkdir()
-        roomy = Limits(max_file=100, max_total=100, max_files=500, max_depth=5)
-
-        tracemalloc.start()
-        try:
-            count = unpack_archive("site.tar.gz", source, DirDestination(target), roomy, base_path="d0")
-            _, peak = tracemalloc.get_traced_memory()
-        finally:
-            tracemalloc.stop()
-
-        assert count == 1
-        assert peak < 4 * 1024 * 1024, f"peak {peak} bytes for 400 members with pax records"
-
     def test_a_read_without_a_size_is_refused_while_headers_are_read(self, tmp_path: Path):
         source = tmp_path / "site.tar.gz"
         source.write_bytes(make_tar({"index.html": b"h"}))
-        with _TarSource(source) as stream, pytest.raises(BundleError) as error:
+        with _TarSource(source, 1024 * 1024, 1024 * 1024) as stream, pytest.raises(BundleError) as error:
             stream.read()
         assert error.value.message.key == "INVALID_ARCHIVE.tar_header"
+
+    def test_global_records_over_the_byte_limit_are_refused(self, tmp_path: Path):
+        # Two records only, but long: the bytes count, not just the records.
+        value = b"g" * (MAX_TAR_GLOBAL_BYTES // 2)
+        source = write_targz(
+            tmp_path,
+            extension(pax_records([(b"a", value), (b"b", value)]), tarfile.XGLTYPE),
+            file_member("index.html", b"h"),
+        )
+        error, _ = _refusal_and_peak(source)
+        assert error.message.key == "INVALID_ARCHIVE.tar_header"
+        assert error.message.params["limit"] == MAX_TAR_GLOBAL_BYTES
+
+
+BLOCK = tarfile.BLOCKSIZE
+TAR_END = b"\0" * (2 * BLOCK)
+
+
+def pax_records(records: list[tuple[bytes, bytes]]) -> bytes:
+    """Pax records as tar writes them: `<length> <keyword>=<value>\\n`, the
+    length counting itself. The value may hold any byte."""
+    out = b""
+    for keyword, value in records:
+        body = b" " + keyword + b"=" + value + b"\n"
+        length = len(body) + 1
+        while len(str(length)) + len(body) != length:
+            length += 1
+        out += str(length).encode() + body
+    return out
+
+
+def extension(payload: bytes, kind: bytes = tarfile.XHDTYPE) -> bytes:
+    """An extension header (pax, global pax, GNU long name) and its payload."""
+    header = tarfile.TarInfo("././@PaxHeader")
+    header.type = kind
+    header.size = len(payload)
+    return header.tobuf(format=tarfile.GNU_FORMAT) + payload + b"\0" * (-len(payload) % BLOCK)
+
+
+def file_member(name: str, content: bytes = b"", kind: bytes = tarfile.REGTYPE, size: int | None = None) -> bytes:
+    """A ustar member and its content; `size` makes the header claim another
+    size than the content it carries. A name may hold lone surrogates for
+    bytes that are not UTF-8."""
+    info = tarfile.TarInfo(name)
+    info.type = kind
+    info.size = len(content) if size is None else size
+    raw = info.tobuf(tarfile.GNU_FORMAT, "utf-8", "surrogateescape")
+    return raw + content + b"\0" * (-len(content) % BLOCK)
+
+
+def write_targz(tmp_path: Path, *parts: bytes) -> Path:
+    source = tmp_path / f"{uuid.uuid4().hex}.tar.gz"
+    source.write_bytes(gzip.compress(b"".join(parts) + TAR_END))
+    return source
+
+
+def unpack_into_memory(source: Path, limits: Limits = LIMITS, base_path: str | None = None) -> dict[str, bytes]:
+    destination = MemoryDestination()
+    unpack_archive("site.tar.gz", source, destination, limits, base_path=base_path)
+    return destination.files
+
+
+def refusal_of(source: Path, limits: Limits = LIMITS) -> BundleError:
+    with pytest.raises(BundleError) as error:
+        unpack_into_memory(source, limits)
+    return error.value
+
+
+def xattr_records(name: bytes, value: bytes) -> list[tuple[bytes, bytes]]:
+    """An extended attribute the way bsdtar on macOS writes it: twice."""
+    return [
+        (b"LIBARCHIVE.xattr." + name, base64.b64encode(value)),
+        (b"SCHILY.xattr." + name, value),
+    ]
+
+
+# A value as a binary plist holds it: every byte, NUL and newline included.
+BINARY = bytes(range(256))
+WHERE_FROMS = b"com.apple.metadata:kMDItemWhereFroms"
+PROVENANCE = xattr_records(b"com.apple.provenance", b"\x01\x02\x00\x8f\x16\x1a\x04\x9b\xc8\x16\x7f")
+
+
+class TestTarMembersAreLetGo:
+    """tarfile keeps every member it walks, each with its decoded names, pax
+    records and sparse map: memory that grows with the number of members,
+    however small the bound on one. Both passes let go of each member before
+    reading the next."""
+
+    @staticmethod
+    def _peak(tmp_path: Path, count: int, one: Callable[[int], bytes]) -> int:
+        source = tmp_path / f"members-{count}.tar.gz"
+        with gzip.open(source, "wb", compresslevel=1) as out:
+            for i in range(count):
+                out.write(one(i))
+            out.write(file_member("d0/index.html", b"h") + TAR_END)
+        roomy = Limits(max_file=100, max_total=200 * 1024 * 1024, max_files=500, max_depth=5)
+        tracemalloc.start()
+        try:
+            files = unpack_into_memory(source, roomy, base_path="d0")
+            _, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+        assert files == {"index.html": b"h"}
+        return peak
+
+    @pytest.mark.parametrize(
+        "records",
+        [
+            [(b"uname", b"u" * 1000)],
+            [(b"comment", b"c" * 800), (b"gname", b"g" * 200)],
+            [(b"mtime", b"1700000000.5"), *xattr_records(b"user.where", BINARY * 10)],
+        ],
+        ids=["uname", "comment", "xattr"],
+    )
+    def test_peak_memory_does_not_grow_with_the_number_of_members(
+        self, tmp_path: Path, records: list[tuple[bytes, bytes]]
+    ):
+        def one(i: int) -> bytes:
+            return extension(pax_records(records)) + file_member(f"d{i}", kind=tarfile.DIRTYPE)
+
+        few = self._peak(tmp_path, 2_000, one)
+        many = self._peak(tmp_path, 20_000, one)
+
+        assert many < 2 * few, f"peak {many} bytes for 20,000 members against {few} for 2,000"
+        assert many < 2 * 1024 * 1024, f"peak {many} bytes for 20,000 members"
+
+
+class TestSparseFiles:
+    """A sparse member is refused outright, in any of the four forms tar
+    knows: a website has no use for one, and tarfile holds its map in memory
+    as a list."""
+
+    @staticmethod
+    def _old_gnu() -> bytes:
+        info = tarfile.TarInfo("schaars.bin")
+        info.type = tarfile.GNUTYPE_SPARSE
+        return info.tobuf(format=tarfile.GNU_FORMAT)
+
+    @pytest.mark.parametrize(
+        "sparse",
+        [
+            pytest.param(lambda: TestSparseFiles._old_gnu(), id="old-gnu"),
+            pytest.param(
+                lambda: extension(pax_records([(b"GNU.sparse.map", b"0,1"), (b"GNU.sparse.realsize", b"1")]))
+                + file_member("schaars.bin", b"h"),
+                id="pax-0.1",
+            ),
+            pytest.param(
+                lambda: extension(
+                    pax_records(
+                        [(b"GNU.sparse.size", b"1"), (b"GNU.sparse.offset", b"0"), (b"GNU.sparse.numbytes", b"1")]
+                    )
+                )
+                + file_member("schaars.bin", b"h"),
+                id="pax-0.0",
+            ),
+            pytest.param(
+                lambda: extension(
+                    pax_records(
+                        [
+                            (b"GNU.sparse.major", b"1"),
+                            (b"GNU.sparse.minor", b"0"),
+                            (b"GNU.sparse.name", b"schaars.bin"),
+                            (b"GNU.sparse.realsize", b"1"),
+                        ]
+                    )
+                )
+                + file_member("GNUSparseFile.0/schaars.bin", b"1\n0\n1\n".ljust(BLOCK, b"\0") + b"h"),
+                id="pax-1.0",
+            ),
+            pytest.param(
+                lambda: extension(pax_records([(b"GNU.sparse.name", b"schaars.bin")]))
+                + file_member("GNUSparseFile.0/schaars.bin", b"h"),
+                id="marker-only",
+            ),
+        ],
+    )
+    def test_a_sparse_member_is_refused(self, tmp_path: Path, sparse: Callable[[], bytes]):
+        source = write_targz(tmp_path, file_member("index.html", b"h"), sparse())
+        error = refusal_of(source)
+        assert error.message.key == "SPECIAL_FILE.sparse"
+        assert error.message.params["name"] == "schaars.bin"
+
+    def test_a_sparse_member_outside_the_root_is_refused_on_the_first_pass(self, tmp_path: Path):
+        # The pre-pass walks what the unpacking skips, so the refusal comes
+        # before the walk goes on, on the very first sparse member.
+        sparse = extension(pax_records([(b"GNU.sparse.map", b"0,1"), (b"GNU.sparse.realsize", b"1")]))
+        source = write_targz(
+            tmp_path,
+            *(sparse + file_member(f"x/m{i}.bin", b"h") for i in range(400)),
+            file_member("d0/index.html", b"h"),
+        )
+        with pytest.raises(BundleError) as error:
+            unpack_into_memory(source, base_path="d0")
+        assert error.value.message.key == "SPECIAL_FILE.sparse"
+        assert error.value.message.params["name"] == "x/m0.bin"
+
+
+class TestExtendedAttributes:
+    """bsdtar on macOS writes each extended attribute of a file twice as pax
+    records, base64 and raw. They are passed over unread, so a bundle made
+    with `tar -czf` on a Mac is not refused for a long download URL or the
+    resource fork of a custom icon."""
+
+    @pytest.mark.parametrize(
+        ("size", "keep_mtime"),
+        [(3_000, True), (40_000, True), (1_500_000, True), (1_500_000, False)],
+        ids=["3KB", "40KB", "1.5MB-pieces", "1.5MB-nothing-kept"],
+    )
+    def test_a_macos_bundle_with_extended_attributes_is_accepted(self, tmp_path: Path, size: int, keep_mtime: bool):
+        # Over 1 MiB, tarfile reads the records in pieces until one comes
+        # back empty: with a record kept and without one.
+        value = (BINARY * (size // len(BINARY) + 1))[:size]
+        mtime = [(b"mtime", b"1700000000.123456")] if keep_mtime else []
+        source = write_targz(
+            tmp_path,
+            extension(pax_records([*mtime, *PROVENANCE])) + file_member("site", kind=tarfile.DIRTYPE),
+            file_member("site/._index.html", b"\x00\x05\x16\x07" + b"a" * 100),
+            extension(pax_records([*mtime, *xattr_records(WHERE_FROMS, value), *PROVENANCE]))
+            + file_member("site/index.html", b"<h1>hoi</h1>"),
+            extension(pax_records([(b"path", "site/über.html".encode()), *mtime]))
+            + file_member("site/uber.html", b"x"),
+        )
+        # The attributes count towards the header data of the archive, which
+        # the default limits leave hundreds of MiB for; the small test limits
+        # would not hold a resource fork.
+        assert unpack_into_memory(source, GENEROUS) == {"index.html": b"<h1>hoi</h1>", "über.html": b"x"}
+
+    def test_a_kept_record_across_a_read_is_read_whole(self, tmp_path: Path):
+        # The records are read in chunks of READ_CHUNK; a kept record that
+        # starts in one and ends in the next is still handed over whole.
+        records = [*xattr_records(b"user.a", b"a" * 12_000), (b"comment", b"c" * 40_000)]
+        source = write_targz(tmp_path, extension(pax_records(records)) + file_member("index.html", b"h"))
+        assert unpack_into_memory(source) == {"index.html": b"h"}
+
+    def test_records_past_the_limit_are_refused_by_name_passed_over_ones_included(self, tmp_path: Path):
+        pairs = MAX_TAR_HEADER_RECORDS // 2 + 1
+        records = [record for i in range(pairs) for record in xattr_records(b"user.%d" % i, b"v")]
+        source = write_targz(tmp_path, extension(pax_records(records)) + file_member("index.html", b"h"))
+        error = refusal_of(source)
+        assert error.message.key == "INVALID_ARCHIVE.tar_entry_header"
+        assert error.message.params == {
+            "name": "index.html",
+            "limit": MAX_TAR_HEADER_BYTES,
+            "records": MAX_TAR_HEADER_RECORDS,
+        }
+
+    def test_a_pax_header_with_a_base256_size_is_read_the_same(self, tmp_path: Path):
+        # GNU tar writes a size that does not fit in octal as base-256; the
+        # payload is answered by the size tarfile reads, in either encoding.
+        payload = pax_records([(b"mtime", b"1700000000"), *PROVENANCE])
+        raw = bytearray(extension(payload))
+        raw[124:136] = b"\x80" + len(payload).to_bytes(11, "big")
+        raw[:BLOCK] = _with_checksum(raw[:BLOCK])
+        source = write_targz(tmp_path, bytes(raw) + file_member("index.html", b"h"))
+        assert unpack_into_memory(source) == {"index.html": b"h"}
+
+    def test_a_size_field_with_a_leading_separator_is_read_as_tarfile_reads_it(self, tmp_path: Path):
+        # tarfile strips the field as text, which takes the ASCII separators
+        # (0x1c to 0x1f) along: the payload has to be answered by that size.
+        payload = pax_records([(b"mtime", b"1700000000")])
+        raw = bytearray(extension(payload))
+        raw[124:136] = b"\x1c" + b"%010o" % len(payload) + b"\0"
+        raw[:BLOCK] = _with_checksum(raw[:BLOCK])
+        source = write_targz(tmp_path, bytes(raw) + file_member("index.html", b"h"))
+        assert unpack_into_memory(source) == {"index.html": b"h"}
+
+    @pytest.mark.parametrize(
+        "record",
+        [
+            b"30 SCHILY.xattr.user.fooXXXXXX",
+            b"30 SCHILY.xattr.user.foo=XXXXX",
+            b"30 SCHILY.xattr.user.fooXXXXX\n",
+            b"00000000000000000005 SCHILY.xattr.a=b\n",
+            b"%d SCHILY.xattr.user.big=" % (100_000) + b"v" * (100_000 - 26),
+        ],
+        ids=["neither", "no-newline", "no-equals", "length-inside-its-digits", "no-newline-past-a-chunk"],
+    )
+    def test_a_passed_over_record_that_tarfile_would_not_frame_is_refused(self, tmp_path: Path, record: bytes):
+        # tarfile ends the archive on such a record; reading on past it would
+        # publish what tarfile does not list.
+        source = write_targz(
+            tmp_path, file_member("index.html", b"h"), extension(record) + file_member("later.html", b"l")
+        )
+        error = refusal_of(source, GENEROUS)
+        assert error.message.key == "INVALID_ARCHIVE.tar"
+
+    def test_records_up_to_the_limit_are_accepted(self, tmp_path: Path):
+        records = [(b"k%d" % i, b"") for i in range(MAX_TAR_HEADER_RECORDS)]
+        source = write_targz(tmp_path, extension(pax_records(records)) + file_member("index.html", b"h"))
+        assert unpack_into_memory(source) == {"index.html": b"h"}
+
+
+class TestTarHeaderData:
+    """What is kept for one member stays within MAX_TAR_HEADER_BYTES; a member
+    whose pax records cross it is refused by name, any other read that would
+    cross it before it is issued."""
+
+    def test_kept_records_over_the_limit_are_refused_by_name(self, tmp_path: Path):
+        source = write_targz(
+            tmp_path,
+            file_member("a.html", b"a"),
+            extension(pax_records([(b"comment", b"c" * MAX_TAR_HEADER_BYTES)])) + file_member("index.html", b"h"),
+        )
+        error = refusal_of(source)
+        assert error.message.key == "INVALID_ARCHIVE.tar_entry_header"
+        assert error.message.params["name"] == "index.html"
+        assert "header data of 'index.html'" in str(error)
+
+    def test_kept_records_up_to_the_limit_are_accepted_after_a_member_with_content(self, tmp_path: Path):
+        # The member before has content, so tarfile reads the byte in front of
+        # the next header to tell a cut-off archive. That byte is not header
+        # data of the next member: header data exactly on the limit passes.
+        total = MAX_TAR_HEADER_BYTES - 2 * BLOCK
+        records = pax_records([(b"comment", b"c" * (total - len(" comment=\n") - len(str(total))))])
+        assert len(records) == total
+        source = write_targz(
+            tmp_path, file_member("index.html", b"h"), extension(records) + file_member("b.html", b"b")
+        )
+        assert unpack_into_memory(source) == {"index.html": b"h", "b.html": b"b"}
+
+    def test_an_extension_header_after_a_cut_is_refused_unread(self, tmp_path: Path):
+        # Only the member's own header may follow records that were cut off.
+        source = write_targz(
+            tmp_path,
+            extension(pax_records([(b"comment", b"c" * MAX_TAR_HEADER_BYTES)]))
+            + extension(pax_records([(b"comment", b"second")]))
+            + file_member("index.html", b"h"),
+        )
+        error = refusal_of(source)
+        assert error.message.key == "INVALID_ARCHIVE.tar_header"
+
+    def test_a_sparse_map_after_a_cut_is_refused_unread(self, tmp_path: Path):
+        records = [(b"GNU.sparse.major", b"1"), (b"GNU.sparse.minor", b"0"), (b"comment", b"c" * MAX_TAR_HEADER_BYTES)]
+        source = write_targz(
+            tmp_path,
+            extension(pax_records(records)) + file_member("index.html", b"1\n0\n1\n".ljust(BLOCK, b"\0") + b"h"),
+        )
+        error = refusal_of(source)
+        assert error.message.key == "INVALID_ARCHIVE.tar_header"
+
+    def test_a_long_name_after_kept_records_near_the_limit_is_refused_unread(self, tmp_path: Path):
+        records = pax_records([(b"comment", b"c" * (MAX_TAR_HEADER_BYTES - 4 * BLOCK))])
+        name = b"n" * 200 + b"\0"
+        source = write_targz(
+            tmp_path, extension(records) + extension(name, tarfile.GNUTYPE_LONGNAME) + file_member("index.html", b"h")
+        )
+        error = refusal_of(source)
+        assert error.message.key == "INVALID_ARCHIVE.tar_header"
+
+    @pytest.mark.parametrize(
+        "payload",
+        [b"x comment=a\n", b"3 a=\n", b"999 a=b\n"],
+        ids=["no-length", "below-five", "past-the-payload"],
+    )
+    def test_records_that_do_not_frame_are_refused(self, tmp_path: Path, payload: bytes):
+        source = write_targz(
+            tmp_path, file_member("index.html", b"h"), extension(payload) + file_member("b.html", b"b")
+        )
+        error = refusal_of(source)
+        assert error.message.key == "INVALID_ARCHIVE.tar"
+
+    def test_an_archive_cut_off_in_pax_records_is_refused(self, tmp_path: Path):
+        whole = extension(pax_records([(b"comment", b"c" * 4000)]))
+        source = tmp_path / "kort.tar.gz"
+        source.write_bytes(gzip.compress(file_member("index.html", b"h") + whole[:2000]))
+        assert refusal_of(source).reason == "INVALID_ARCHIVE"
+
+    def test_an_archive_cut_off_in_a_long_name_is_refused(self, tmp_path: Path):
+        whole = extension(b"n" * 4000 + b"\0", tarfile.GNUTYPE_LONGNAME)
+        source = tmp_path / "kort.tar.gz"
+        source.write_bytes(gzip.compress(file_member("index.html", b"h") + whole[:3000]))
+        assert refusal_of(source).reason == "INVALID_ARCHIVE"
+
+
+class TestTarSizes:
+    """The size a member claims has to match the data tarfile skips for it,
+    or the claimed total no longer bounds what the pre-pass decompresses."""
+
+    @pytest.mark.parametrize(
+        ("size", "member"),
+        [
+            (b"-1000000000000", file_member("index.html", b"h")),
+            (b"0", file_member("index.html", b"h")),
+            (b"-5", file_member("map", kind=tarfile.DIRTYPE)),
+        ],
+        ids=["negative", "below-the-data", "negative-directory"],
+    )
+    def test_a_size_from_a_global_record_that_does_not_match_the_data_is_refused(
+        self, tmp_path: Path, size: bytes, member: bytes
+    ):
+        source = write_targz(tmp_path, extension(pax_records([(b"size", size)]), tarfile.XGLTYPE) + member)
+        error = refusal_of(source)
+        assert error.message.key == "INVALID_ARCHIVE.tar_size"
+
+    def test_a_next_header_behind_the_data_is_refused(self, tmp_path: Path):
+        # tarfile applies a pax `size` to the offset of the long-name header
+        # further up the chain, so the next header lands back inside the long
+        # name: reading it would seek back, which in a gzip stream means
+        # decompressing from the start again, member after member.
+        source = write_targz(
+            tmp_path,
+            extension(pax_records([(b"size", b"0")]))
+            + extension(b"d/".ljust(3 * BLOCK, b"\0"), tarfile.GNUTYPE_LONGNAME)
+            + file_member("d", kind=tarfile.DIRTYPE),
+            file_member("index.html", b"h"),
+        )
+        error = refusal_of(source)
+        assert error.message.key == "INVALID_ARCHIVE.tar_size"
+        assert error.message.params["name"] == "d"
+
+    def test_data_skipped_for_an_unknown_type_counts_towards_the_total(self, tmp_path: Path):
+        # Only the header is there: refused on the claim, before a byte of
+        # the data would be decompressed to skip it.
+        source = write_targz(tmp_path, file_member("vreemd", kind=b"Z", size=LIMITS.max_total + 1))
+        assert refusal_of(source).message.key == "TOTAL_TOO_LARGE.archive"
+
+
+class TestTarErrorsFromTarfile:
+    """tarfile lets a ValueError out of a malformed sparse map or sparse size;
+    that is an unreadable archive, not an error of the server."""
+
+    @pytest.mark.parametrize(
+        "broken",
+        [
+            pytest.param(
+                lambda: extension(pax_records([(b"GNU.sparse.map", b"x,y")])) + file_member("s", b"h"), id="map"
+            ),
+            pytest.param(
+                lambda: extension(pax_records([(b"GNU.sparse.size", b"x")])) + file_member("s", b"h"), id="size"
+            ),
+            pytest.param(
+                lambda: extension(pax_records([(b"GNU.sparse.realsize", b"x")])) + file_member("s", b"h"), id="realsize"
+            ),
+            pytest.param(
+                lambda: extension(pax_records([(b"GNU.sparse.major", b"1"), (b"GNU.sparse.minor", b"0")]))
+                + file_member("s", b"x\n".ljust(BLOCK, b"\0")),
+                id="map-1.0-not-a-number",
+            ),
+            pytest.param(
+                lambda: extension(pax_records([(b"GNU.sparse.major", b"1"), (b"GNU.sparse.minor", b"0")]))
+                + file_member("s", b"3\n1\n".ljust(BLOCK, b"\0")),
+                id="map-1.0-cut-off",
+            ),
+        ],
+    )
+    @pytest.mark.parametrize("first", [True, False], ids=["first-member", "later-member"])
+    def test_a_malformed_sparse_header_is_an_unreadable_archive(
+        self, tmp_path: Path, broken: Callable[[], bytes], first: bool
+    ):
+        index = file_member("index.html", b"h")
+        source = write_targz(tmp_path, broken(), index) if first else write_targz(tmp_path, index, broken())
+        error = refusal_of(source)
+        assert error.message.key == "INVALID_ARCHIVE.tar"
+        assert error.message.params["error"] == "ValueError"
+
+
+    @pytest.mark.parametrize("first", [True, False], ids=["first-member", "later-member"])
+    def test_an_old_gnu_sparse_header_cut_off_in_its_extension_is_an_unreadable_archive(
+        self, tmp_path: Path, first: bool
+    ):
+        # tarfile lets an IndexError out of a sparse extension block that is
+        # shorter than a block.
+        info = tarfile.TarInfo("schaars.bin")
+        info.type = tarfile.GNUTYPE_SPARSE
+        raw = bytearray(info.tobuf(format=tarfile.GNU_FORMAT))
+        raw[482] = 1
+        sparse = _with_checksum(raw) + b"\0" * 100
+        index = file_member("index.html", b"h")
+        source = tmp_path / "kort.tar.gz"
+        source.write_bytes(gzip.compress(sparse if first else index + sparse))
+        error = refusal_of(source)
+        assert error.message.key == "INVALID_ARCHIVE.tar"
+        assert error.message.params["error"] == "IndexError"
+
+
+class TestNamesAsTheyAreEchoed:
+    """A refusal repeats a name from the archive in its detail: at most the
+    path limit, valid UTF-8 for the JSON answer, every character printable."""
+
+    def test_a_long_gnu_name_with_a_null_byte_is_refused_for_its_length(self, tmp_path: Path):
+        # tarfile cuts the name at the null byte, so the cut name passes; the
+        # raw name is held against the limit before the null byte refusal
+        # names it.
+        name = b"x.html\0" + b"y" * 6000 + b"\0"
+        source = write_targz(
+            tmp_path,
+            file_member("index.html", b"h"),
+            extension(name, tarfile.GNUTYPE_LONGNAME) + file_member("x", b"x"),
+        )
+        error = refusal_of(source)
+        assert error.message.key == "PATH_TOO_LONG"
+        assert len(str(error)) < 4 * PATH_ECHO_CHARS
+
+    def test_a_name_that_is_not_utf8_counts_the_bytes_it_has(self, tmp_path: Path):
+        # Each byte that is not UTF-8 counts as the one byte it is, not as
+        # the three of its stand-in.
+        name = path_of_length(MAX_PATH_BYTES - 20) + "\udcff" * 20
+        source = write_targz(tmp_path, file_member("index.html", b"h"), file_member(name, b"x"))
+        assert unpack_into_memory(source) == {"index.html": b"h", name: b"x"}
+
+    def test_a_name_that_is_not_utf8_is_echoed_as_escapes(self, tmp_path: Path):
+        source = write_targz(tmp_path, file_member("index.html", b"h"), file_member("\udcff/../x", b"x"))
+        error = refusal_of(source)
+        assert error.message.key == "PATH_TRAVERSAL"
+        assert error.message.params["path"] == "\\xff/../x"
+        detail = messages.render("en", error.message)
+        assert "\\xff/../x" in detail
+        assert detail.encode("utf-8")
+
+    def test_index_candidates_that_are_not_utf8_are_escaped(self, tmp_path: Path):
+        source = write_targz(tmp_path, file_member("\udcff/index.html", b"h"), file_member("b/x.txt", b"x"))
+        error = refusal_of(source)
+        assert error.reason == "NO_INDEX"
+        assert error.index_candidates == ("\\xff/index.html",)
+
+    def test_control_characters_in_a_long_path_are_escaped(self, tmp_path: Path):
+        name = "\x1b[31m" + path_of_length(MAX_PATH_BYTES)
+        source = write_targz(tmp_path, file_member("index.html", b"h"), file_member(name, b"x"))
+        error = refusal_of(source)
+        assert error.message.key == "PATH_TOO_LONG"
+        assert error.message.params["path"].startswith("\\x1b[31m")
+        assert "\x1b" not in str(error)
+
+    def test_a_lone_surrogate_from_a_request_counts_and_echoes_as_its_utf8_form(self):
+        with pytest.raises(BundleError) as error:
+            _safe_segments("\ud800" * (MAX_PATH_BYTES // 3 + 1))
+        assert reason_of(error) == "PATH_TOO_LONG"
+        assert error.value.message.params["path"].startswith("\\xed\\xa0\\x80")
+        assert _safe_segments("\ud800" * (MAX_PATH_BYTES // 3)) == ["\ud800" * (MAX_PATH_BYTES // 3)]
+
+    def test_a_nested_message_is_escaped_too(self):
+        error = BundleError("BASE_PATH_INVALID", params={"cause": Msg("NULL_BYTE", {"path": "a\x00b"})})
+        assert error.message.params["cause"].params["path"] == "a\\x00b"
 
 
 LARGE = 200 * 1024 * 1024
@@ -1648,3 +2193,185 @@ class TestSecretsAreRefused:
         with pytest.raises(BundleError) as error:
             unpack("site.tar.gz", make_tar({"index.html": b"x", ".env": b"y"}))
         assert reason_of(error) == "SECRET_FILE"
+
+
+class TestTarHeaderParseBound:
+    """Parsing headers costs time per header and per record, so the extension
+    headers in front of one member and what the archive hands tarfile in all
+    are bounded by the entry limit, not by the size limit."""
+
+    @pytest.mark.parametrize(
+        ("count", "accepted"), [(MAX_TAR_EXTENSION_HEADERS, True), (MAX_TAR_EXTENSION_HEADERS + 1, False)]
+    )
+    def test_extension_headers_in_front_of_a_member_are_bounded(self, tmp_path: Path, count: int, accepted: bool):
+        empty = extension(b"")
+        source = write_targz(tmp_path, empty * count + file_member("index.html", b"h"))
+        if accepted:
+            assert unpack_into_memory(source) == {"index.html": b"h"}
+        else:
+            error = refusal_of(source)
+            assert error.message.key == "INVALID_ARCHIVE.tar_extensions"
+            assert error.message.params["limit"] == MAX_TAR_EXTENSION_HEADERS
+
+    def test_kept_header_data_of_the_archive_is_bounded_by_the_entry_limit(self, tmp_path: Path):
+        # Within every per-member limit, but more than TAR_HEADER_ROOM_PER_ENTRY
+        # for each entry the limits allow; what is passed over would still fit.
+        records = pax_records([(b"comment", b"c" * 3000)])
+        members = (extension(records) + file_member(f"x/m{i}", kind=tarfile.DIRTYPE) for i in range(400))
+        source = write_targz(tmp_path, *members, file_member("index.html", b"h"))
+        error = refusal_of(source, GENEROUS)
+        assert error.message.key == "TOTAL_TOO_LARGE.archive_headers"
+        assert error.message.params["limit"] == GENEROUS.max_archive_entries * TAR_HEADER_ROOM_PER_ENTRY
+
+
+class TestTarfileReadPattern:
+    """`_TarSource` answers tarfile's reads by when they come: this pins the
+    pattern of CPython's tarfile it relies on, so a change there fails here
+    rather than as a misread archive."""
+
+    class _Logged(io.BytesIO):
+        def __init__(self, data: bytes) -> None:
+            super().__init__(data)
+            self.reads: list[tuple[int, int]] = []
+
+        def read(self, size: int | None = -1) -> bytes:
+            self.reads.append((self.tell(), -1 if size is None else size))
+            return super().read(size)
+
+    def test_headers_payloads_and_the_byte_in_front_of_a_header(self):
+        piece = 1024 * 1024
+        records = pax_records([(b"comment", b"c" * (2 * piece + 1000))])
+        pax = extension(records)
+        name = b"n" * 600 + b"\0"
+        long_name = extension(name, tarfile.GNUTYPE_LONGNAME)
+        index = file_member("index.html", b"h")
+        stream = self._Logged(pax + long_name + index + TAR_END)
+
+        with tarfile.open(fileobj=stream, mode="r:") as archive:
+            while archive.next() is not None:
+                pass
+
+        payload = len(pax) - BLOCK
+        at_name = len(pax)
+        at_index = at_name + len(long_name)
+        assert stream.reads == [
+            (0, BLOCK),
+            (BLOCK, piece),
+            (BLOCK + piece, piece),
+            (BLOCK + 2 * piece, payload - 2 * piece),
+            (at_name, BLOCK),
+            (at_name + BLOCK, _in_blocks(len(name))),
+            (at_index, BLOCK),
+            (at_index + 2 * BLOCK - 1, 1),
+            (at_index + 2 * BLOCK, BLOCK),
+        ]
+
+    def test_a_payload_read_in_pieces_stops_at_an_empty_piece(self):
+        # `_TarSource` answers the first piece with what it keeps and the next
+        # one with nothing; tarfile has to stop there and go on to the header.
+        piece = 1024 * 1024
+        pax = extension(pax_records([(b"comment", b"c" * (2 * piece))]))
+        index = file_member("index.html", b"h")
+
+        class Short(self._Logged):
+            def read(self, size: int | None = -1) -> bytes:
+                at = self.tell()
+                if at == BLOCK and size == piece:
+                    self.reads.append((at, piece))
+                    self.seek(len(pax))
+                    return pax_records([(b"mtime", b"1")])
+                if at == len(pax) and size == piece:
+                    self.reads.append((at, piece))
+                    return b""
+                return super().read(size)
+
+        stream = Short(pax + index + TAR_END)
+        with tarfile.open(fileobj=stream, mode="r:") as archive:
+            member = archive.next()
+        assert member is not None
+        assert member.name == "index.html"
+        assert stream.reads[:4] == [(0, BLOCK), (BLOCK, piece), (len(pax), piece), (len(pax), BLOCK)]
+
+
+class TestDeclaredNames:
+    """tarfile cuts a name at its first NUL byte. The raw name is checked in
+    the member's own header (name and ustar prefix) and in a GNU long name in
+    front of it, whatever other extension headers stand in between."""
+
+    @staticmethod
+    def _prefixed() -> bytes:
+        raw = bytearray(tarfile.TarInfo("index.html").tobuf(tarfile.USTAR_FORMAT))
+        raw[345:500] = b"d\0evil".ljust(155, b"\0")
+        return _with_checksum(raw[:BLOCK])
+
+    @pytest.mark.parametrize(
+        "entry",
+        [
+            pytest.param(
+                lambda: extension(pax_records([(b"mtime", b"1")])) + file_member("index.html\0.bak", b"x"),
+                id="pax-then-header",
+            ),
+            pytest.param(
+                lambda: extension(b"doel\0", tarfile.GNUTYPE_LONGLINK)
+                + extension(b"index.html\0.bak\0", tarfile.GNUTYPE_LONGNAME)
+                + file_member("index.html", b"x"),
+                id="long-link-then-long-name",
+            ),
+            pytest.param(
+                lambda: extension(pax_records([(b"mtime", b"1")]))
+                + extension(b"index.html\0.bak\0", tarfile.GNUTYPE_LONGNAME)
+                + file_member("index.html", b"x"),
+                id="pax-then-long-name",
+            ),
+            pytest.param(
+                lambda: extension(b"ok.html\0", tarfile.GNUTYPE_LONGNAME)
+                + extension(pax_records([(b"mtime", b"1")]))
+                + file_member("index.html\0.bak", b"x"),
+                id="long-name-then-pax-then-header",
+            ),
+            pytest.param(lambda: TestDeclaredNames._prefixed(), id="ustar-prefix"),
+        ],
+    )
+    def test_a_null_byte_behind_another_header_is_refused(self, tmp_path: Path, entry: Callable[[], bytes]):
+        source = write_targz(tmp_path, entry())
+        error = refusal_of(source)
+        assert error.message.key == "NULL_BYTE"
+        assert "\\x00" in error.message.params["path"]
+
+    def test_a_ustar_prefix_without_a_null_byte_is_unpacked(self, tmp_path: Path):
+        name = "d/" + "e" * 120 + "/index.html"
+        source = tmp_path / "ustar.tar.gz"
+        source.write_bytes(make_tar({name: b"h"}, tar_format=tarfile.USTAR_FORMAT))
+        assert unpack_into_memory(source) == {"index.html": b"h"}
+
+
+class TestCorruptStreams:
+    def test_a_deflate_stream_broken_in_skipped_data_is_an_unreadable_archive(self, tmp_path: Path):
+        # Stored blocks, so one block header can be broken: the pre-pass hits
+        # it while it skips the content of big.bin, outside tarfile's reads.
+        # Well past the start, which gzip has read ahead by the time tarfile
+        # reads the header of big.bin.
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w") as archive:
+            for name, size in (("index.html", 1), ("big.bin", 600_000)):
+                info = tarfile.TarInfo(name)
+                info.size = size
+                archive.addfile(info, io.BytesIO(b"\x01" * size))
+        data = bytearray(gzip.compress(buffer.getvalue(), compresslevel=0))
+        at = 10
+        blocks = []
+        while at < len(data) - 8:
+            blocks.append(at)
+            at += 5 + int.from_bytes(data[at + 1 : at + 3], "little")
+        broken = next(block for block in blocks if block > 400_000)
+        data[broken + 3] ^= 0xFF
+        source = tmp_path / "kapot.tar.gz"
+        source.write_bytes(bytes(data))
+        error = refusal_of(source, GENEROUS)
+        assert error.message.key == "INVALID_ARCHIVE.tar"
+
+    def test_a_zip_name_flagged_utf8_that_is_not_is_an_unreadable_archive(self, unpack: UnpackFn):
+        data = make_zip({"index.html": b"h", "é.html": b"x"}).replace("é".encode(), b"\xff\xfe")
+        with pytest.raises(BundleError) as error:
+            unpack("site.zip", data)
+        assert error.value.message.key == "INVALID_ARCHIVE.zip"

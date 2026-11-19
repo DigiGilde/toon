@@ -6,12 +6,14 @@ import re
 from collections.abc import Sequence
 
 from toon.constants import RESERVED_SEGMENTS
-from toon.ingest.unpacker.errors import BundleError
+from toon.ingest.unpacker.errors import BundleError, _name_bytes
 from toon.ingest.unpacker.limits import Limits
 
-# The longest path an entry may have, in UTF-8 bytes: PATH_MAX on macOS, where
-# most bundles are made, and a quarter of Linux's, which leaves the content
-# volume room for its own prefix. It also bounds every path a refusal names.
+# The longest path an entry may have, in bytes of the name as it lands on disk:
+# its UTF-8, where a byte of a tar name that is not UTF-8 counts as the one
+# byte it is. PATH_MAX on macOS, where most bundles are made, and a quarter of
+# Linux's, which leaves the content volume room for its own prefix. It also
+# bounds every path a refusal names.
 MAX_PATH_BYTES = 1024
 # How much of a path over that limit its refusal names: enough to find it.
 PATH_ECHO_CHARS = 100
@@ -50,7 +52,7 @@ def _check_length(raw_value: str) -> None:
 
     Comes before every other check that names the path, so no refusal
     repeats more than this limit allows."""
-    if len(raw_value.encode("utf-8", "surrogatepass")) > MAX_PATH_BYTES:
+    if len(_name_bytes(raw_value)) > MAX_PATH_BYTES:
         raise BundleError(
             "PATH_TOO_LONG",
             params={"max_bytes": MAX_PATH_BYTES, "path": raw_value[:PATH_ECHO_CHARS] + "..."},

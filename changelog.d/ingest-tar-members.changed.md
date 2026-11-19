@@ -1,0 +1,1 @@
+- A `.tar.gz` bundle may not contain sparse files, and an entry whose size does not match its data is refused.
