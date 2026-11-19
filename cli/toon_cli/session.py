@@ -284,7 +284,12 @@ def _mask_in_ci_log(secret: str) -> None:
         redirected = False
     if redirected:
         return
-    print(f"::add-mask::{secret}")
+    # Escaped as @actions/core escapes command data: a line break would end
+    # the command early and leave the rest of the secret readable in the log.
+    # Flushed at once, so the runner masks it before anything else shows it.
+    escaped = secret.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    sys.stdout.write(f"::add-mask::{escaped}\n")
+    sys.stdout.flush()
 
 
 def _warn_site_id_unused(site_id: str | None) -> None:
