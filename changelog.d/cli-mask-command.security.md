@@ -1,0 +1,1 @@
+- In CI the CLI writes the mask command for its ID token escaped as GitHub Actions expects, and at once, so the runner masks the token before anything else can print it.
