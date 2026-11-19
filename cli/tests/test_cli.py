@@ -4601,6 +4601,36 @@ def test_the_mask_is_skipped_when_stdout_is_a_file(tmp_path, capfd):
     assert "super-geheim-token" not in target.read_text()
 
 
+def test_the_mask_escapes_the_secret_as_the_runner_reads_command_data(capsys):
+    """A line break in the secret would end the command early and leave the
+    rest readable in the log: escaped as @actions/core escapes command data,
+    the whole value stays on the one command line."""
+    cli._mask_in_ci_log("a%b\rc\nd")
+
+    out = capsys.readouterr().out
+    assert out == "::add-mask::a%25b%0Dc%0Ad\n"
+
+
+def test_the_mask_reaches_stdout_before_anything_else_is_written(monkeypatch):
+    """Flushed at once: on a pipe stdout is buffered, and the runner has to
+    know the secret before anything else, on stderr or from a subprocess, can
+    show it."""
+    written: list[str] = []
+
+    class Recorder(io.StringIO):
+        def flush(self) -> None:
+            written.append(self.getvalue())
+
+    recorder = Recorder()
+    monkeypatch.setattr(sys, "stdout", recorder)
+    monkeypatch.setattr(os, "fstat", lambda _fd: os.stat_result((stat.S_IFIFO,) + (0,) * 9))
+    monkeypatch.setattr(recorder, "fileno", lambda: 1, raising=False)
+
+    cli._mask_in_ci_log("oidc-jwt-token")
+
+    assert written == ["::add-mask::oidc-jwt-token\n"]
+
+
 # --- group create / site create ---------------------------------------------
 
 
