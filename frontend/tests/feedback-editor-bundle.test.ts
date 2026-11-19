@@ -33,6 +33,12 @@ function licence(pkg: string): string {
   return readFileSync(resolve(FRONTEND, 'node_modules', pkg, 'LICENSE'), 'utf8').trim();
 }
 
+/** The installed version, so a dependency bump does not need this test changed. */
+function version(pkg: string): string {
+  return (JSON.parse(readFileSync(resolve(FRONTEND, 'node_modules', pkg, 'package.json'), 'utf8')) as { version: string })
+    .version;
+}
+
 describe('the built feedback editor', () => {
   it('starts with the legal comment, naming Toon and every package in it with its licence', () => {
     const comment = legalComment();
@@ -40,7 +46,7 @@ describe('the built feedback editor', () => {
       true,
     );
     for (const named of [
-      '@nldd/design-system 0.24.0 (EUPL-1.2)',
+      `@nldd/design-system ${version('@nldd/design-system')} (EUPL-1.2)`,
       '@codemirror/state',
       '@codemirror/view',
       '@lezer/markdown',
