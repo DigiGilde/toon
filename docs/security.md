@@ -610,6 +610,7 @@ the three settings.
 |---|---|
 | Fail-closed ingest: absolute paths, `..` segments, symlinks/hardlinks, null bytes refused | implemented: `ingest/unpacker/`, `backend/tests/test_unpacker.py` |
 | Bomb guard: decompression incrementally against limits before materialisation | implemented: `ingest/unpacker/` (archive headers are not trusted), `backend/tests/test_unpacker.py` |
+| Path length: a path in a bundle, and a `basePath`, at most 1024 bytes (UTF-8), so a refusal also names at most that much (and only the first 100 characters of a path over it). In a `.tar.gz`, what is read for one entry's headers (long name, long link, pax records, sparse map) at most 8 KiB and the pax global records together at most 8 KiB; a header that claims more is refused before its payload is read | implemented: `ingest/unpacker/paths.py` (`MAX_PATH_BYTES`), `ingest/unpacker/tar_archive.py` (`MAX_TAR_HEADER_BYTES`), `backend/tests/test_unpacker.py` |
 | Top-level `_preview`/`_version`/`_encoded` in a dist refused | implemented: `ingest/unpacker/root.py` (`RESERVED_SEGMENTS`), `backend/tests/test_unpacker.py` |
 | Atomic rename on the same volume (no EXDEV/copy fallback) | implemented: `ingest/store.py`, `backend/tests/test_store.py` |
 | Atomic live swap and preview upsert | implemented: `ingest/service.py` (pointer swap in the same transaction, upsert with `ON CONFLICT`), `backend/tests/test_ingest_service.py` |

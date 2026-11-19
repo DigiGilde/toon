@@ -56,13 +56,23 @@ archive contains, so also to what falls outside the chosen root.
 from toon.ingest.unpacker.bundle import unpack
 from toon.ingest.unpacker.errors import BundleError
 from toon.ingest.unpacker.limits import ARCHIVE_ENTRY_FACTOR, Limits
-from toon.ingest.unpacker.paths import SECRETS_DIR, SECRETS_FILE_PREFIX, is_archive_junk
+from toon.ingest.unpacker.paths import (
+    MAX_PATH_BYTES,
+    PATH_ECHO_CHARS,
+    SECRETS_DIR,
+    SECRETS_FILE_PREFIX,
+    is_archive_junk,
+)
 from toon.ingest.unpacker.root import MAX_INDEX_SUGGESTIONS
+from toon.ingest.unpacker.tar_archive import MAX_TAR_HEADER_BYTES
 from toon.ingest.unpacker.writing import READ_CHUNK, Destination
 
 __all__ = [
     "ARCHIVE_ENTRY_FACTOR",
     "MAX_INDEX_SUGGESTIONS",
+    "MAX_PATH_BYTES",
+    "MAX_TAR_HEADER_BYTES",
+    "PATH_ECHO_CHARS",
     "READ_CHUNK",
     "SECRETS_DIR",
     "SECRETS_FILE_PREFIX",

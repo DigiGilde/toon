@@ -902,7 +902,8 @@ a `node_modules` in it comes out here first, and then `basePath` is the
 solution.
 
 The check on unsafe paths applies to every entry in the archive,
-published or not.
+published or not. So does a fixed limit on the length of a path: at most
+1024 bytes (UTF-8), or `422` with `PATH_TOO_LONG`.
 
 Beyond the one bundle, the site itself has a ceiling: every version of it
 together may occupy at most 500 MiB by default. A deploy that would cross it is
@@ -944,7 +945,7 @@ The reason codes that are about the root of your bundle:
 | Code | Status | Meaning |
 |---|---|---|
 | `NO_INDEX` | 422 | After the stripping there is no `index.html` in the root. `indexCandidates` carries the index paths found, shortest first; `detail` names the shortest path and what you should do |
-| `BASE_PATH_INVALID` | 422 | The `basePath` sent along does not pass the path validation (absolute, `..`, reserved segment, null byte, empty or too deep) |
+| `BASE_PATH_INVALID` | 422 | The `basePath` sent along does not pass the path validation (absolute, `..`, reserved segment, null byte, empty, too deep or too long) |
 | `BASE_PATH_UNKNOWN` | 422 | The `basePath` is not a directory in the archive, or points at a file. `detail` names what you do not see: a directory that differs only in capitalisation, or the enclosing directory that was already stripped |
 | `BASE_PATH_WITHOUT_INDEX` | 422 | The directory exists, but contains no `index.html` (or no files at all) |
 
