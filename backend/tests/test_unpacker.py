@@ -19,6 +19,9 @@ import pytest
 
 from toon.config import Settings
 from toon.ingest.unpacker import (
+    MAX_PATH_BYTES,
+    MAX_TAR_HEADER_BYTES,
+    PATH_ECHO_CHARS,
     BundleError,
     Limits,
     is_archive_junk,
@@ -27,6 +30,7 @@ from toon.ingest.unpacker import (
     unpack as unpack_archive,
 )
 from toon.ingest.unpacker.paths import _safe_segments
+from toon.ingest.unpacker.tar_archive import _TarSource
 from toon.ingest.unpacker.writing import _Tree, _write_entry
 
 LIMITS = Limits(max_file=100_000, max_total=200_000, max_files=10, max_depth=5)
@@ -44,6 +48,24 @@ class DirDestination:
         path = self.root / rel_path
         path.parent.mkdir(parents=True, exist_ok=True)
         return path.open("xb")
+
+
+class MemoryDestination:
+    """Keeps what is written in memory, for paths the local filesystem would
+    not take."""
+
+    def __init__(self) -> None:
+        self.files: dict[str, bytes] = {}
+
+    def open_file(self, rel_path: str) -> IO[bytes]:
+        files = self.files
+
+        class _File(io.BytesIO):
+            def close(self) -> None:
+                files[rel_path] = self.getvalue()
+                super().close()
+
+        return _File()
 
 
 def read_tree(root: Path) -> dict[str, bytes]:
@@ -297,6 +319,90 @@ class TestPathValidation:
     def test_backslash_normalised(self, unpack: UnpackFn):
         data = make_zip({"index.html": b"h", "sub\\a.txt": b"1"})
         assert unpack("site.zip", data) == {"index.html": b"h", "sub/a.txt": b"1"}
+
+
+def path_of_length(total: int, char: str = "a") -> str:
+    """A path of `total` UTF-8 bytes in five segments, each short enough for
+    the filesystem's own limit on one name, so only the length limit applies."""
+    width = len(char.encode())
+    segment = char * (200 // width)
+    head = "/".join([segment] * 4) + "/"
+    rest = total - len(head.encode()) - len(".html")
+    assert rest % width == 0
+    return head + char * (rest // width) + ".html"
+
+
+class TestPathLength:
+    """A path may be at most MAX_PATH_BYTES long, in every format, and a
+    refusal over it names only the start of the path."""
+
+    @pytest.mark.parametrize("filename", ["site.zip", "site.tar.gz"])
+    def test_a_path_on_the_limit_is_unpacked(self, tmp_path: Path, filename: str):
+        # Into memory: on macOS no path this long fits under a directory.
+        name = path_of_length(MAX_PATH_BYTES)
+        make = make_zip if filename == "site.zip" else make_tar
+        source = tmp_path / filename
+        source.write_bytes(make({"index.html": b"h", name: b"x"}))
+        destination = MemoryDestination()
+        assert unpack_archive(filename, source, destination, LIMITS) == 2
+        assert destination.files == {"index.html": b"h", name: b"x"}
+
+    @pytest.mark.parametrize(
+        ("filename", "tar_format"),
+        [("site.zip", None), ("site.tar.gz", tarfile.GNU_FORMAT), ("site.tar.gz", tarfile.PAX_FORMAT)],
+        ids=["zip", "tar-gnu", "tar-pax"],
+    )
+    def test_a_path_one_byte_over_the_limit_is_refused(
+        self, unpack: UnpackFn, filename: str, tar_format: int | None
+    ):
+        name = path_of_length(MAX_PATH_BYTES + 1)
+        entries = {"index.html": b"h", name: b"x"}
+        data = make_zip(entries) if tar_format is None else make_tar(entries, tar_format=tar_format)
+        with pytest.raises(BundleError) as error:
+            unpack(filename, data)
+        assert reason_of(error) == "PATH_TOO_LONG"
+
+    def test_the_limit_counts_utf8_bytes_not_characters(self, unpack: UnpackFn):
+        name = path_of_length(MAX_PATH_BYTES + 1, char="é")
+        assert len(name) < MAX_PATH_BYTES
+        with pytest.raises(BundleError) as error:
+            unpack("site.zip", make_zip({"index.html": b"h", name: b"x"}))
+        assert reason_of(error) == "PATH_TOO_LONG"
+
+    def test_the_refusal_names_only_the_start_of_the_path(self, unpack: UnpackFn):
+        name = path_of_length(MAX_PATH_BYTES * 4)
+        with pytest.raises(BundleError) as error:
+            unpack("site.tar.gz", make_tar({"index.html": b"h", name: b"x"}))
+        assert reason_of(error) == "PATH_TOO_LONG"
+        assert error.value.message.params["path"] == name[:PATH_ECHO_CHARS] + "..."
+        assert len(str(error.value)) < 2 * PATH_ECHO_CHARS
+
+    def test_the_length_comes_before_a_check_that_names_the_whole_path(self, unpack: UnpackFn):
+        # The null byte refusal names the path in full; on a path over the
+        # limit the length refusal comes first, so that never happens.
+        marked = path_of_length(MAX_PATH_BYTES * 4).replace(".html", "\x7f.html")
+        raw = marked.encode()
+        data = make_zip({"index.html": b"h", marked: b"x"}).replace(raw, raw.replace(b"\x7f", b"\x00"))
+        with pytest.raises(BundleError) as error:
+            unpack("site.zip", data)
+        assert reason_of(error) == "PATH_TOO_LONG"
+        assert len(str(error.value)) < 2 * PATH_ECHO_CHARS
+
+    def test_a_link_target_over_the_limit_is_refused_while_scanning(self, unpack: UnpackFn):
+        # tarfile keeps every member it walks, link name included; the
+        # pre-pass does not let one over the limit stay behind.
+        target = path_of_length(MAX_PATH_BYTES + 1)
+        data = make_tar({"index.html": b"h"}, links=(("link", target, tarfile.SYMTYPE),))
+        with pytest.raises(BundleError) as error:
+            unpack("site.tar.gz", data)
+        assert reason_of(error) == "PATH_TOO_LONG"
+
+    def test_a_base_path_over_the_limit_is_refused(self, unpack: UnpackFn):
+        base_path = "a" * (MAX_PATH_BYTES + 1)
+        with pytest.raises(BundleError) as error:
+            unpack("site.zip", make_zip({"index.html": b"h"}), base_path=base_path)
+        assert reason_of(error) == "BASE_PATH_INVALID"
+        assert error.value.message.params["cause"].key == "PATH_TOO_LONG"
 
     def test_preview_in_the_root_refused(self, unpack: UnpackFn):
         with pytest.raises(BundleError) as error:
@@ -1063,6 +1169,167 @@ class TestTarPrepass:
         with pytest.raises(BundleError) as error:
             unpack("site.tar.gz", data)
         assert reason_of(error) == "INVALID_ARCHIVE"
+
+
+INDEX_MEMBER = tarfile.TarInfo("index.html")
+INDEX_MEMBER.size = 1
+INDEX_TAR = INDEX_MEMBER.tobuf() + b"h" + b"\0" * (tarfile.BLOCKSIZE - 1) + b"\0" * (2 * tarfile.BLOCKSIZE)
+HEADER_PAYLOAD = 16 * 1024 * 1024
+
+
+def _write_targz_with_extended_header(path: Path, kind: bytes, size: int) -> None:
+    """A tar.gz that opens with an extended header of `kind` followed by
+    `size` real payload bytes, then an index.html. Written in chunks, so the
+    test itself never holds the payload."""
+    header = tarfile.TarInfo("././@LongLink")
+    header.type = kind
+    header.size = size
+    chunk = b"a" * (1024 * 1024)
+    with gzip.open(path, "wb", compresslevel=1) as out:
+        out.write(header.tobuf(format=tarfile.GNU_FORMAT))
+        left = size
+        while left:
+            out.write(chunk[: min(left, len(chunk))])
+            left -= min(left, len(chunk))
+        out.write(b"\0" * (-size % tarfile.BLOCKSIZE))
+        out.write(INDEX_TAR)
+
+
+def _with_checksum(block: bytearray) -> bytes:
+    block[148:156] = b" " * 8
+    block[148:156] = b"%06o\0 " % sum(block)
+    return bytes(block)
+
+
+def _write_targz_with_sparse_map(path: Path, extension_blocks: int) -> None:
+    """A GNU sparse member whose map runs on over `extension_blocks` blocks,
+    each saying another one follows."""
+    header = tarfile.TarInfo("schaars.bin")
+    header.type = tarfile.GNUTYPE_SPARSE
+    raw = bytearray(header.tobuf(format=tarfile.GNU_FORMAT))
+    raw[482] = 1
+    extension = bytearray(tarfile.BLOCKSIZE)
+    for i in range(21):
+        extension[i * 24 : i * 24 + 24] = b"%011o\0%011o\0" % (i + 1, 1)
+    extension[504] = 1
+    with gzip.open(path, "wb", compresslevel=1) as out:
+        out.write(_with_checksum(raw))
+        for _ in range(extension_blocks):
+            out.write(extension)
+        out.write(INDEX_TAR)
+
+
+def _refusal_and_peak(path: Path, limits: Limits = LIMITS) -> tuple[BundleError, int]:
+    target = path.parent / f"target-{uuid.uuid4().hex}"
+    target.mkdir()
+    tracemalloc.start()
+    try:
+        with pytest.raises(BundleError) as error:
+            unpack_archive("site.tar.gz", path, DirDestination(target), limits)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    return error.value, peak
+
+
+class TestTarHeaderLimit:
+    """tarfile reads a long name, a long link, pax records and a sparse map
+    in full while it parses a header, before the member reaches any check
+    here. What it reads for one member is bounded by MAX_TAR_HEADER_BYTES, and
+    a header claiming more is refused before its payload is read."""
+
+    @pytest.mark.parametrize(
+        "kind",
+        [tarfile.GNUTYPE_LONGNAME, tarfile.GNUTYPE_LONGLINK, tarfile.XHDTYPE, tarfile.XGLTYPE],
+        ids=["long-name", "long-link", "pax", "pax-global"],
+    )
+    def test_an_extended_header_over_the_limit_is_refused_unread(self, tmp_path: Path, kind: bytes):
+        source = tmp_path / "groot.tar.gz"
+        _write_targz_with_extended_header(source, kind, HEADER_PAYLOAD)
+        assert source.stat().st_size < HEADER_PAYLOAD // 100
+
+        error, peak = _refusal_and_peak(source)
+
+        assert error.message.key == "INVALID_ARCHIVE.tar_header"
+        assert peak < 2 * 1024 * 1024, f"peak {peak} bytes for a header of {HEADER_PAYLOAD} bytes"
+
+    def test_a_long_name_within_the_limit_reaches_the_path_check(self, tmp_path: Path):
+        # The counter-test: a long name the header limit lets through is read
+        # and then held against the path limit, with the precise reason.
+        source = tmp_path / "lang.tar.gz"
+        _write_targz_with_extended_header(source, tarfile.GNUTYPE_LONGNAME, MAX_TAR_HEADER_BYTES // 2)
+        error, _ = _refusal_and_peak(source)
+        assert error.message.key == "PATH_TOO_LONG"
+
+    def test_a_sparse_map_that_runs_on_is_refused(self, tmp_path: Path):
+        source = tmp_path / "schaars.tar.gz"
+        _write_targz_with_sparse_map(source, 20_000)
+        error, peak = _refusal_and_peak(source)
+        assert error.message.key == "INVALID_ARCHIVE.tar_header"
+        assert peak < 2 * 1024 * 1024, f"peak {peak} bytes"
+
+    def test_global_records_that_add_up_over_the_limit_are_refused(self, tmp_path: Path):
+        # Every global header stays under the limit on its own; together
+        # they grow the records tarfile copies into every member after them.
+        raw = b""
+        for i in range(40):
+            records = {f"g{i}.{j}": "x" for j in range(50)}
+            header = tarfile.TarInfo(f"m{i}")
+            header.type = tarfile.DIRTYPE
+            raw += tarfile.TarInfo.create_pax_global_header(records)
+            raw += header.tobuf(format=tarfile.USTAR_FORMAT)
+        source = tmp_path / "globaal.tar.gz"
+        source.write_bytes(gzip.compress(raw + INDEX_TAR))
+        error, _ = _refusal_and_peak(source)
+        assert error.message.key == "INVALID_ARCHIVE.tar_header"
+
+    def test_an_ordinary_global_header_is_accepted(self, unpack: UnpackFn):
+        # The counter-test: `git archive` writes one global header holding
+        # the commit, and such a tar.gz publishes as any other.
+        buf = io.BytesIO()
+        with tarfile.open(
+            fileobj=buf, mode="w:gz", format=tarfile.PAX_FORMAT, pax_headers={"comment": "f" * 40}
+        ) as archive:
+            info = tarfile.TarInfo("index.html")
+            info.size = 1
+            archive.addfile(info, io.BytesIO(b"h"))
+        assert unpack("site.tar.gz", buf.getvalue()) == {"index.html": b"h"}
+
+    def test_pax_records_are_not_kept_per_member(self, tmp_path: Path):
+        # tarfile keeps every member it walks; pax records within the limit
+        # would otherwise add up with every one of them.
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:gz", format=tarfile.PAX_FORMAT) as archive:
+            for i in range(400):
+                info = tarfile.TarInfo(f"d{i}")
+                info.type = tarfile.DIRTYPE
+                info.pax_headers = {f"k{j}": "" for j in range(600)}
+                archive.addfile(info)
+            index = tarfile.TarInfo("d0/index.html")
+            index.size = 1
+            archive.addfile(index, io.BytesIO(b"h"))
+        source = tmp_path / "pax.tar.gz"
+        source.write_bytes(buf.getvalue())
+        target = tmp_path / "target"
+        target.mkdir()
+        roomy = Limits(max_file=100, max_total=100, max_files=500, max_depth=5)
+
+        tracemalloc.start()
+        try:
+            count = unpack_archive("site.tar.gz", source, DirDestination(target), roomy, base_path="d0")
+            _, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+
+        assert count == 1
+        assert peak < 4 * 1024 * 1024, f"peak {peak} bytes for 400 members with pax records"
+
+    def test_a_read_without_a_size_is_refused_while_headers_are_read(self, tmp_path: Path):
+        source = tmp_path / "site.tar.gz"
+        source.write_bytes(make_tar({"index.html": b"h"}))
+        with _TarSource(source) as stream, pytest.raises(BundleError) as error:
+            stream.read()
+        assert error.value.message.key == "INVALID_ARCHIVE.tar_header"
 
 
 LARGE = 200 * 1024 * 1024

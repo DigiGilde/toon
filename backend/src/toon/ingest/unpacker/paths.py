@@ -9,6 +9,13 @@ from toon.constants import RESERVED_SEGMENTS
 from toon.ingest.unpacker.errors import BundleError
 from toon.ingest.unpacker.limits import Limits
 
+# The longest path an entry may have, in UTF-8 bytes: PATH_MAX on macOS, where
+# most bundles are made, and a quarter of Linux's, which leaves the content
+# volume room for its own prefix. It also bounds every path a refusal names.
+MAX_PATH_BYTES = 1024
+# How much of a path over that limit its refusal names: enough to find it.
+PATH_ECHO_CHARS = 100
+
 _WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:")
 
 
@@ -38,10 +45,23 @@ def is_archive_junk(segments: Sequence[str]) -> bool:
     return name in _JUNK_FILES or name.startswith(_JUNK_PREFIX)
 
 
+def _check_length(raw_value: str) -> None:
+    """Refuses a path over MAX_PATH_BYTES, naming only its start.
+
+    Comes before every other check that names the path, so no refusal
+    repeats more than this limit allows."""
+    if len(raw_value.encode("utf-8", "surrogatepass")) > MAX_PATH_BYTES:
+        raise BundleError(
+            "PATH_TOO_LONG",
+            params={"max_bytes": MAX_PATH_BYTES, "path": raw_value[:PATH_ECHO_CHARS] + "..."},
+        )
+
+
 def _safe_segments(raw_value: str) -> list[str]:
     """Structural path check: whatever gets through here cannot point outside
     the destination. Applies to every entry, including one that ends up
     outside the chosen root and is therefore not published."""
+    _check_length(raw_value)
     if "\x00" in raw_value:
         raise BundleError("NULL_BYTE", params={"path": raw_value})
     path = raw_value.replace("\\", "/")

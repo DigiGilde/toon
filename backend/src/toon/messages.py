@@ -295,6 +295,7 @@ EN: Final[dict[str, str]] = {
     "PATH_TRAVERSAL": "Path with a '..' segment refused: {path}",
     "EMPTY_PATH": "Empty path refused: {path!r}",
     "TOO_DEEP": "Path deeper than {max_depth} levels: {path}",
+    "PATH_TOO_LONG": "Path longer than {max_bytes} bytes: {path}",
     "DUPLICATE_PATH": "Path occurs more than once, or as both a directory and a file: {path}",
     "SECRET_FILE": (
         "'{path}' does not belong on a website and is not published. Publish the directory with "
@@ -335,6 +336,7 @@ EN: Final[dict[str, str]] = {
     "INVALID_ARCHIVE.zip": "Zip archive unreadable: {error}",
     "INVALID_ARCHIVE.zip_entry": "Zip entry unreadable: {error}",
     "INVALID_ARCHIVE.tar": "Tar.gz archive unreadable: {error}",
+    "INVALID_ARCHIVE.tar_header": "Tar.gz archive unreadable: header data larger than {limit} bytes",
     "INVALID_ARCHIVE.tar_entry": "Tar entry unreadable: {name}",
     "INVALID_ARCHIVE.html": "Html file unreadable: {error}",
     "UNKNOWN_FORMAT": "Only .html, .zip, .tar.gz or .tgz is accepted.",
@@ -639,6 +641,7 @@ NL: Final[dict[str, str]] = {
     "PATH_TRAVERSAL": "Pad met '..'-segment geweigerd: {path}",
     "EMPTY_PATH": "Leeg pad geweigerd: {path!r}",
     "TOO_DEEP": "Pad dieper dan {max_depth} niveaus: {path}",
+    "PATH_TOO_LONG": "Pad langer dan {max_bytes} bytes: {path}",
     "DUPLICATE_PATH": "Pad komt meermaals of als map en bestand voor: {path}",
     "SECRET_FILE": (
         "'{path}' hoort niet op een website en wordt niet gepubliceerd. Publiceer de map met "
@@ -679,6 +682,7 @@ NL: Final[dict[str, str]] = {
     "INVALID_ARCHIVE.zip": "Zip-archief onleesbaar: {error}",
     "INVALID_ARCHIVE.zip_entry": "Zip-entry onleesbaar: {error}",
     "INVALID_ARCHIVE.tar": "Tar.gz-archief onleesbaar: {error}",
+    "INVALID_ARCHIVE.tar_header": "Tar.gz-archief onleesbaar: headergegevens groter dan {limit} bytes",
     "INVALID_ARCHIVE.tar_entry": "Tar-entry onleesbaar: {name}",
     "INVALID_ARCHIVE.html": "Html-bestand onleesbaar: {error}",
     "UNKNOWN_FORMAT": "Alleen .html, .zip, .tar.gz of .tgz wordt geaccepteerd.",

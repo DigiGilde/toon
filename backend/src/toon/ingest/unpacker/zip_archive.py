@@ -11,6 +11,7 @@ from toon.constants import INDEX_FILE
 from toon.ingest.unpacker.errors import BundleError, _unreadable
 from toon.ingest.unpacker.limits import Limits, _EntryCounter
 from toon.ingest.unpacker.loop import _Outcome, _start_loop
+from toon.ingest.unpacker.paths import _check_length
 from toon.ingest.unpacker.root import _place, _Scan
 from toon.ingest.unpacker.writing import Destination, _write_entry
 
@@ -157,6 +158,7 @@ def _unpack_zip(source: Path, destination: Destination, limits: Limits, base: tu
         counter = _EntryCounter(limits)
         for info in archive.infolist():
             counter.count()
+            _check_length(info.orig_filename)
             # zipfile truncates a name at the first NUL byte, so an entry
             # declared `index.html\0.bak` arrives as `index.html` and the
             # archive listing disagrees with what lands on disk.
