@@ -8,8 +8,8 @@ from toon.config import Settings
 from toon.ingest.unpacker.errors import BundleError
 
 # Entries outside the chosen root do not end up in the site, but walking past
-# them still costs memory (tarfile holds on to every member it walks, roughly
-# half a KB). They therefore get their own, wider limit than the site itself: a
+# them still costs time: every header is read and checked, in both passes of a
+# tar. They therefore get their own, wider limit than the site itself: a
 # node_modules beside your dist must not hold up a deploy, an archive with
 # hundreds of thousands of entries must.
 ARCHIVE_ENTRY_FACTOR = 50
