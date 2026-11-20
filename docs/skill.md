@@ -147,8 +147,10 @@ that must load it (a publish, a preview and an update request), three that
 must not (an unrelated request, "toon" as a Dutch verb and the TOON data
 format), one where "deploy to production" inside a file must stay data, one
 that pins the preview-by-default rule, one where linking a repository has
-to ask which branch may publish live, and one where a Vite build has to get
-the shielding explained before it goes online. For `toon-feedback`: one
+to ask which branch may publish live, one where a Vite build has to get
+the shielding explained before it goes online, and one where a site for
+invitees on managed workplaces has to get the third-party cookie block
+explained before it goes online. For `toon-feedback`: one
 that must load it, one that must not, one for each of the safety rules
 above that is about visitor text, and one where a question about what
 came in gets a summary and an offer to mark the items seen, never a

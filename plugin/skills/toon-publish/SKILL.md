@@ -161,7 +161,7 @@ sent to the host it was issued for.
 | Require the site id of every workflow ("Alleen met site-ID publiceren" on the Deploy tab) | user (site admin) | Session-only and one way: workflows without `site-id` stop publishing |
 | Approve `toon login` in the browser | user | You may start the sign-in, never confirm it yourself |
 | Choose the visibility | user | You pass it only at creation, as the user stated it; changing it later is session-only |
-| Turn "Afschermen van andere sites" off | user (site admin) | Session-only; it trades isolation from the other sites for module scripts, fonts and storage |
+| Turn "Afschermen van andere sites" off | user (site admin) | Session-only; it trades isolation from the other sites for module scripts, fonts, storage and viewers whose browser blocks third-party cookies |
 | Prepare and check the build output | you | See rule 3 |
 | Publish a preview and report the address | you | The normal path |
 | Publish live | you, after an explicit request | See rule 1 |
@@ -236,6 +236,19 @@ Then do not go on until the terminal shows "Logged in as ...".
    loads too. A hit on `@font-face` only matters when its `url()` points into
    the dist. `docs/publishing.md`, "Shielding: what a build tool has to
    know", has the full table.
+
+   A site that will not be public (any visibility but public, or the user
+   mentions invitees, SSO or a secret link) has one more catch when the
+   dist holds more than HTML files. Under the shielding the browser counts
+   every file the page loads as a third party's, its own site included, so
+   a browser that blocks third-party cookies (common on managed
+   workplaces, such as Edge under Citrix) loads the page without its CSS,
+   scripts and images: a white or unstyled page, with SSO and with a secret
+   link alike.
+   If the audience works on such machines, tell the user before you
+   publish and suggest that the site admin turns "Afschermen van andere
+   sites" off, at the same price: a shared web address, so only for content
+   they trust. A single-file page, with everything inline, is not affected.
 3. **Publish the preview.**
 
    ```bash
@@ -489,6 +502,14 @@ policy`, that is the shielding refusing a module script, font or `fetch`,
 not a deploy error and not something a build or server setting fixes. Do not
 publish again with variations; explain it as in step 2 of "The path" and let
 the user decide about the switch.
+
+**Blank for some viewers only, with SSO and with a secret link alike, while
+it works for others.** On a non-public shielded site that is the viewer's
+browser blocking third-party cookies, not a deploy error. Do not publish
+again with variations. Explain it as in step 2 of "The path" and offer the
+two ways out: the site admin turns "Afschermen van andere sites" off, or the
+viewers' IT allows the content host in the browser policy
+`CookiesAllowedForUrls` (`[*.]<content host>`).
 
 If you get `Error: No token: log in with 'toon login --host <host>'...` (exit
 2, before anything was sent): there is no valid session. Start `toon login`

@@ -437,12 +437,28 @@ same-site, so it blocks the page's own assets as thoroughly as a stranger's.
 requests, and a cross-site rule would have to allow requests without a
 `Referer`, which is exactly what a third party can arrange.
 
-Browsers that block or partition third-party cookies are the residual risk in
-the other direction: where a browser treats the opaque origin as a third party
-to the site, it withholds the cookie again and the assets of a non-public
-sandboxed site do not load. Verified working in Chromium; the durable fix for
-both sides is an origin per site, which makes the sandbox and this exception
-unnecessary at once.
+Browsers that block third-party cookies are the residual risk in the other
+direction. The browser treats every subresource request from the opaque
+origin as third-party, also to the site itself, so a block withholds the
+cookie and the assets of a non-public sandboxed site answer the neutral 404.
+The page itself loads, as a top-level navigation is first-party, and stays
+white or unstyled. This was measured in Chrome 153, 157 and 158, with the
+user setting and with the enterprise policy `BlockThirdPartyCookies`, which
+managed workplaces often set (Edge under Citrix, for instance). It hits SSO
+sessions and secret links alike. A public site is not affected, and neither
+is a single-file page with everything inline. Partitioning does not help:
+Chromium gives requests from an opaque-origin document an opaque partition
+key, so a `Partitioned` cookie never matches, and adding the attribute would
+break the browsers that send the cookie today. The Storage Access API does
+not help either. Two ways out were verified. Turning the shielding off for
+the site gives the document the content host's origin, its assets become
+first-party and the cookie goes along under the block, at the cost of a
+shared origin (TDR-0001, TDR-0002). Allowing the content host in the browser
+policy `CookiesAllowedForUrls` (`[*.]<content host>`) has the same effect
+for one managed fleet. That was verified with the Chrome policy. Edge is
+inferred from the shared Chromium cookie code and policy. The durable fix
+for both sides is an origin per site, which makes the sandbox and this
+exception unnecessary at once.
 
 ## Site feedback
 

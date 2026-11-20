@@ -161,6 +161,26 @@ header is present on the requested resource.
 `from origin 'null'` is the sign: that is the shielding, not a CORS setting
 you can fix in your build.
 
+**A non-public site and browsers that block third-party cookies.** From an
+opaque origin, every file the page loads is a third-party request for the
+browser, also to its own site. That is why the site cookie and the
+secret-link cookie are `SameSite=None`. A browser that blocks third-party
+cookies withholds them on those requests anyway. Managed workplaces often
+set that block, for instance Edge under Citrix with the policy
+`BlockThirdPartyCookies`. The page itself loads, since a top-level
+navigation is first-party, but Toon answers every stylesheet, script and
+image of a non-public site with the neutral 404. The visitor sees a white
+or unstyled page, with SSO and with a secret link alike. A public site is
+not affected, and neither is a single-file page with all its CSS, scripts
+and images inline. Partitioned cookies (CHIPS) and the Storage Access API
+do not help: Chromium gives requests from an opaque-origin document an
+opaque partition key, so a partitioned cookie never matches. Two things
+do. The site's admin can turn the shielding off: the page then has the
+content host's origin, its files are first-party and the cookies go along
+under the block, at the price below. Or the visitors' IT can allow the
+content host in the browser policy `CookiesAllowedForUrls`, with the
+pattern `[*.]<content host>`.
+
 **Astro.** A `<script>` in a component is processed by default: Astro
 bundles it and emits it as `type="module"`. A small one it inlines into
 the HTML, and that runs; a larger one lands in `_astro/*.js`, and that is
