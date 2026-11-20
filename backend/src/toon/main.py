@@ -80,7 +80,7 @@ from toon.serving.feedback_body import BodyBudget
 from toon.serving.feedback_editor import load_feedback_editor
 from toon.serving.feedback_refusals import refused_token_sweep
 from toon.serving.feedback_routes import router as feedback_router
-from toon.serving.feedback_widget import load_widget_bundle
+from toon.serving.feedback_widget import load_place_script, load_widget_bundle
 from toon.serving.router import router as serving_router
 
 API_VERSION = "1.6.0"
@@ -201,6 +201,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.feedback_bodies = BodyBudget()
         # Read once: a new build of the widget or its editor needs a restart.
         app.state.feedback_widget = load_widget_bundle(settings.spa_path / "feedback-widget.js")
+        app.state.feedback_place = load_place_script(settings.spa_path / "feedback-place.js")
         app.state.feedback_editor = load_feedback_editor(
             settings.spa_path / "feedback-editor.js", content_base_url=settings.content_base_url
         )

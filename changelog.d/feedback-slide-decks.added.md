@@ -1,0 +1,1 @@
+- Feedback on a slide deck or another page that keeps its place in the address, such as `#/7`, records that place: "Show on the site" opens the deck on that slide, the Feedback tab and `toon feedback` show it, and under "My feedback" a pin shows only on its own slide.

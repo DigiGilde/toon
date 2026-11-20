@@ -171,7 +171,9 @@ export class MineView {
     const actions = h('div', {});
     const lostSlot = h('div', {}, [lost && this.lostNote()]);
     this.lostSlots.set(item.id, lostSlot);
-    const pageLabel = item.page.title || `/${item.page.path}`;
+    // The fragment says where on the page, such as the slide of a deck.
+    const fragment = item.page.fragment ?? '';
+    const pageLabel = `${item.page.title || `/${item.page.path}`}${fragment === '' ? '' : ` ${fragment}`}`;
     const meta = [t(STATUS[item.status]), t(KIND[item.kind]), formatDate(item.createdAt, lang)];
     const element = h('li', { class: 'item', tabindex: '-1', 'data-item': item.id }, [
       h('p', { class: 'meta' }, [meta.filter(Boolean).join(', ')]),
@@ -181,7 +183,7 @@ export class MineView {
       h('p', { class: 'url' }, [
         t('mine.page'),
         ' ',
-        item.page.url === null ? pageLabel : h('a', { href: item.page.url }, [pageLabel]),
+        item.page.url === null ? pageLabel : h('a', { href: `${item.page.url}${fragment}` }, [pageLabel]),
       ]),
       lostSlot,
       // Only the latest replies come along: say so where the older ones would be.

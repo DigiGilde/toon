@@ -110,6 +110,8 @@ export interface Highlight {
   pw: number | null;
   ph: number | null;
   q: string | null;
+  /** The fragment of the address the place was given at (place.ts), such as `#/7`. */
+  f: string | null;
 }
 
 /** Words of the page, and their language where it is not the widget's. */
@@ -167,8 +169,10 @@ export interface Platform {
   viewport(): ViewportInfo;
   onViewportChange(listener: () => void): () => void;
   /** Calls `listener` once per frame at most after the page's layout changed:
-   * a resize, a zoom, a rotation, or content that grew or shrank. Not for a
-   * scroll, which the widget follows itself. Returns what stops it. */
+   * a resize, a zoom, a rotation, content that grew or shrank, or a deck
+   * that may show another slide: after a key or a click on the page, and on
+   * a new fragment in the address. Not for a scroll, which the widget
+   * follows itself. Returns what stops it. */
   observeLayout(listener: () => void): () => void;
   /** Calls `callback` before the next frame is drawn. */
   nextFrame(callback: () => void): void;
@@ -202,6 +206,8 @@ export interface Platform {
   copyText(field: HTMLTextAreaElement): Promise<boolean>;
   submitForm(form: HTMLFormElement): void;
   replaceUrl(url: string): void;
+  /** Load the page again, at the address it has now. */
+  reload(): void;
   fetch(url: string, init: RequestInit): Promise<Response>;
   languages(): readonly string[];
   userAgent(): string;

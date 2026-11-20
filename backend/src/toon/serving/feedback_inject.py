@@ -222,14 +222,21 @@ def page_config(
     return config
 
 
-def script_tag(bundle: WidgetBundle, config: dict[str, object]) -> bytes | None:
+def script_tag(bundle: WidgetBundle, config: dict[str, object], place: bytes | None = None) -> bytes | None:
     """The tag that goes into the page, ASCII only: the config as base64url
     without padding over its UTF-8 JSON. None when that is longer than the
-    widget reads."""
+    widget reads.
+
+    `place`, the place script, follows it inline: it runs before the page's
+    own scripts and the deferred widget after them, so it puts the fragment of
+    a `#toon-feedback=` link back before a slide deck reads the address. The
+    content policy allows inline script on every content route, and inline it
+    costs a page no request."""
     data = base64.urlsafe_b64encode(json.dumps(config, separators=(",", ":")).encode("utf-8")).rstrip(b"=")
     if len(data) > MAX_CONFIG_LENGTH:
         return None
-    return b'<script src="%s" defer data-toon-feedback="%s"></script>' % (widget_url(bundle).encode("ascii"), data)
+    tag = b'<script src="%s" defer data-toon-feedback="%s"></script>' % (widget_url(bundle).encode("ascii"), data)
+    return tag if place is None else b"%s<script>%s</script>" % (tag, place)
 
 
 @dataclass(frozen=True)
@@ -275,6 +282,7 @@ async def prepare(
     the token stores nothing."""
     bundle: WidgetBundle | None = getattr(request.app.state, "feedback_widget", None)
     editor: FeedbackEditor | None = getattr(request.app.state, "feedback_editor", None)
+    place: bytes | None = getattr(request.app.state, "feedback_place", None)
     policy = decision.feedback
     site_id = decision.site_id
     settings = request.app.state.settings
@@ -339,7 +347,7 @@ async def prepare(
             link=link,
             editor_url=None if editor is None else frame_url(editor),
         )
-        tag = script_tag(bundle, config)
+        tag = script_tag(bundle, config, place)
         if tag is not None:
             break
     else:

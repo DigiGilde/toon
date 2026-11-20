@@ -91,8 +91,8 @@ describe('requests', () => {
         status: 'seen',
         comment: 'Hier',
         quote: null,
-        anchor: { k: 'point', s: '#a', x: 0.1, y: 0.2, w: null, h: null, px: 1, py: 2, pw: null, ph: null, q: null },
-        page: { path: 'docs/', title: 'Docs', url: '/team/site/docs/' },
+        anchor: { k: 'point', s: '#a', x: 0.1, y: 0.2, w: null, h: null, px: 1, py: 2, pw: null, ph: null, q: null, f: null },
+        page: { path: 'docs/', title: 'Docs', fragment: null, url: '/team/site/docs/' },
         createdAt: '2026-11-10T09:00:00Z',
         replies: [{ id: 'r1', author: 'team', name: 'Jan', body: 'Gezien', createdAt: '2026-11-10T10:00:00Z' }],
         replyCount: 14,
@@ -104,7 +104,7 @@ describe('requests', () => {
     const anchor = { k: 'area', s: '#a', x: 0.1, y: 0.2, w: 0.5, h: 0.25, px: 1, py: 2, pw: 300, ph: 80 };
     const fetch = vi.fn().mockResolvedValue(json(200, { items: [{ ...MINE, kind: 'area', anchor }], more: false }));
     const [item] = (await api(fetch).mine()).items;
-    expect([item!.kind, item!.anchor]).toEqual(['area', { ...anchor, q: null }]);
+    expect([item!.kind, item!.anchor]).toEqual(['area', { ...anchor, q: null, f: null }]);
   });
 
   it('say whether older items were left out of the list, and take anything but true for no', async () => {
@@ -220,9 +220,15 @@ describe('reading own items', () => {
     })!;
     expect(item.quote).toBe('tekst');
     expect(item.anchor).toBeNull();
-    expect(item.page).toEqual({ path: '', title: null, url: null });
+    expect(item.page).toEqual({ path: '', title: null, fragment: null, url: null });
     expect(item.replies).toEqual([{ id: 'r', author: 'you', name: null, body: 'b', createdAt: 'c' }]);
     expect(parseItem({ ...MINE, page: { ...MINE.page, url: 7 } })!.page.url).toBeNull();
+  });
+
+  it('keeps the fragment an item was given at only when it names a place', () => {
+    const fragment = (value: unknown) => parseItem({ ...MINE, page: { ...MINE.page, fragment: value } })!.page.fragment;
+    expect(fragment('#/7')).toBe('#/7');
+    for (const value of ['#a=b', '#', '/7', '#/7\n', 7, undefined, null]) expect(fragment(value)).toBeNull();
   });
 
   it('counts the replies an item has in all, never fewer than came along', () => {

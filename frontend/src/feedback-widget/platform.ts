@@ -24,6 +24,7 @@ import type { Box, DrawPlan, Mark, Platform, Point, Scroller } from './types';
 
 /* v8 ignore start -- browser-only: jsdom has no layout, canvas, clipboard or visualViewport, so these run in a real browser instead */
 const ACCENT = '#184576';
+const ADDRESS_WATCH_MS = 250;
 const DARK_SCHEME = '(prefers-color-scheme: dark)';
 const DARK = '#1b1f24';
 
@@ -219,9 +220,25 @@ export function createPlatform(): Platform {
       const observer = new ResizeObserver(schedule);
       observer.observe(document.documentElement);
       window.addEventListener('resize', schedule);
+      // A slide deck shows another slide in the same box, and says which in
+      // the fragment of the address, mostly through replaceState, which
+      // fires no event. A key or a click on the page is what moves most
+      // decks, and is looked at in the frame after it, once the deck has
+      // moved; the fragment a few times a second for a deck that moves by
+      // itself. Keys typed in the widget stop at its host and never get here.
+      let hash = location.hash;
+      const watch = window.setInterval(() => {
+        if (location.hash === hash) return;
+        hash = location.hash;
+        schedule();
+      }, ADDRESS_WATCH_MS);
+      const moved = ['keydown', 'click', 'hashchange', 'popstate'] as const;
+      for (const type of moved) window.addEventListener(type, schedule, { passive: true });
       return () => {
         observer.disconnect();
         window.removeEventListener('resize', schedule);
+        window.clearInterval(watch);
+        for (const type of moved) window.removeEventListener(type, schedule);
         cancelAnimationFrame(frame);
         frame = 0;
       };
@@ -387,6 +404,9 @@ export function createPlatform(): Platform {
       } catch {
         // An opaque origin may refuse; the fragment then just stays.
       }
+    },
+    reload() {
+      location.reload();
     },
     fetch: (url, init) => window.fetch(url, init),
     languages: () => (navigator.languages?.length ? navigator.languages : [navigator.language]),

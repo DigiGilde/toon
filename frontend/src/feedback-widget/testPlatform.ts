@@ -54,6 +54,7 @@ export function fakePlatform(): FakePlatform {
     copyText: vi.fn<Platform['copyText']>().mockResolvedValue(true),
     submitForm: vi.fn<Platform['submitForm']>(),
     replaceUrl: vi.fn<Platform['replaceUrl']>(),
+    reload: vi.fn<Platform['reload']>(),
     fetch: vi.fn<Platform['fetch']>(),
     languages: vi.fn<Platform['languages']>().mockReturnValue(['nl-NL', 'nl']),
     userAgent: vi.fn<Platform['userAgent']>().mockReturnValue('Mozilla/5.0 Chrome/150.0'),

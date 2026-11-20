@@ -15,13 +15,18 @@ import { describe, expect, it } from 'vitest';
 
 const FRONTEND = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const BUNDLE = resolve(FRONTEND, 'dist/feedback-widget.js');
+const PLACE = resolve(FRONTEND, 'dist/feedback-place.js');
+
+function built(path: string): string {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    throw new Error(`${path} not found. Run 'npm run build' first.`);
+  }
+}
 
 function bundle(): string {
-  try {
-    return readFileSync(BUNDLE, 'utf8');
-  } catch {
-    throw new Error(`dist/feedback-widget.js not found at ${BUNDLE}. Run 'npm run build' first.`);
-  }
+  return built(BUNDLE);
 }
 
 /** The licence as the package ships it, without its title line. */
@@ -63,5 +68,28 @@ describe('the built feedback widget', () => {
 
   it('has no sourcemap reference', () => {
     expect(bundle()).not.toMatch(/sourceMappingURL/);
+  });
+});
+
+/**
+ * The place script, which Toon puts inline right behind the widget's tag in
+ * every page that gets the widget (serving/feedback_widget.py refuses one
+ * that cannot stand inside a script element).
+ */
+describe('the built place script', () => {
+  it('is one small classic script that defines no global', () => {
+    const code = built(PLACE).trim();
+    expect(code.startsWith('(function(){')).toBe(true);
+    expect(code.endsWith('})();')).toBe(true);
+    expect(code.length).toBeLessThan(1500);
+  });
+
+  it('can stand inline in a script element, and touches nothing it may not', () => {
+    const code = built(PLACE);
+    expect(/^[\x20-\x7e\n]*$/.test(code)).toBe(true);
+    expect(code).not.toMatch(/<\/script|<script|<!--/i);
+    for (const forbidden of ['localStorage', 'sessionStorage', 'document.cookie', 'sourceMappingURL']) {
+      expect(code.includes(forbidden), forbidden).toBe(false);
+    }
   });
 });

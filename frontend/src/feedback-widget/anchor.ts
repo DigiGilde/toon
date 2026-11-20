@@ -307,17 +307,20 @@ function measuredAgain(previous: Located, highlight: Highlight, platform: Platfo
  * before, it is measured again on the element or passage it was found by, as
  * after a scroll, and searched for anew only when that shows nothing now:
  * reading the page's text for a quote on every frame would hold the scroll
- * up. */
+ * up. Without `coordinates` a place is only found on its element or its
+ * passage, never at where it was on the page: for a place given on another
+ * view of the page, such as another slide (place.ts). */
 export function locate(
   highlight: Highlight,
   doc: Document,
   platform: Platform,
   host: Element | null,
   previous: Located | null = null,
+  coordinates = true,
 ): Located | null {
   const view = platform.viewport();
   const again = previous === null ? null : measuredAgain(previous, highlight, platform, view);
-  if (again !== null) return again;
+  if (again !== null && (coordinates || again.found !== null)) return again;
   const element = highlight.s === null ? null : query(doc, highlight.s, host);
   if (highlight.k !== 'text' && element !== null && onElement(highlight)) {
     const place = placeOn(element, highlight, platform, view);
@@ -331,6 +334,7 @@ export function locate(
     if (place !== null) return place;
   }
   const { px, py, pw, ph } = highlight;
+  if (!coordinates) return null;
   if (px === null || py === null || px > view.docWidth || py > view.docHeight) return null;
   if (highlight.k !== 'area') return { x: px, y: py, boxes: [], found: null };
   if (pw === null || ph === null) return null;

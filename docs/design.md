@@ -1565,8 +1565,23 @@ parser moves a `defer` script found before `<html>` into the head, and the
 page keeps its mode.
 
 ```html
-<script src="/-/feedback/widget.<hash>.js" defer data-toon-feedback="<config>"></script>
+<script src="/-/feedback/widget.<hash>.js" defer data-toon-feedback="<config>"></script><script>/* place script */</script>
 ```
+
+The place script follows the widget's tag inline when Toon has one (built
+from `frontend/src/feedback-place/`, under 1 KiB, read once at startup and
+refused when it is not ASCII or holds `<script`, `</script` or `<!--`). The
+widget is deferred, so it runs after the page's own scripts, and a single-page
+slide deck reads its slide from the fragment (`#/7`) once, as it starts, and
+then rewrites the address with `replaceState`. The place script runs before
+those scripts: on a `#toon-feedback=` address it hands the link to the
+widget's tag in `data-toon-feedback-place`, and replaces the address with the
+page's path and query plus the fragment the place was given at (`f`, below),
+so the deck opens on that slide. Anything else leaves the page alone. Inline,
+it costs a page no request, and the content policy allows inline script on
+every content route, shielded or not. A site whose own `<meta>` policy
+refuses inline script blocks it, and then the widget finds the link in the
+address as before, unless the page has rewritten it by then.
 
 `<config>` is base64url without padding over the compact UTF-8 JSON of the
 widget's configuration: `v` (1), `token` (§16.5), `api` (`/-/feedback/v1`),
@@ -1743,7 +1758,14 @@ text of this page has a pin there: a ring like the one that marks a place
 from a link (§16.11), which lets presses through to the page and which the
 keyboard reaches as a button that leads to the item. The pins lie under the
 button, the panel and the sheet. The ring and the marks of a place from a
-link lie over the button and under the panel.
+link lie over the button and under the panel. An item given at a fragment
+that names no element of the page (`page.fragment`, §16.9), such as `#/7` on
+a slide deck, gets a pin, and a link to it its marks, only where its own
+element or passage shows, never at its page coordinates: on another slide it
+has none, and it is not lost either. The list names that fragment after the
+page and links to it. While pins or a place show, the widget measures them
+again in the frame after each key and click on the page, and when the
+fragment of the address changes, which it looks at four times a second.
 
 Code: `frontend/src/feedback-widget/`, `frontend/src/i18n/widget.nl.ts`,
 `widget.en.ts`, `frontend/vite.widget.config.ts`, `serving/feedback_widget.py`,
@@ -2166,6 +2188,14 @@ code is named, and never with a 500:
   current address is 422 `FEEDBACK_PAGE_MOVED` instead (§16.8): the widget
   keeps the text and offers to copy it. The hide form on such a page is the
   neutral 404 (§16.7).
+- `page.fragment`, optional, is where on the page the item was given: the
+  fragment of the address with its `#`, such as `#/7` for slide 7 of a slide
+  deck or `#intro`. Only a fragment that names a place is taken: `#` and 1 to
+  64 ASCII letters, digits and `/_.~-`. One that holds a value
+  (`#access_token=...`, `#?q=`, `#a&b`), anything percent-encoded, a space
+  or more than 64 characters is refused with 422 naming `page.fragment`, and
+  the widget never sends one: it leaves the key out. The query string is
+  never sent. A column check holds the stored value to the same pattern.
 - The anchor uses the selector objects of the W3C Web Annotation Data Model.
   A `point` item has exactly one `CssSelector` (up to 1000 characters) and a
   `point` with `x` and `y` as fractions of that element's box and `pageX` and
@@ -2371,14 +2401,20 @@ writes the CLI may make take an admin session with CSRF or a CLI token
   address. `highlightUrl` adds the fragment `#toon-feedback=`: base64url of
   compact JSON with `k` (the kind), `s` (the selector), `x`, `y`, `px`, `py`
   (the point, or the top left corner of an area), `w`, `h`, `pw`, `ph` (the
-  size of an area in its element and on the page) and `q` (the quote). The
+  size of an area in its element and on the page), `q` (the quote) and `f`
+  (`page.fragment`, when the item has one). The place script (§16.2) puts
+  `f` back in the address before the page's own scripts run, so a deck
+  opens on the slide. A second link to the same page only changes the
+  fragment, after the page has read its address: for an `f` that names no
+  element of the page the widget loads the page again, so the place script
+  takes the link. The
   widget takes at most 2048 bytes of JSON, so at most 2731 base64url
   characters after `#toon-feedback=`, and `highlightUrl` keeps to that. The
   anchor of an item under "Mijn feedback" has the same reduced form (§16.8),
   but comes in the widget API's answer and has no such cap. A quote that is
   too long is halved until it fits, since its start still finds the passage.
   A selector that is too long is left out whole, since cut short it could
-  name another element. On a
+  name another element. `f` is never left out to make room. On a
   page that gets the widget, the widget reads the fragment, takes it off the
   address, brings the place into view (also inside parts of the page that
   scroll on their own) and marks it with a ring, a frame for an area and a

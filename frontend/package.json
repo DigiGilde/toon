@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc -b && vite build && vite build -c vite.widget.config.ts && vite build -c vite.editor.config.ts",
+    "build": "vue-tsc -b && vite build && vite build -c vite.widget.config.ts && vite build -c vite.place.config.ts && vite build -c vite.editor.config.ts",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
