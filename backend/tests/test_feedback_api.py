@@ -1009,6 +1009,21 @@ class TestWhatIsStored:
         (stored,) = await stored_items(environment.factory)
         assert stored.page_title is None
 
+    @pytest.mark.parametrize("fragment", ["#/7", "#intro", "#a.b_c~d-e/1", "#" + "a" * 64])
+    async def test_a_fragment_that_names_a_place_is_kept(self, client, environment, fragment):
+        token = page_token(environment.app, environment.world.site_id)
+        response = await create(client, token, item(page={"path": ROOT, "fragment": fragment}))
+        assert response.status_code == 201
+        (stored,) = await stored_items(environment.factory)
+        assert stored.page_fragment == fragment
+
+    @pytest.mark.parametrize("page", [{"path": ROOT}, {"path": ROOT, "fragment": None}], ids=["absent", "null"])
+    async def test_without_a_fragment_none_is_kept(self, client, environment, page):
+        token = page_token(environment.app, environment.world.site_id)
+        assert (await create(client, token, item(page=page))).status_code == 201
+        (stored,) = await stored_items(environment.factory)
+        assert stored.page_fragment is None
+
     async def test_a_path_as_location_pathname_gives_it_is_kept_as_it_came(self, client, environment):
         token = page_token(environment.app, environment.world.site_id)
         path = f"{ROOT}caf%C3%A9/[1]/~a;b=c,d'e(f)*g+h!$&@|^/index.html"
@@ -1768,6 +1783,7 @@ class TestMyItems:
             preview_ref="pr-1",
             page_path="",
             page_title="Voorbeeld",
+            page_fragment="#/3",
             status=FeedbackStatus.RESOLVED,
             resolved_at=func.now(),
         )
@@ -1807,7 +1823,7 @@ class TestMyItems:
         assert first["status"] == "resolved"
         assert first["quote"] == "2,4 miljoen"
         assert first["anchor"] == {"k": "text", "q": "2,4 miljoen"}
-        assert first["page"] == {"path": "", "title": "Voorbeeld", "url": PREVIEW_ROOT}
+        assert first["page"] == {"path": "", "title": "Voorbeeld", "fragment": "#/3", "url": PREVIEW_ROOT}
         assert (first["target"], first["previewRef"]) == ("preview", "pr-1")
         assert first["createdAt"].endswith("Z")
         assert [(r["author"], r["name"], r["body"]) for r in first["replies"]] == [("team", None, "Opgelost.")]
@@ -1815,7 +1831,7 @@ class TestMyItems:
         assert second["anchor"] == {
             "k": "point", "s": "main > p:nth-of-type(3)", "x": 0.25, "y": 0.5, "px": 340, "py": 1200.5
         }
-        assert second["page"] == {"path": "docs/", "title": None, "url": f"{ROOT}docs/"}
+        assert second["page"] == {"path": "docs/", "title": None, "fragment": None, "url": f"{ROOT}docs/"}
         assert (second["target"], second["previewRef"], second["quote"]) == ("live", None, None)
         assert [(r["author"], r["name"], r["body"]) for r in second["replies"]] == [
             ("team", "Lid Actief", "We passen het aan."),

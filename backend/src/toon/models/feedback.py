@@ -19,6 +19,9 @@ from toon.constants import FeedbackIdentity, FeedbackKind, FeedbackReplyAuthor, 
 from toon.models.base import Base, IDMixin
 from toon.models.publication import FEEDBACK_IDENTITY_ENUM, VersionTarget
 
+# serving/feedback_input.py:FRAGMENT, as a database check.
+PAGE_FRAGMENT_CHECK = "page_fragment ~ '^#[A-Za-z0-9/_.~-]{1,64}$'"
+
 
 class FeedbackItem(IDMixin, Base):
     """One remark sent through the widget. What it says about its author sits
@@ -50,6 +53,9 @@ class FeedbackItem(IDMixin, Base):
     # Relative to the root of the target, without a leading slash. The root is ''.
     page_path: Mapped[str] = mapped_column(Text, nullable=False)
     page_title: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Where on the page the giver was, such as `#/7` for slide 7 of a deck:
+    # a fragment that names a place, never one that holds a value.
+    page_fragment: Mapped[str | None] = mapped_column(Text, nullable=True)
     kind: Mapped[FeedbackKind] = mapped_column(
         SAEnum(FeedbackKind, name="feedback_kind", values_callable=lambda c: [member.value for member in c]),
         nullable=False,
@@ -83,6 +89,7 @@ class FeedbackItem(IDMixin, Base):
             "char_length(page_path) <= 2048 AND left(page_path, 1) <> '/'", name="ck_feedback_items_page_path"
         ),
         CheckConstraint("char_length(page_title) <= 300", name="ck_feedback_items_page_title_length"),
+        CheckConstraint(PAGE_FRAGMENT_CHECK, name="ck_feedback_items_page_fragment"),
         CheckConstraint("(kind = 'page') = (anchor IS NULL)", name="ck_feedback_items_anchor"),
         CheckConstraint("(kind = 'text') = (quote IS NOT NULL)", name="ck_feedback_items_quote"),
         CheckConstraint("char_length(quote) <= 1000", name="ck_feedback_items_quote_length"),

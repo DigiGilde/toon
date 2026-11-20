@@ -119,6 +119,15 @@ class FeedbackLocation(ApiModel):
         description="Title of the page as the browser had it, or `null` if there was none.",
         examples=["Aan de slag"],
     )
+    fragment: str | None = Field(
+        default=None,
+        description=(
+            "Where on the page the item was given: the fragment of the page's address with its `#`, such as `#/7` "
+            "for slide 7 of a slide deck, or `null`. Only a fragment that names a place is kept: up to 64 letters, "
+            "digits and `/_.~-`, never one with `=`, `&`, `?` or `%`."
+        ),
+        examples=["#/7"],
+    )
     url: str = Field(
         description=(
             "Address of the page on the content origin, at the current address of the site. For an item given on "
@@ -323,9 +332,10 @@ class FeedbackDetail(FeedbackItem):
     highlight_url: str | None = Field(
         default=None,
         description=(
-            "The address of the page with a fragment that makes the feedback widget scroll to the place and mark "
-            "it. That only works where Toon adds the widget to the page. Elsewhere the address just opens the page. "
-            "`null` for `page` items."
+            "The address of the page with a fragment that makes the feedback widget scroll to the place and mark it, "
+            "after it puts `page.fragment` back in the address, so that a slide deck opens on the slide. That only "
+            "works where Toon adds the widget to the page. Elsewhere the address just opens the page. `null` for "
+            "`page` items."
         ),
     )
     replies: list[FeedbackReply] = Field(description="The replies, oldest first.")

@@ -5,7 +5,9 @@ import { formatDate, formatTimestamp } from '@/format';
 import { _setLocaleForTest } from '@/i18n';
 
 import {
+  FEEDBACK_FRAGMENT_PATTERN,
   earlierVersionText,
+  feedbackViewUrl,
   onEarlierVersion,
   authorDetail,
   authorText,
@@ -17,6 +19,7 @@ import {
   placeText,
   relativeTime,
   replyAuthor,
+  safeFragment,
   rowDetails,
   statusColor,
   statusDetail,
@@ -25,6 +28,7 @@ import {
   versionPageUrl,
   versionText,
   viewportText,
+  withFragment,
 } from './feedbackText';
 
 afterEach(() => {
@@ -38,7 +42,7 @@ function item(overrides: Partial<FeedbackItem> = {}): FeedbackItem {
     status: 'new',
     comment: 'Klopt dit?',
     quote: null,
-    page: { path: 'docs/', title: 'Documentatie', url: 'https://sites.toon.test/g/s/docs/' },
+    page: { path: 'docs/', title: 'Documentatie', fragment: null, url: 'https://sites.toon.test/g/s/docs/' },
     target: 'live',
     previewRef: null,
     versionId: 'versie-1',
@@ -110,16 +114,16 @@ describe('the words for a status, a kind and a target', () => {
 
 describe('the page', () => {
   it('goes by its title', () => {
-    expect(pageLabel({ path: 'docs/', title: 'Documentatie', url: '' })).toBe('Documentatie');
+    expect(pageLabel({ path: 'docs/', title: 'Documentatie', fragment: null, url: '' })).toBe('Documentatie');
   });
 
   it('goes by its path without a title, and an empty title is none', () => {
-    expect(pageLabel({ path: 'docs/', title: null, url: '' })).toBe('/docs/');
-    expect(pageLabel({ path: 'docs/', title: '', url: '' })).toBe('/docs/');
+    expect(pageLabel({ path: 'docs/', title: null, fragment: null, url: '' })).toBe('/docs/');
+    expect(pageLabel({ path: 'docs/', title: '', fragment: null, url: '' })).toBe('/docs/');
   });
 
   it('calls the root of the site the home page', () => {
-    expect(pageLabel({ path: '', title: null, url: '' })).toBe('Startpagina');
+    expect(pageLabel({ path: '', title: null, fragment: null, url: '' })).toBe('Startpagina');
   });
 
   it('puts the page and the place together', () => {
@@ -376,5 +380,40 @@ describe('noButton', () => {
     expect(noButton({ enabled: true, live: false }, BARE)).toBe('previews');
     expect(noButton({ enabled: true, live: false }, NEVER_PUBLISHED)).toBe('previews');
     expect(noButton({ enabled: true, live: true }, NEVER_PUBLISHED)).toBe('publish');
+  });
+});
+
+describe('the fragment of a page', () => {
+  it('accepts a place such as a slide or a heading, with its leading #', () => {
+    for (const fragment of ['#/7', '#intro', '#a.b_c~d-e/1', `#${'a'.repeat(64)}`]) {
+      expect(FEEDBACK_FRAGMENT_PATTERN.test(fragment)).toBe(true);
+      expect(safeFragment(fragment)).toBe(fragment);
+    }
+  });
+
+  it('ignores a missing or malformed one', () => {
+    for (const fragment of [null, undefined, '', '#', '/7', '#a b', '#"><script>', '#a#b', `#${'a'.repeat(65)}`, '#\u00e9', '#a\n']) {
+      expect(safeFragment(fragment)).toBeNull();
+    }
+  });
+
+  it('is put after the address, or leaves it as it is', () => {
+    expect(withFragment('https://sites.toon.test/g/s/slides/', '#/7')).toBe('https://sites.toon.test/g/s/slides/#/7');
+    expect(withFragment('https://sites.toon.test/g/s/slides/', null)).toBe('https://sites.toon.test/g/s/slides/');
+    expect(withFragment('https://sites.toon.test/g/s/slides/', '#x y')).toBe('https://sites.toon.test/g/s/slides/');
+  });
+
+  it('opens the highlight when there is one, else the page on the slide it was given on', () => {
+    const page = { url: 'https://sites.toon.test/g/s/slides/', fragment: '#/7' };
+    expect(feedbackViewUrl({ highlightUrl: 'https://sites.toon.test/g/s/slides/#toon-feedback=fb-1', page })).toBe(
+      'https://sites.toon.test/g/s/slides/#toon-feedback=fb-1',
+    );
+    expect(feedbackViewUrl({ highlightUrl: null, page })).toBe('https://sites.toon.test/g/s/slides/#/7');
+    expect(feedbackViewUrl({ highlightUrl: null, page: { ...page, fragment: null } })).toBe(
+      'https://sites.toon.test/g/s/slides/',
+    );
+    expect(feedbackViewUrl({ highlightUrl: null, page: { ...page, fragment: '#a b' } })).toBe(
+      'https://sites.toon.test/g/s/slides/',
+    );
   });
 });

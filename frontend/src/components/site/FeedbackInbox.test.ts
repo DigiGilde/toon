@@ -20,7 +20,7 @@ function item(overrides: Partial<FeedbackItem> = {}): FeedbackItem {
     status: 'new',
     comment: 'Klopt dit bedrag?',
     quote: '2,4 miljoen',
-    page: { path: 'docs/', title: 'Documentatie', url: 'https://sites.toon.test/g/s/_preview/pr-42/docs/' },
+    page: { path: 'docs/', title: 'Documentatie', fragment: null, url: 'https://sites.toon.test/g/s/_preview/pr-42/docs/' },
     target: 'preview',
     previewRef: 'pr-42',
     versionId: null,
@@ -117,7 +117,7 @@ describe('FeedbackInbox: the rows', () => {
       items: [
         item({
           comment: '**vet** <b>niet</b>\n\n- [hier](https://x.nl/a)',
-          page: { path: 'x/', title: '**titel**', url: '' },
+          page: { path: 'x/', title: '**titel**', fragment: null, url: '' },
         }),
       ],
     });

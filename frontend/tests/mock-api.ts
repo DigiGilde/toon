@@ -269,7 +269,7 @@ interface MockSiteRole {
 interface MockFeedback extends Omit<FeedbackDetail, 'page' | 'highlightUrl' | 'replyCount' | 'currentVersion'> {
   groupSlug: string;
   siteSlug: string;
-  page: { path: string; title: string | null };
+  page: { path: string; title: string | null; fragment: string | null };
 }
 
 interface MockData {
@@ -627,7 +627,7 @@ function defaultData(): MockData {
         status: 'resolved',
         comment: 'Het telefoonnummer ontbreekt op deze pagina.',
         quote: null,
-        page: { path: 'contact/', title: 'Contact' },
+        page: { path: 'contact/', title: 'Contact', fragment: null },
         target: 'preview',
         previewRef: 'pr-42',
         versionId: null,
@@ -655,7 +655,7 @@ function defaultData(): MockData {
         status: 'seen',
         comment: 'De knop onderaan valt over de tekst heen op mijn telefoon.',
         quote: null,
-        page: { path: '', title: 'Team Aurora' },
+        page: { path: '', title: 'Team Aurora', fragment: null },
         target: 'live',
         previewRef: null,
         versionId: 'versie-1',
@@ -693,7 +693,7 @@ function defaultData(): MockData {
         status: 'new',
         comment: 'Klopt dit bedrag?\nIn de begroting staat 2,6 miljoen.',
         quote: '2,4 miljoen',
-        page: { path: 'docs/', title: 'Documentatie' },
+        page: { path: 'docs/', title: 'Documentatie', fragment: null },
         target: 'preview',
         previewRef: 'pr-42',
         versionId: 'versie-preview-42',

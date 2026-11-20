@@ -115,6 +115,10 @@ def _highlight_url(page_url: str, item: FeedbackItemRow) -> str | None:
     payload = highlight_anchor(item.kind, item.anchor)
     if payload is None:
         return None
+    # The widget opens the page there before the page's own script reads its
+    # address: a slide deck then shows the slide the place is on.
+    if item.page_fragment is not None:
+        payload["f"] = item.page_fragment
     quoted = payload.pop("q", None)
     # A selector too long for the fragment is left out rather than cut: cut
     # short it can name another element. The quote can be cut, because the
@@ -142,7 +146,10 @@ def _feedback_fields(
         "comment": item.comment,
         "quote": item.quote,
         "page": FeedbackLocation(
-            path=item.page_path, title=item.page_title, url=_feedback_page_url(request, group, site, item)
+            path=item.page_path,
+            title=item.page_title,
+            fragment=item.page_fragment,
+            url=_feedback_page_url(request, group, site, item),
         ),
         "target": item.target,
         "preview_ref": item.preview_ref,

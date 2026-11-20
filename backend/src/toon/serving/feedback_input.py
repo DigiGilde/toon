@@ -26,6 +26,7 @@ MAX_QUOTE = 1000
 MAX_AFFIX = 32
 MAX_SELECTOR = 1000
 MAX_PAGE_PATH = 2048
+MAX_FRAGMENT = 64
 MAX_COORDINATE = 1_000_000
 MAX_DPR = 10
 
@@ -47,12 +48,19 @@ _JOINERS = frozenset("\u200c\u200d")
 # without the backslash, which a browser turns into a slash.
 _PATHNAME = re.compile(r"[!$%&'()*+,\-./0-9:;=@A-Z\[\]^_a-z|~]*")
 
+# A fragment that names a place on the page, such as `#/7` (a slide) or
+# `#intro`, and never a value: no `=`, `&`, `?` or `%`, so `#access_token=...`
+# and the like are refused. ASCII only. The column check of
+# `feedback_items.page_fragment` and FRAGMENT_PATTERN in
+# frontend/src/feedback-widget/place.ts are the same pattern.
+FRAGMENT = re.compile(rf"#[A-Za-z0-9/_.~-]{{1,{MAX_FRAGMENT}}}", re.ASCII)
+
 _KINDS: dict[str, FeedbackKind] = {kind.value: kind for kind in FeedbackKind}
 _AUTHORS: dict[str, FeedbackIdentity] = {author.value: author for author in FeedbackIdentity}
 
 _ITEM_KEYS = frozenset({"kind", "comment", "page", "anchor", "viewport", "author"})
 _ITEM_REQUIRED = frozenset({"kind", "comment", "page", "author"})
-_PAGE_KEYS = frozenset({"path", "title"})
+_PAGE_KEYS = frozenset({"path", "title", "fragment"})
 _ANCHOR_KEYS = frozenset({"selectors", "point", "area"})
 _POINT_KEYS = frozenset({"x", "y", "pageX", "pageY"})
 _AREA_KEYS = frozenset({"x", "y", "width", "height", "pageX", "pageY", "pageWidth", "pageHeight"})
@@ -175,6 +183,8 @@ class FeedbackInput:
     # Relative to the target root, without a leading slash.
     page_path: str
     page_title: str | None
+    # Where on the page, `#` included, or None.
+    page_fragment: str | None
     anchor: dict[str, Any] | None
     quote: str | None
     viewport: dict[str, Any] | None
@@ -196,6 +206,7 @@ def parse_item(text: str, root: str, site: str) -> FeedbackInput:
         comment=comment,
         page_path=_page_path(page["path"], root, site),
         page_title=_title(page.get("title")),
+        page_fragment=_fragment(page.get("fragment")),
         anchor=anchor,
         quote=quote,
         viewport=_viewport(item.get("viewport")),
@@ -235,6 +246,15 @@ def _title(value: object) -> str | None:
     if not isinstance(value, str):
         raise bad_field("page.title")
     return clean_title(value)
+
+
+def _fragment(value: object) -> str | None:
+    if value is None:
+        return None
+    # fullmatch, not match: `$` would let a trailing newline through.
+    if not isinstance(value, str) or not FRAGMENT.fullmatch(value):
+        raise bad_field("page.fragment")
+    return value
 
 
 def _anchor(kind: FeedbackKind, value: object) -> tuple[dict[str, Any] | None, str | None]:
@@ -366,6 +386,8 @@ def reply_text(raw: bytes) -> str:
 
 __all__ = [
     "CSS",
+    "FRAGMENT",
+    "MAX_FRAGMENT",
     "QUOTE",
     "FeedbackInput",
     "ProblemError",
