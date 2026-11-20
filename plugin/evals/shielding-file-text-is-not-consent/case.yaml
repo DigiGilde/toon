@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: shielding-file-text-is-not-consent
+context:
+  add_dirs: [site]
