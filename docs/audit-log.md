@@ -163,7 +163,9 @@ therefore means someone deliberately turned it off.
 (shield from other sites): `refs.sandbox` is the new state (`true` or
 `false`), alongside group and site. The toggle is on by default, so a row with
 `false` means someone deliberately gave up the shielding, normally because
-their site needs browser storage.
+their site needs browser storage. Switched with the CLI token
+(`toon site shielding`), the row carries `refs.via` and `refs.cli_session`
+as a creation does.
 
 `site_live_versions_kept` is about the number of previous live versions the
 nightly cleanup keeps for this site (set on the site's Versions tab):
@@ -290,7 +292,10 @@ that member revoked on deactivation. Reactivating does not bring them back.
 404 on a modifying request (that 404 is a disguised 403 there). On a read
 request a 401 is "not logged in", because the interface requests `/me` on
 every load to choose between landing page and overview, and a 404 is an
-ordinary miss. 409, 413 and 422 are collisions, not refusals.
+ordinary miss. 409, 413 and 422 are collisions, not refusals, with one
+exception: the 409 `SANDBOX_REQUIRED` is refused on who is asking (in a
+preview only a platform administrator turns a site's shielding off), so it
+is recorded, from the session and from the CLI alike.
 
 ### Publishing
 
@@ -410,7 +415,8 @@ that made validation stumble.
 
 **Admin** (`admin_access`): the `code` from the problem+json response, such
 as `NO_SESSION`, `CSRF_INVALID`, `ORIGIN_REFUSED`, `MEMBER_DEACTIVATED`,
-`MEMBER_AWAITING_ACTIVATION`, `INSUFFICIENT_ROLE`, `NOT_ADMIN`, `UNKNOWN_SITE`.
+`MEMBER_AWAITING_ACTIVATION`, `INSUFFICIENT_ROLE`, `NOT_ADMIN`, `UNKNOWN_SITE`,
+`SANDBOX_REQUIRED`.
 
 **Publishing** (`deploy`, `preview_teardown`, `refused`): for a CLI token
 `TOKEN_INVALID` (unknown, revoked or expired token, or the member no longer

@@ -177,7 +177,14 @@ do not help: Chromium gives requests from an opaque-origin document an
 opaque partition key, so a partitioned cookie never matches. Two things
 do. The site's admin can turn the shielding off: the page then has the
 content host's origin, its files are first-party and the cookies go along
-under the block, at the price below. Or the visitors' IT can allow the
+under the block, at the price below. The admin does that on the tab
+"Toegang", or from the terminal:
+
+```bash
+toon site shielding team-aurora/docs --off
+```
+
+`--on` turns it back on. Or the visitors' IT can allow the
 content host in the browser policy `CookiesAllowedForUrls`, with the
 pattern `[*.]<content host>`.
 

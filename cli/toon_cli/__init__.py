@@ -20,6 +20,7 @@ Usage:
         [--host <host>]
     toon site link <group/site> [<repository>] [--live-branch <branch>] \
         [--repository-id <id> --owner-id <id>] [--no-gh] [--host <host>]
+    toon site shielding <group/site> (--on | --off) [--host <host>]
     toon feedback list --site <group/site> \
         [--status open|new|seen|resolved|all] [--preview <ref> | --live] \
         [--json] [--with-contact] [--host <host>]

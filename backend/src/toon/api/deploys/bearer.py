@@ -18,11 +18,13 @@ _PREVIEW_PATH_RE = re.compile(r"^/-/api/v1/sites/[^/]+/[^/]+/previews/[^/]+$")
 # token as well.
 CLI_SESSION_PATH = "/-/api/v1/cli/session"
 CLI_WHOAMI_PATH = "/-/api/v1/cli/whoami"
-# Creating a group or a site and linking a repository (api/admin/) also
-# take the CLI token; nothing else in the admin API does.
+# Creating a group or a site, linking a repository and turning a site's
+# shielding on or off (api/admin/) also take the CLI token; nothing else in
+# the admin API does.
 GROUP_CREATE_PATH = "/-/api/v1/groups"
 _SITE_CREATE_PATH_RE = re.compile(r"^/-/api/v1/groups/[^/]+/sites$")
 _REPOSITORY_LINK_PATH_RE = re.compile(r"^/-/api/v1/sites/[^/]+/[^/]+/repository$")
+_SHIELDING_PATH_RE = re.compile(r"^/-/api/v1/sites/[^/]+/[^/]+/sandbox$")
 # Deleting a feedback item and the feedback settings stay session only.
 _FEEDBACK_PATH = r"^/-/api/v1/sites/[^/]+/[^/]+/feedback"
 _FEEDBACK_CLI_ENDPOINTS = (
@@ -50,17 +52,23 @@ def is_repository_link_endpoint(method_: str, path: str) -> bool:
     return method_ == "PUT" and bool(_REPOSITORY_LINK_PATH_RE.match(path))
 
 
+def is_shielding_endpoint(method_: str, path: str) -> bool:
+    return method_ == "PUT" and bool(_SHIELDING_PATH_RE.match(path))
+
+
 def is_feedback_cli_endpoint(method_: str, path: str) -> bool:
     return any(method_ == method and pattern.match(path) for method, pattern in _FEEDBACK_CLI_ENDPOINTS)
 
 
 def accepts_bearer(method_: str, path: str) -> bool:
     """The deploy endpoints, the CLI's logout and whoami, group and site
-    creation, linking a repository, and the feedback routes the CLI uses."""
+    creation, linking a repository, a site's shielding, and the feedback
+    routes the CLI uses."""
     if (
         is_deploy_endpoint(method_, path)
         or is_creation_endpoint(method_, path)
         or is_repository_link_endpoint(method_, path)
+        or is_shielding_endpoint(method_, path)
         or is_feedback_cli_endpoint(method_, path)
     ):
         return True

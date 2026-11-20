@@ -75,7 +75,8 @@ There are two ways to identify yourself, and every endpoint accepts exactly one 
   same value as the CSRF cookie.
 * **Bearer token** - `Authorization: Bearer <token>`, only on the two deploy endpoints, on
   `DELETE /cli/session` and `GET /cli/whoami`, and, with a CLI token only, on creating a group or a site,
-  on linking a repository and on reading, marking and answering feedback. The token is one of two kinds:
+  on linking a repository, on turning a site's shielding on or off and on reading, marking and answering
+  feedback. The token is one of two kinds:
   * a **CI ID token** (JWT) from GitHub Actions or Forgejo Actions, whose audience is exactly the admin
     URL of Toon (`TOON_BASE_URL`) followed by `/-/sites/` and the `id` of one site. It is valid only
     for that site, and only while the repository of that workflow is linked to it
@@ -344,8 +345,8 @@ _SECURITY_SCHEMES: dict[str, dict[str, Any]] = {
             "A CI ID token (JWT from GitHub or Forgejo Actions, with the admin URL as audience) or a CLI token "
             "`tooncli_...` from `toon login`. Paste the whole token under Authorize. Only the deploy endpoints "
             "and the CLI session endpoints accept it, and, with a CLI token only, creating a group, creating a "
-            "site, linking a repository and reading, marking and answering feedback; anywhere else a Bearer "
-            "header yields 401, even when the token is valid."
+            "site, linking a repository, turning a site's shielding on or off and reading, marking and answering "
+            "feedback; anywhere else a Bearer header yields 401, even when the token is valid."
         ),
     },
 }
@@ -359,6 +360,7 @@ _TOKEN_ENDPOINTS = (
     ("post", "/-/api/v1/groups"),
     ("post", "/groups/{group_slug}/sites"),
     ("put", "/repository"),
+    ("put", "/sandbox"),
     ("get", "/{site_slug}/feedback"),
     ("get", "/feedback/{item_id}"),
     ("get", "/feedback/{item_id}/screenshot"),

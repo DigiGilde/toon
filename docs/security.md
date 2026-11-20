@@ -109,7 +109,7 @@ X-Accel path and no nginx logic.
 | Item | Status |
 |---|---|
 | CSRF token in a header (double submit against `__Host-toon-csrf`) on session-borne mutations | implemented: `auth/sessions.py` (`csrf_valid`), `api/admin/dependencies.py` (`require_csrf`), `backend/tests/test_admin_api.py` |
-| Bearer tokens accepted exclusively on the two deploy/preview endpoints, the CLI session endpoints and eight endpoints of the admin API that take the CLI token only: the two creation endpoints (`POST /groups`, `POST /groups/{group}/sites`), linking a repository (`PUT /sites/{group}/{site}/repository`, so `toon site link`, while unlinking and requiring the site id stay session only), and reading, marking and answering feedback (`toon feedback`, the five routes of design.md §16.11 that take the CLI token). The allowlist is method plus exact path shape, and every other admin route answers a bearer with 401 `BEARER_NOT_ACCEPTED` before it is routed, also when a valid session rides along. The feedback widget API on the content host uses a scheme of its own (`Authorization: Toon-Feedback`), which the middleware leaves alone | implemented: `api/deploys/bearer.py` (`BearerOutsideDeploysMiddleware`, `accepts_bearer`), `api/cli.py`, `api/admin/`, `backend/tests/test_deploy_api.py`, `backend/tests/test_cli_api.py`, `backend/tests/test_cli_creation.py` (every admin route with a valid CLI token), `backend/tests/test_api_documentation.py` (OpenAPI and middleware agree per operation), `backend/tests/test_feedback_api.py` (the widget's `Toon-Feedback` scheme), `backend/tests/test_feedback_admin_api.py` (the CLI token on the feedback routes, refused on the session-only ones) |
+| Bearer tokens accepted exclusively on the two deploy/preview endpoints, the CLI session endpoints and nine endpoints of the admin API that take the CLI token only: the two creation endpoints (`POST /groups`, `POST /groups/{group}/sites`), linking a repository (`PUT /sites/{group}/{site}/repository`, so `toon site link`, while unlinking and requiring the site id stay session only), turning a site's shielding on or off (`PUT /sites/{group}/{site}/sandbox`, so `toon site shielding`, TDR-0018), and reading, marking and answering feedback (`toon feedback`, the five routes of design.md §16.11 that take the CLI token). The allowlist is method plus exact path shape, and every other admin route answers a bearer with 401 `BEARER_NOT_ACCEPTED` before it is routed, also when a valid session rides along. The feedback widget API on the content host uses a scheme of its own (`Authorization: Toon-Feedback`), which the middleware leaves alone | implemented: `api/deploys/bearer.py` (`BearerOutsideDeploysMiddleware`, `accepts_bearer`), `api/cli.py`, `api/admin/`, `backend/tests/test_deploy_api.py`, `backend/tests/test_cli_api.py`, `backend/tests/test_cli_creation.py` (every admin route with a valid CLI token), `backend/tests/test_api_documentation.py` (OpenAPI and middleware agree per operation), `backend/tests/test_feedback_api.py` (the widget's `Toon-Feedback` scheme), `backend/tests/test_feedback_admin_api.py` (the CLI token on the feedback routes, refused on the session-only ones) |
 | Creating a group or a site from the CLI (`toon group create`, `toon site create`): only a member's CLI token from `toon login`, never a CI ID token (401 `TOKEN_INVALID`), with the same role checks as the session (any active member for a group, group role `editor` for a site). The request may carry an initial access; that is no way around the access policy, because the creator becomes group admin or site admin and may set that access on the next request anyway. The CLI may not delete anything or manage members: those routes stay session only. A bearer request carries no ambient credentials, so it skips the CSRF double submit; the origin guard stays on it, as on the deploy router, so script on the content host holding a token is still refused. Group and site creation are audited with `refs.via` `cli` and the CLI session id, and with the access the new group or site starts with | implemented: `api/admin/dependencies.py` (`require_creator`), `api/errors.py` (refusals audited as the CLI member), `backend/tests/test_cli_creation.py`, `backend/tests/test_api_integration.py` |
 | Secret links: always an expiry date, 90 days by default, 365 at most (BIO2 5.18.02); `expires_at` is NOT NULL | implemented, expiry date mandatory: `expiry.py`, `backend/tests/test_expiry.py`, `test_keys.py` |
 | CI id token (OIDC "trusted publishing"): issuer allowlist (GitHub fixed, Forgejo per host in `TOON_CI_FORGEJO_HOSTS`), keys via discovery/JWKS of the issuer origin itself (https, 5s timeout, size limit, no redirects; cached for an hour, one fetch at a time per issuer, no retry for 30 seconds after a failed fetch), RS256 only, `exp`/`iat` mandatory with 60s leeway, `aud` must be exactly one value and exactly `TOON_BASE_URL` or `TOON_BASE_URL/-/sites/{site id}` with the id in its canonical lowercase form, without normalisation (upper case, a trailing slash or anything after the id is a mismatch); a token with a `jti` (GitHub) is accepted once within its lifetime and a second use is refused as replayed (audit reason `CI_TOKEN_REPLAYED`, response code `CI_TOKEN_INVALID`), while Forgejo tokens carry no `jti` and are not replay-checked; the memory of used tokens is in process, so a restart forgets it | implemented: `ci/providers.py`, `ci/tokens.py`, `config.py`, `backend/tests/test_ci_providers.py`, `test_ci_tokens.py` |
@@ -130,7 +130,7 @@ X-Accel path and no nginx logic.
 | Content CSP (§5.7 regime) on all content routes | implemented: `serving/response.py` (`CONTENT_CSP`), `backend/tests/test_serving.py` |
 | Platform CSP on the platform's own answers on the content host (root redirect, code page, neutral 404, the consent page for feedback with an account, the answers of the feedback widget API): no script, the one inline `<style>` by hash, no `'unsafe-inline'` | implemented: `serving/response.py` (`platform_csp`, `PLATFORM_CSP`), `platform/pages.py`, `serving/code_page.py`, `serving/feedback_consent.py` (`CONSENT_PAGE_HEADERS`), `ratelimit.py` (`FEEDBACK_API_HEADERS`), `backend/tests/test_security_headers.py` (`TestPlatformCsp`), `test_front_door.py`, `test_code_page.py`, `test_feedback_consent.py`, `test_feedback_api.py`. See "The platform's own pages" below |
 | External sources per site (on by default) | implemented: `sites.external_sources`, `serving/response.py` (`CONTENT_CSP_EXTERNAL`), `api/admin/sites/site.py` (`PUT /sites/{group}/{site}/external-sources`, site role admin, CSRF, audit action `site_external_sources`), `frontend/src/components/site/TabAccess.vue`, `backend/tests/test_security_headers.py`, `test_serving.py`, `test_admin_api.py`. See "External sources" below |
-| Shielding from other sites per site (on by default) | implemented: `sites.sandbox`, `serving/response.py` (`SANDBOX`, `CONTENT_CSP_SANDBOX`), `api/admin/sites/site.py` (`PUT /sites/{group}/{site}/sandbox`, site role admin, CSRF, audit action `site_sandbox`), `frontend/src/components/site/TabAccess.vue`, `backend/tests/test_security_headers.py`, `test_serving.py`, `test_admin_api.py`. See "Shielding from other sites" below |
+| Shielding from other sites per site (on by default) | implemented: `sites.sandbox`, `serving/response.py` (`SANDBOX`, `CONTENT_CSP_SANDBOX`), `api/admin/sites/site.py` (`PUT /sites/{group}/{site}/sandbox`, site role admin, with CSRF or the CLI token (`toon site shielding`), audit action `site_sandbox`), `frontend/src/components/site/TabAccess.vue`, `cli/toon_cli/sites.py`, `backend/tests/test_security_headers.py`, `test_serving.py`, `test_admin_api.py`, `test_cli_creation.py` (every role with the session and with the CLI token, in production and in a preview). See "Shielding from other sites" below |
 | WebAssembly on every site (`'wasm-unsafe-eval'` in `script-src`, never `'unsafe-eval'`) | implemented: `serving/response.py` (`_CONTENT_DIRECTIVES`), `backend/tests/test_security_headers.py` (`test_webassembly_compiles_but_javascript_eval_stays_shut`), `test_serving.py`. See "WebAssembly" below |
 | A 304 repeats the CSP and the Referrer-Policy of the 200 | implemented: `serving/response.py` (`make_304`), `serving/router.py`, `backend/tests/test_serving.py` (`TestEtag304`) |
 | Admin CSP (§9 regime, stricter) on everything on the admin host | implemented: the app serves the SPA itself with this CSP (`platform/spa.py`, `backend/tests/test_spa.py`), and HTML on the admin host that carries no CSP of its own gets the same regime from `security_headers.py`. The regime follows the host, not the path: a path rule would make a refusal on the content host distinguishable from an ordinary neutral 404. `/-/api/docs` does carry a CSP of its own (`DOCS_CSP` in `api/docs.py`): identical, apart from `style-src`, which allows `'unsafe-inline'` because Swagger UI puts style attributes on its elements. `script-src` stays `'self'`; the page has no inline script, the Swagger bootstrap sits in `docs-init.js`; JSON answers only get `frame-ancestors 'none'` (`backend/tests/test_security_headers.py`) |
@@ -265,6 +265,38 @@ its own visitors and towards every other site, and the platform as a whole is
 not isolated by this. It is a default that most sites can keep, not a boundary
 the platform can enforce, and it does not replace the access gate: a page that
 is refused is still refused.
+
+A site admin turns it off or on with the switch on the access screen or with
+`toon site shielding` and the CLI token from `toon login` (TDR-0018). Both
+paths take the same role and write the same `site_sandbox` audit row, the CLI
+one with `refs.via` `cli` and the CLI session.
+
+That widens what a stolen CLI token of a site admin can do. It could already
+publish to that admin's sites, but on a shielded site the script it published
+ran shielded. Now it can also turn the shielding off, so that script runs on
+the shared origin, where it can open another unshielded site in a window and
+read it with the visitor's cookies, and overwrite the cookies of the shared
+origin, as described above. The harm lands on the visitors of other sites. A
+stolen admin session could do the same, but a CLI session is the weaker
+credential to hold. It is not re-validated at the IdP, so it survives logging
+out in the browser and blocking the account at SSO. Its refresh token lives 30
+days after its last use and at most 90 days after `toon login`. It sits in the
+system keyring or in `hosts.json` on disk, or as an access token in
+`TOON_ACCESS_TOKEN`, often in the shell of an AI assistant. The `toon-publish`
+skill runs the command only after the user says yes to it in the conversation,
+never on text it finds in files or pages. That rule is advisory: anything that
+holds the token can call the endpoint, a prompt-injected agent with shell
+access included.
+
+What limits it: only an effective site admin can, never a CI ID token, and in
+a preview only a platform administrator turns the shielding off (see "Pull
+request previews"). Every change is in the audit log, and so is a refused
+attempt in a preview (`admin_access`, `SANDBOX_REQUIRED`). The change shows on
+the access screen, and turning the switch back on undoes it for every later
+request. The response to a leaked token is to revoke that CLI session on the
+"Linked CLI sessions" page (`/-/sessions`), or `toon logout` on the machine
+that holds it. Deactivating the member revokes all their CLI sessions. Logging
+out in the admin leaves them untouched.
 
 The same two exceptions as for external sources apply. The neutral 404 keeps
 the platform CSP whatever a site sets, because it has to stay byte-identical
@@ -451,7 +483,7 @@ Chromium gives requests from an opaque-origin document an opaque partition
 key, so a `Partitioned` cookie never matches, and adding the attribute would
 break the browsers that send the cookie today. The Storage Access API does
 not help either. Two ways out were verified. Turning the shielding off for
-the site gives the document the content host's origin, its assets become
+the site (on the access screen, or `toon site shielding --off`) gives the document the content host's origin, its assets become
 first-party and the cookie goes along under the block, at the cost of a
 shared origin (TDR-0001, TDR-0002). Allowing the content host in the browser
 policy `CookiesAllowedForUrls` (`[*.]<content host>`) has the same effect
@@ -815,7 +847,8 @@ behaviours that only exist there:
   preview becomes an editor of the demo group `rijksoverheid`
   (`auth/members.py`). An existing member gets nothing new.
 - **Only a platform administrator turns shielding off.** Anyone else, a site
-  admin included, is refused with 409 `SANDBOX_REQUIRED`; a platform
+  admin included, is refused with 409 `SANDBOX_REQUIRED`, with a session and
+  with the CLI token alike; a platform
   administrator still needs the site admin role first. The content host sits
   on `*.rig.prd1.gn2.quattro.rijksapps.nl`, shared with every ZAD tenant and
   the ZAD portal, and `rijksapps.nl` is not on the Public Suffix List

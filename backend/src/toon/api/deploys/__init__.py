@@ -12,7 +12,8 @@ Auth is one of three:
 
 Bearer is accepted on these two endpoints, the two CLI session endpoints and,
 with a CLI token only, on the admin routes that create a group or a site, link
-a repository, or read, mark or answer feedback (`accepts_bearer`), and nowhere
+a repository, turn a site's shielding on or off, or read, mark or answer
+feedback (`accepts_bearer`), and nowhere
 else: `BearerOutsideDeploysMiddleware` rejects any other request carrying a
 Bearer Authorization header with a 401.
 main.py registers router and middleware; the app supplies on app.state:
@@ -37,6 +38,7 @@ from toon.api.deploys.bearer import (
     is_deploy_endpoint,
     is_feedback_cli_endpoint,
     is_repository_link_endpoint,
+    is_shielding_endpoint,
 )
 from toon.api.deploys.routes import delete_preview, deploy, router
 from toon.api.deploys.schemas import DeployResult
@@ -66,5 +68,6 @@ __all__ = [
     "is_deploy_endpoint",
     "is_feedback_cli_endpoint",
     "is_repository_link_endpoint",
+    "is_shielding_endpoint",
     "router",
 ]

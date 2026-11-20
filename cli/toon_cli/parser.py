@@ -18,7 +18,12 @@ from toon_cli.feedback import (
 )
 from toon_cli.hosts import HOST_HELP
 from toon_cli.publish import cmd_preview_remove, cmd_publish
-from toon_cli.sites import cmd_group_create, cmd_site_create, cmd_site_link
+from toon_cli.sites import (
+    cmd_group_create,
+    cmd_site_create,
+    cmd_site_link,
+    cmd_site_shielding,
+)
 
 SITE_ID_HELP = (
     "Fixed id of the site, from its Deploy tab in Toon; defaults to TOON_SITE_ID. "
@@ -207,6 +212,39 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     site_link.add_argument("--host", default=None, help=HOST_HELP)
     site_link.set_defaults(func=cmd_site_link)
+
+    site_shielding = site_commands.add_parser(
+        "shielding",
+        help="Turn a site's shielding from other sites on or off.",
+        description=(
+            "Turn a site's shielding from other sites on or off. It is on by default: "
+            "the site's pages get an opaque origin, so they cannot read the other sites "
+            "at the shared web address, nor store anything in the visitor's browser. "
+            "You must be admin of the site. Turn it off for a site that needs module "
+            "scripts, web fonts or browser storage, or whose viewers' browsers block "
+            "third-party cookies. The site then shares its web address with the other "
+            "sites without shielding, so do that only for content you trust. In a "
+            "preview environment only a platform administrator can turn it off."
+        ),
+    )
+    site_shielding.add_argument("site", help="group/site, for instance team-aurora/docs")
+    shielding_state = site_shielding.add_mutually_exclusive_group(required=True)
+    shielding_state.add_argument(
+        "--on",
+        dest="shielding",
+        action="store_const",
+        const=True,
+        help="Turn the shielding on (the default for a new site)",
+    )
+    shielding_state.add_argument(
+        "--off",
+        dest="shielding",
+        action="store_const",
+        const=False,
+        help="Turn the shielding off; only for a site whose content you trust",
+    )
+    site_shielding.add_argument("--host", default=None, help=HOST_HELP)
+    site_shielding.set_defaults(func=cmd_site_shielding)
 
     feedback = subparsers.add_parser(
         "feedback", help="Read and handle the feedback visitors left on a site."

@@ -325,7 +325,8 @@ def _get_bearer_token(host: str, site_id: str | None = None) -> str:
 
 def _get_member_token(host: str) -> str:
     """The token for the commands that act as a member (creating a group or a
-    site, linking a repository and the feedback commands): an explicit
+    site, linking a repository, a site's shielding and the feedback
+    commands): an explicit
     TOON_ACCESS_TOKEN, then the stored session. No CI OIDC token: the server
     takes only a member's CLI token there."""
     token = os.environ.get("TOON_ACCESS_TOKEN") or _stored_token(host)

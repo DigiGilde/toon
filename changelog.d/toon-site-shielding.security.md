@@ -1,0 +1,3 @@
+- A CLI session from `toon login` can now turn a site's shielding from other sites on or off, for a member who is admin of that site, audited as from the CLI. In a preview only a platform administrator can turn it off, as in the admin.
+- A site admin's refused attempt to turn the shielding off in a preview is now recorded in the audit log, from the admin and from the CLI alike.
+- Accepted risk: a stolen CLI session of a site admin can now also turn the shielding off, so that script published with it runs on the origin the other sites share. Revoke a leaked session under "Linked CLI sessions" or with `toon logout`.

@@ -17,8 +17,9 @@ router too (bearer CI sends no Origin/Sec-Fetch-Site and passes it
 unhindered).
 
 Some routes here take a bearer as well: creating a group, creating a site,
-linking a repository and the feedback routes the CLI uses (reading feedback,
-setting its status, replying to it) accept the CLI token from `toon login`
+linking a repository, turning a site's shielding on or off and the feedback
+routes the CLI uses (reading feedback, setting its status, replying to it)
+accept the CLI token from `toon login`
 (`require_creator`, `require_member_or_cli`), with the same role checks as
 the session. A bearer request carries no ambient credentials, so it skips the CSRF check; the
 origin guard stays on it, as on the deploy router. Every other route in this router is session only, which

@@ -1,0 +1,1 @@
+- `toon site shielding <group/site> --off` turns "Shield from other sites" off for a site you administer, and `--on` turns it back on.
