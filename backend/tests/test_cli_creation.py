@@ -28,7 +28,7 @@ from sqlalchemy.pool import NullPool
 from toon.api import cli as cli_api
 from toon.api.admin import dependencies, make_admin_router
 from toon.api.admin.dependencies import CREATION_MAX_PER_WINDOW, CREATION_WINDOW_S
-from toon.api.deploys import BearerOutsideDeploysMiddleware
+from toon.api.deploys import BearerOutsideDeploysMiddleware, accepts_bearer
 from toon.api.errors import register_error_handlers
 from toon.audit.log import AuditLog
 from toon.audit.pseudonymisation import pseudonymise
@@ -1206,6 +1206,37 @@ async def test_a_valid_cli_token_on_any_other_admin_route_is_refused(client, fac
         "for linking a repository, for turning a site's shielding on or off and for reading, marking and "
         "answering feedback."
     )
+
+
+# Every path shape that takes a bearer. `$` also matches before a trailing
+# newline, which a `%0A` at the end of the path decodes to.
+_BEARER_SHAPES = sorted(
+    _OPENED | {("POST", f"{BASE}/sites/x/x/deploys"), ("DELETE", f"{BASE}/sites/x/x/previews/x")}
+)
+
+
+@pytest.mark.parametrize(("method_", "path"), _BEARER_SHAPES, ids=[f"{m} {p}" for m, p in _BEARER_SHAPES])
+async def test_a_trailing_newline_falls_outside_the_bearer_allowlist(method_, path):
+    """After a fixed last segment the newline is outside the allowlist. After
+    a path parameter it is part of that parameter, which `[^/]+` takes in the
+    allowlist and in the route alike: the same endpoint, with an id that
+    matches nothing."""
+    ends_in_a_parameter = path.endswith("/x")
+
+    assert accepts_bearer(method_, path)
+    assert accepts_bearer(method_, path + "\n") is ends_in_a_parameter
+
+
+async def test_a_bearer_on_a_path_ending_in_an_encoded_newline_is_refused_before_routing(client, factory):
+    member = await _member(factory, "beheerder")
+    await _site_with_roles(factory, on_site={member: Role.ADMIN})
+
+    response = await client.put(
+        f"{SANDBOX}%0A", json={"sandbox": False}, headers=_bearer(await _token(factory, member))
+    )
+
+    _problem(response, 401, "BEARER_NOT_ACCEPTED")
+    assert await _shielded(factory) is True
 
 
 class TestNeighbouringRoutesStayShut:
