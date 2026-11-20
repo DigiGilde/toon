@@ -88,8 +88,9 @@ class Creator:
 
 
 async def require_creator(request: Request, db: Db) -> Creator:
-    """The two creation routes, the repository link and the feedback changes
-    the CLI makes take an admin session with CSRF or a CLI access token. A
+    """The two creation routes, the repository link, a site's shielding and
+    the feedback changes the CLI makes take an admin session with CSRF or a
+    CLI access token. A
     bearer header decides: with one, the session cookie is not looked at, and
     neither is CSRF, since nothing ambient came along. A CI ID token is
     site-bound and creates, links or changes nothing."""

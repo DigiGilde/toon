@@ -1,4 +1,4 @@
-"""toon group create, toon site create and toon site link."""
+"""toon group create, toon site create, toon site link and toon site shielding."""
 
 from __future__ import annotations
 
@@ -288,4 +288,38 @@ def cmd_site_link(args: argparse.Namespace) -> int:
             f"'--site-id {site_id}' (CLI)."
         )
     print(f"Set up the workflow: {host}/{group}/{site}/deploy")
+    return 0
+
+
+def cmd_site_shielding(args: argparse.Namespace) -> int:
+    host = _setup(args)
+    group, site = _split_site(args.site, "The site")
+    token = _get_member_token(host)
+
+    response = _request(
+        host,
+        "PUT",
+        f"{host}/-/api/v1/sites/{group}/{site}/sandbox",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"sandbox": args.shielding},
+        timeout=30.0,
+    )
+    if response is None:
+        return 1
+    if response.status_code != 200:
+        _print_problem_detail(response)
+        return 1
+    state = _problem_data(response).get("sandbox")
+    if type(state) is not bool:
+        print("Error: unexpected answer without the site's shielding", file=sys.stderr)
+        return 1
+    if state:
+        print(f"Shielding from other sites is on for {group}/{site}.")
+    else:
+        print(f"Shielding from other sites is off for {group}/{site}.")
+        print(
+            "Its pages now share their web address with every other site without shielding: "
+            "keep it off only for content you trust."
+        )
+        print(f"Turn it back on with: toon site shielding {group}/{site} --on --host {host}")
     return 0

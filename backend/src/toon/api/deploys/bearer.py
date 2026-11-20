@@ -12,25 +12,27 @@ from toon import messages
 from toon.api.errors import WWW_AUTHENTICATE_BEARER, locale_from_header, problem_response
 from toon.messages import Msg
 
-_DEPLOY_PATH_RE = re.compile(r"^/-/api/v1/sites/[^/]+/[^/]+/deploys$")
-_PREVIEW_PATH_RE = re.compile(r"^/-/api/v1/sites/[^/]+/[^/]+/previews/[^/]+$")
+_DEPLOY_PATH_RE = re.compile(r"^/-/api/v1/sites/[^/]+/[^/]+/deploys\Z")
+_PREVIEW_PATH_RE = re.compile(r"^/-/api/v1/sites/[^/]+/[^/]+/previews/[^/]+\Z")
 # The CLI's own session endpoints (api/cli.py) authenticate with the access
 # token as well.
 CLI_SESSION_PATH = "/-/api/v1/cli/session"
 CLI_WHOAMI_PATH = "/-/api/v1/cli/whoami"
-# Creating a group or a site and linking a repository (api/admin/) also
-# take the CLI token; nothing else in the admin API does.
+# Creating a group or a site, linking a repository and turning a site's
+# shielding on or off (api/admin/) also take the CLI token; nothing else in
+# the admin API does.
 GROUP_CREATE_PATH = "/-/api/v1/groups"
-_SITE_CREATE_PATH_RE = re.compile(r"^/-/api/v1/groups/[^/]+/sites$")
-_REPOSITORY_LINK_PATH_RE = re.compile(r"^/-/api/v1/sites/[^/]+/[^/]+/repository$")
+_SITE_CREATE_PATH_RE = re.compile(r"^/-/api/v1/groups/[^/]+/sites\Z")
+_REPOSITORY_LINK_PATH_RE = re.compile(r"^/-/api/v1/sites/[^/]+/[^/]+/repository\Z")
+_SHIELDING_PATH_RE = re.compile(r"^/-/api/v1/sites/[^/]+/[^/]+/sandbox\Z")
 # Deleting a feedback item and the feedback settings stay session only.
 _FEEDBACK_PATH = r"^/-/api/v1/sites/[^/]+/[^/]+/feedback"
 _FEEDBACK_CLI_ENDPOINTS = (
-    ("GET", re.compile(_FEEDBACK_PATH + r"$")),
-    ("GET", re.compile(_FEEDBACK_PATH + r"/[^/]+$")),
-    ("GET", re.compile(_FEEDBACK_PATH + r"/[^/]+/screenshot$")),
-    ("PUT", re.compile(_FEEDBACK_PATH + r"/[^/]+/status$")),
-    ("POST", re.compile(_FEEDBACK_PATH + r"/[^/]+/replies$")),
+    ("GET", re.compile(_FEEDBACK_PATH + r"\Z")),
+    ("GET", re.compile(_FEEDBACK_PATH + r"/[^/]+\Z")),
+    ("GET", re.compile(_FEEDBACK_PATH + r"/[^/]+/screenshot\Z")),
+    ("PUT", re.compile(_FEEDBACK_PATH + r"/[^/]+/status\Z")),
+    ("POST", re.compile(_FEEDBACK_PATH + r"/[^/]+/replies\Z")),
 )
 
 
@@ -50,17 +52,23 @@ def is_repository_link_endpoint(method_: str, path: str) -> bool:
     return method_ == "PUT" and bool(_REPOSITORY_LINK_PATH_RE.match(path))
 
 
+def is_shielding_endpoint(method_: str, path: str) -> bool:
+    return method_ == "PUT" and bool(_SHIELDING_PATH_RE.match(path))
+
+
 def is_feedback_cli_endpoint(method_: str, path: str) -> bool:
     return any(method_ == method and pattern.match(path) for method, pattern in _FEEDBACK_CLI_ENDPOINTS)
 
 
 def accepts_bearer(method_: str, path: str) -> bool:
     """The deploy endpoints, the CLI's logout and whoami, group and site
-    creation, linking a repository, and the feedback routes the CLI uses."""
+    creation, linking a repository, a site's shielding, and the feedback
+    routes the CLI uses."""
     if (
         is_deploy_endpoint(method_, path)
         or is_creation_endpoint(method_, path)
         or is_repository_link_endpoint(method_, path)
+        or is_shielding_endpoint(method_, path)
         or is_feedback_cli_endpoint(method_, path)
     ):
         return True

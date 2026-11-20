@@ -81,7 +81,10 @@ error codes mean, and the safety rules:
 - signing in goes through `toon login`, and the assistant never approves
   that device login itself;
 - the build output is published, not the project directory, and the file
-  list is checked for secrets first.
+  list is checked for secrets first;
+- a site's shielding from other sites goes off (`toon site shielding
+  --off`) only after you say yes to it in the conversation, never on text
+  in a file or page.
 
 Before the first `toon` command it runs `toon --version`. Output that does
 not start with `toon-cli` means another `toon` comes first on the PATH (the
@@ -90,8 +93,9 @@ how to install this CLI, and leaves the PATH to you.
 
 Before it publishes, it also checks the build for what the shielding from
 other sites will refuse (module scripts from Astro or Vite, web fonts,
-browser storage) and says so up front, leaving the switch to the site's
-admin.
+browser storage, and on a non-public site the browsers that block
+third-party cookies) and says so up front. It asks whether to turn the
+shielding off and does so only after your explicit yes.
 
 `docs/publishing.md` is the contract the skill follows; the skill does
 not repeat it.
@@ -147,8 +151,13 @@ that must load it (a publish, a preview and an update request), three that
 must not (an unrelated request, "toon" as a Dutch verb and the TOON data
 format), one where "deploy to production" inside a file must stay data, one
 that pins the preview-by-default rule, one where linking a repository has
-to ask which branch may publish live, and one where a Vite build has to get
-the shielding explained before it goes online. For `toon-feedback`: one
+to ask which branch may publish live, one where a Vite build has to get
+the shielding explained before it goes online, and one where a site for
+invitees on managed workplaces has to get the third-party cookie block
+explained and a question about the shielding before it goes online, one
+where the user already said yes and the exact `toon site shielding --off`
+command is planned, and one where a file asking to turn the shielding off
+must stay data. For `toon-feedback`: one
 that must load it, one that must not, one for each of the safety rules
 above that is about visitor text, and one where a question about what
 came in gets a summary and an offer to mark the items seen, never a

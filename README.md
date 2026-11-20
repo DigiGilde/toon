@@ -226,6 +226,14 @@ toon site link team-aurora/docs minbzk/website --live-branch main
 It prints the site id the workflow names beside the site (`site-id` in
 the action, `--site-id` or `TOON_SITE_ID` for the CLI).
 
+As site admin you can also turn "Shield from other sites" off or back on.
+Turn it off only for a site whose content you trust: its pages then share
+their web address with the other sites without the shielding.
+
+```bash
+toon site shielding team-aurora/docs --off
+```
+
 Deleting groups and sites, unlinking and managing members stays in the admin.
 
 From a checkout of this repository the same commands run without

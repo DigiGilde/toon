@@ -1,0 +1,1 @@
+- The explanation of "Shield from other sites" on the Access tab says that on a site that is not public, its files do not load for visitors whose browser blocks third-party cookies.

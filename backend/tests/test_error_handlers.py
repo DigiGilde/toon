@@ -134,7 +134,7 @@ async def test_http_exception_inside_the_api_becomes_problem_json() -> None:
 REFUSAL_KEY = "NOT_ADMIN"
 
 
-def _refusal_app(status: int, *, mark_audited: bool = False) -> FastAPI:
+def _refusal_app(status: int, *, mark_audited: bool = False, key: str = REFUSAL_KEY) -> FastAPI:
     app = FastAPI()
     app.state.settings = SimpleNamespace(behind_proxy=False)
     register_error_handlers(app)
@@ -143,7 +143,7 @@ def _refusal_app(status: int, *, mark_audited: bool = False) -> FastAPI:
     async def _things(slug: str, request: Request) -> None:
         if mark_audited:
             request.state.audit_written = True
-        raise ApiError(status, REFUSAL_KEY)
+        raise ApiError(status, key)
 
     @app.post("/outside/{slug}")
     async def _outside(slug: str) -> None:
@@ -229,6 +229,21 @@ async def test_conflict_is_not_recorded() -> None:
     response = await _fetch_from(app, "POST", "/-/api/v1/things/someone")
     assert response.status_code == 409
     assert recorder.records == []
+
+
+async def test_a_conflict_whose_ground_is_the_caller_is_recorded() -> None:
+    """`SANDBOX_REQUIRED` is a 409, but what refuses is the caller's platform
+    role: a site admin trying to lower a preview's isolation must leave a row."""
+    app = _refusal_app(409, key="SANDBOX_REQUIRED")
+    recorder = install_audit_recorder(app)
+    response = await _fetch_from(app, "POST", "/-/api/v1/things/someone")
+    assert response.status_code == 409
+
+    record = recorder.only()
+    assert record.action == vocabulary.ADMIN_ACCESS
+    assert record.result == vocabulary.REFUSED
+    assert record.reason_code == "SANDBOX_REQUIRED"
+    assert record.refs == {"method": "POST", "route": "/-/api/v1/things/{slug}", "status": 409}
 
 
 async def test_refusal_outside_the_api_is_not_recorded() -> None:

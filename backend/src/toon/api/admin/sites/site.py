@@ -141,7 +141,7 @@ class ExternalSourcesBody(SessionBody):
     )
 
 
-class SandboxBody(SessionBody):
+class SandboxBody(ApiModel):
     """Whether the content of this site is isolated from the other sites."""
 
     model_config = ConfigDict(json_schema_extra={"examples": [{"sandbox": True}]})
@@ -549,19 +549,21 @@ def add_routes(router: APIRouter) -> None:
             "and puts that site back on the origin it shares with all other sites. The change "
             "applies immediately to every subsequent request for the content, for the live site, "
             "previews and version views.\n\n"
-            "**Who can call this:** effective site role `admin`, with a valid CSRF header."
+            "Also allowed with the CLI token from `toon login` (`toon site shielding`), then without a CSRF "
+            "header. A CI ID token changes nothing.\n\n"
+            "**Who can call this:** effective site role `admin`, with a valid CSRF header or the CLI token."
         ),
-        responses=_errors(_ERROR_CSRF, _ERROR_SITE_ROLE, _ERROR_SITE, _ERROR_SANDBOX_REQUIRED),
+        responses=_errors(_ERROR_CSRF, _ERROR_CLI_TOKEN, _ERROR_SITE_ROLE, _ERROR_SITE, _ERROR_SANDBOX_REQUIRED),
     )
     async def set_sandbox(
         request: Request,
         group_slug: str,
         site_slug: str,
         body: SandboxBody,
-        _csrf: Csrf,
-        member: ActiveMember,
+        creator: Annotated[Creator, Depends(require_creator)],
         db: Db,
     ) -> SiteOut:
+        member = creator.member
         group, site = await _site_with_role(db, member, group_slug, site_slug, Role.ADMIN)
         # A preview's content host shares its parent domain with every other
         # ZAD tenant, so an unshielded page there could set cookies for them.
@@ -579,7 +581,7 @@ def add_routes(router: APIRouter) -> None:
             request,
             member,
             "site_sandbox",
-            {"group": group_slug, "site": site_slug, "sandbox": body.sandbox},
+            {"group": group_slug, "site": site_slug, "sandbox": body.sandbox, **creator.audit_refs()},
         )
         return await _one_site_json(db, group, site)
 

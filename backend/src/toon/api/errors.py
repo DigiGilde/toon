@@ -47,6 +47,10 @@ WWW_AUTHENTICATE_BEARER = {"WWW-Authenticate": 'Bearer realm="toon", error="inva
 # that would give away whether the thing exists.
 _MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
+# A 409 is a collision with the state of the data, the same for every caller,
+# except for these codes: their ground is who is asking, so they are refusals.
+_REFUSING_CONFLICTS = frozenset({"SANDBOX_REQUIRED"})
+
 # BundleError reason codes that mark an exceeded limit (413); every other
 # bundle error is an invalid archive (422).
 _LIMIT_REASONS = frozenset({"FILE_TOO_LARGE", "TOTAL_TOO_LARGE", "TOO_MANY_FILES"})
@@ -230,12 +234,14 @@ def _is_api_path(request: Request) -> bool:
     return request.url.path.startswith(API_PATH_PREFIX)
 
 
-def _is_audited_refusal(request: Request, status: int) -> bool:
+def _is_audited_refusal(request: Request, error: ApiError) -> bool:
     if not _is_api_path(request):
         return False
-    if status in (403, 429):
+    if error.status in (403, 429):
         return True
-    return status in (401, 404) and request.method in _MUTATING_METHODS
+    if error.status == 409:
+        return error.code in _REFUSING_CONFLICTS
+    return error.status in (401, 404) and request.method in _MUTATING_METHODS
 
 
 async def _audit_refusal(request: Request, error: ApiError) -> None:
@@ -251,7 +257,7 @@ async def _audit_refusal(request: Request, error: ApiError) -> None:
     log: AuditLog | None = getattr(request.app.state, "audit_log", None)
     if log is None or getattr(request.state, "audit_written", False):
         return
-    if not _is_audited_refusal(request, error.status):
+    if not _is_audited_refusal(request, error):
         return
     # A route that authenticated its member some other way than the session
     # cookie (a CLI token, api/admin/dependencies.py:require_creator) leaves it here.

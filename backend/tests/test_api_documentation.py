@@ -399,7 +399,7 @@ class TestSecurity:
             for method_, operation in path_part.items():
                 assert operation["security"], f"{method_} {path}"
 
-    def test_only_the_deploy_cli_session_creation_link_and_cli_feedback_endpoints_accept_a_token(
+    def test_only_the_deploy_cli_session_creation_link_shielding_and_cli_feedback_endpoints_accept_a_token(
         self, schema
     ) -> None:
         feedback = "/-/api/v1/sites/{group_slug}/{site_slug}/feedback"
@@ -417,6 +417,7 @@ class TestSecurity:
             ("/-/api/v1/groups", "post"),
             ("/-/api/v1/groups/{group_slug}/sites", "post"),
             ("/-/api/v1/sites/{group_slug}/{site_slug}/repository", "put"),
+            ("/-/api/v1/sites/{group_slug}/{site_slug}/sandbox", "put"),
             (feedback, "get"),
             (f"{feedback}/{{item_id}}", "get"),
             (f"{feedback}/{{item_id}}/screenshot", "get"),

@@ -506,6 +506,9 @@ describe('TabAccess: shielding from other sites', () => {
     // And what keeps working, or turning it off looks like the only way to
     // get a page with styling and scripts at all.
     expect(section.text()).toContain('Eigen stijlen, gewone scripts en afbeeldingen laden gewoon');
+    // Except for a non-public site whose visitor's browser blocks third-party
+    // cookies: under the shielding every file the page loads is third-party.
+    expect(section.text()).toContain('cookies van derden blokkeert');
     // Fonts and a script reading the site's own files do not survive the
     // opaque origin. Claiming otherwise sends a publisher hunting elsewhere.
     expect(section.text()).toContain('Weblettertypen laden niet');

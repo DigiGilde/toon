@@ -1,8 +1,8 @@
-"""Creating a group or a site and linking a repository with the CLI token
-(`toon group create`, `toon site create`, `toon site link`), and the edge of
-that: those three routes of api/admin/ take a bearer, and so do the five
-feedback routes the CLI uses (test_feedback_admin_api.py), no other admin
-route does.
+"""Creating a group or a site, linking a repository and turning a site's
+shielding on or off with the CLI token (`toon group create`, `toon site
+create`, `toon site link`, `toon site shielding`), and the edge of that: those
+four routes of api/admin/ take a bearer, and so do the five feedback routes
+the CLI uses (test_feedback_admin_api.py), no other admin route does.
 
 The app under test wires the admin router, the CLI router and
 BearerOutsideDeploysMiddleware the way main.py does. The full stack (origin
@@ -28,7 +28,7 @@ from sqlalchemy.pool import NullPool
 from toon.api import cli as cli_api
 from toon.api.admin import dependencies, make_admin_router
 from toon.api.admin.dependencies import CREATION_MAX_PER_WINDOW, CREATION_WINDOW_S
-from toon.api.deploys import BearerOutsideDeploysMiddleware
+from toon.api.deploys import BearerOutsideDeploysMiddleware, accepts_bearer
 from toon.api.errors import register_error_handlers
 from toon.audit.log import AuditLog
 from toon.audit.pseudonymisation import pseudonymise
@@ -737,6 +737,351 @@ class TestLinkRepositoryWithTheCliToken:
         assert await _linked(factory) is None
 
 
+# -- Turning a site's shielding on or off with the CLI token ------------------------
+
+
+SANDBOX = f"{BASE}/sites/team/docs/sandbox"
+JWT_SHAPED = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ4In0.c2ln"
+
+
+async def _site_with_roles(
+    factory, *, in_group: dict[Member, Role] | None = None, on_site: dict[Member, Role] | None = None
+) -> None:
+    group = await _group(factory, "team", members=in_group)
+    async with factory() as db:
+        site = Site(group_id=group.id, slug="docs", title="Docs", access_base=AccessBase.SITE_TEAM)
+        db.add(site)
+        await db.flush()
+        for member, role in (on_site or {}).items():
+            db.add(SiteMember(site_id=site.id, member_id=member.id, role=role))
+        await db.commit()
+
+
+async def _shielded(factory) -> bool:
+    return (await _site(factory, "team", "docs")).sandbox
+
+
+def _preview(app) -> None:
+    app.state.settings = app.state.settings.model_copy(update={"environment": "preview"})
+
+
+async def _caller(client, app, factory, auth: str, member: Member) -> dict[str, str]:
+    """The headers of `member` calling with a CLI token, or with a session and
+    its CSRF header."""
+    if auth == "cli":
+        return _bearer(await _token(factory, member))
+    return _login(client, app, member.sso_subject)
+
+
+# (where the role is held, the role, the status, the code). The effective
+# role is the widest of group and site role, the rule of the session path.
+SHIELDING_ROLES = [
+    ("group", Role.ADMIN, 200, None),
+    ("site", Role.ADMIN, 200, None),
+    ("group", Role.EDITOR, 403, "INSUFFICIENT_ROLE"),
+    ("site", Role.EDITOR, 403, "INSUFFICIENT_ROLE"),
+    ("group", Role.READER, 403, "INSUFFICIENT_ROLE"),
+    ("site", Role.READER, 403, "INSUFFICIENT_ROLE"),
+    (None, None, 404, "UNKNOWN_SITE"),
+]
+
+
+class TestShieldingRolesAndAuth:
+    """Every role against both ways in, outside a preview: the CLI token gets
+    exactly what the session gets, without the CSRF header."""
+
+    @pytest.mark.parametrize("auth", ["session", "cli"])
+    @pytest.mark.parametrize(
+        ("held", "role", "status", "code"),
+        SHIELDING_ROLES,
+        ids=[f"{held}-{role}" if held else "no-role" for held, role, _, _ in SHIELDING_ROLES],
+    )
+    @pytest.mark.parametrize("sandbox", [False, True], ids=["off", "on"])
+    async def test_the_effective_site_admin_and_nobody_else(
+        self, client, app, factory, auth, held, role, status, code, sandbox
+    ):
+        member = await _member(factory, "lid")
+        await _site_with_roles(
+            factory,
+            in_group={member: role} if held == "group" else None,
+            on_site={member: role} if held == "site" else None,
+        )
+        # Start from the opposite, so a refusal that changed it anyway shows.
+        async with factory() as db:
+            await db.execute(update(Site).where(Site.slug == "docs").values(sandbox=not sandbox))
+            await db.commit()
+        headers = await _caller(client, app, factory, auth, member)
+
+        response = await client.put(SANDBOX, json={"sandbox": sandbox}, headers=headers)
+
+        if code is None:
+            assert response.status_code == status, response.text
+            assert response.json()["sandbox"] is sandbox
+            assert await _shielded(factory) is sandbox
+        else:
+            _problem(response, status, code)
+            assert await _shielded(factory) is not sandbox
+
+    @pytest.mark.parametrize("auth", ["session", "cli"])
+    async def test_a_platform_admin_without_a_site_role_may_not(self, client, app, factory, auth):
+        member = await _member(factory, "platform", platform_role=PlatformRole.ADMIN)
+        await _site_with_roles(factory)
+        headers = await _caller(client, app, factory, auth, member)
+
+        response = await client.put(SANDBOX, json={"sandbox": False}, headers=headers)
+
+        _problem(response, 403, "INSUFFICIENT_ROLE")
+        assert await _shielded(factory) is True
+
+
+class TestShieldingInAPreview:
+    """A preview's content host shares its parent domain with every ZAD
+    tenant, so only a platform admin turns the shielding off there, with the
+    CLI token as with the session."""
+
+    @pytest.mark.parametrize("auth", ["session", "cli"])
+    async def test_a_site_admin_may_not_turn_it_off(self, client, app, factory, auth):
+        _preview(app)
+        member = await _member(factory, "beheerder")
+        await _site_with_roles(factory, on_site={member: Role.ADMIN})
+        headers = await _caller(client, app, factory, auth, member)
+
+        response = await client.put(SANDBOX, json={"sandbox": False}, headers=headers)
+
+        body = _problem(response, 409, "SANDBOX_REQUIRED")
+        assert body["detail"] == "In a preview, only a platform administrator can turn off shielding from other sites."
+        assert await _shielded(factory) is True
+        assert await _rows(factory, "site_sandbox") == []
+
+    @pytest.mark.parametrize("auth", ["session", "cli"])
+    async def test_the_refusal_is_audited_as_the_member(self, client, app, factory, auth):
+        _preview(app)
+        member = await _member(factory, "beheerder")
+        await _site_with_roles(factory, on_site={member: Role.ADMIN})
+        headers = await _caller(client, app, factory, auth, member)
+
+        await client.put(SANDBOX, json={"sandbox": False}, headers=headers)
+
+        [row] = await _rows(factory, "admin_access")
+        assert (row.result, row.reason_code) == ("refused", "SANDBOX_REQUIRED")
+        assert row.actor_pseudonym == pseudonymise(PEPPER, "beheerder")
+        refs = {"method": "PUT", "route": "/-/api/v1/sites/{group_slug}/{site_slug}/sandbox", "status": 409}
+        if auth == "cli":
+            refs |= {"via": "cli", "cli_session": await _cli_session_id(factory, member)}
+        assert row.refs == refs
+
+    @pytest.mark.parametrize("auth", ["session", "cli"])
+    async def test_a_site_admin_may_turn_it_on(self, client, app, factory, auth):
+        _preview(app)
+        member = await _member(factory, "beheerder")
+        await _site_with_roles(factory, on_site={member: Role.ADMIN})
+        async with factory() as db:
+            await db.execute(update(Site).where(Site.slug == "docs").values(sandbox=False))
+            await db.commit()
+        headers = await _caller(client, app, factory, auth, member)
+
+        response = await client.put(SANDBOX, json={"sandbox": True}, headers=headers)
+
+        assert response.status_code == 200, response.text
+        assert await _shielded(factory) is True
+
+    @pytest.mark.parametrize("auth", ["session", "cli"])
+    async def test_a_platform_admin_who_is_site_admin_may_turn_it_off(self, client, app, factory, auth):
+        _preview(app)
+        member = await _member(factory, "platform", platform_role=PlatformRole.ADMIN)
+        await _site_with_roles(factory, in_group={member: Role.ADMIN})
+        headers = await _caller(client, app, factory, auth, member)
+
+        response = await client.put(SANDBOX, json={"sandbox": False}, headers=headers)
+
+        assert response.status_code == 200, response.text
+        assert await _shielded(factory) is False
+
+    @pytest.mark.parametrize("auth", ["session", "cli"])
+    async def test_a_platform_admin_without_a_site_role_may_not(self, client, app, factory, auth):
+        _preview(app)
+        member = await _member(factory, "platform", platform_role=PlatformRole.ADMIN)
+        await _site_with_roles(factory)
+        headers = await _caller(client, app, factory, auth, member)
+
+        response = await client.put(SANDBOX, json={"sandbox": False}, headers=headers)
+
+        _problem(response, 403, "INSUFFICIENT_ROLE")
+        assert await _shielded(factory) is True
+
+    @pytest.mark.parametrize("auth", ["session", "cli"])
+    async def test_an_editor_is_refused_on_the_role_first(self, client, app, factory, auth):
+        _preview(app)
+        member = await _member(factory, "redacteur")
+        await _site_with_roles(factory, on_site={member: Role.EDITOR})
+        headers = await _caller(client, app, factory, auth, member)
+
+        response = await client.put(SANDBOX, json={"sandbox": False}, headers=headers)
+
+        _problem(response, 403, "INSUFFICIENT_ROLE")
+        assert await _shielded(factory) is True
+
+
+class TestShieldingWithTheCliToken:
+    async def test_the_audit_row_says_cli(self, client, factory):
+        member = await _member(factory, "beheerder")
+        await _site_with_roles(factory, on_site={member: Role.ADMIN})
+        token = await _token(factory, member)
+
+        await client.put(SANDBOX, json={"sandbox": False}, headers=_bearer(token))
+
+        [row] = await _rows(factory, "site_sandbox")
+        assert row.result == "allowed"
+        assert row.actor_pseudonym == pseudonymise(PEPPER, "beheerder")
+        assert row.refs == {
+            "group": "team",
+            "site": "docs",
+            "sandbox": False,
+            "via": "cli",
+            "cli_session": await _cli_session_id(factory, member),
+        }
+
+    async def test_the_session_path_records_no_cli(self, client, app, factory):
+        member = await _member(factory, "beheerder")
+        await _site_with_roles(factory, on_site={member: Role.ADMIN})
+
+        await client.put(SANDBOX, json={"sandbox": False}, headers=_login(client, app, "beheerder"))
+
+        [row] = await _rows(factory, "site_sandbox")
+        assert row.refs == {"group": "team", "site": "docs", "sandbox": False}
+
+    async def test_an_editor_is_refused_and_audited_as_the_cli_member(self, client, factory):
+        member = await _member(factory, "redacteur")
+        await _site_with_roles(factory, in_group={member: Role.EDITOR})
+
+        response = await client.put(SANDBOX, json={"sandbox": False}, headers=_bearer(await _token(factory, member)))
+
+        _problem(response, 403, "INSUFFICIENT_ROLE")
+        [row] = await _rows(factory, "admin_access")
+        assert row.result == "refused"
+        assert row.actor_pseudonym == pseudonymise(PEPPER, "redacteur")
+        assert row.refs["via"] == "cli"
+        assert await _rows(factory, "site_sandbox") == []
+
+    async def test_a_field_from_a_newer_cli_is_ignored_not_refused(self, client, factory):
+        member = await _member(factory, "beheerder")
+        await _site_with_roles(factory, on_site={member: Role.ADMIN})
+
+        response = await client.put(
+            SANDBOX, json={"sandbox": False, "fromANewerCli": True}, headers=_bearer(await _token(factory, member))
+        )
+
+        assert response.status_code == 200, response.text
+        assert await _shielded(factory) is False
+
+    async def test_a_body_without_the_switch_is_422(self, client, factory):
+        member = await _member(factory, "beheerder")
+        await _site_with_roles(factory, on_site={member: Role.ADMIN})
+
+        response = await client.put(SANDBOX, json={}, headers=_bearer(await _token(factory, member)))
+
+        assert response.status_code == 422, response.text
+        assert await _shielded(factory) is True
+
+
+class TestShieldingRefusals:
+    """Every ground for refusing the caller, each one leaving the shielding on."""
+
+    @pytest_asyncio.fixture
+    async def admin(self, factory) -> Member:
+        member = await _member(factory, "beheerder")
+        await _site_with_roles(factory, on_site={member: Role.ADMIN})
+        return member
+
+    async def test_a_ci_id_token_changes_nothing(self, client, admin, factory):
+        response = await client.put(SANDBOX, json={"sandbox": False}, headers=_bearer(JWT_SHAPED))
+
+        body = _problem(response, 401, "TOKEN_INVALID")
+        assert "toon login" in body["detail"]
+        assert response.headers["WWW-Authenticate"] == WWW_AUTHENTICATE
+        assert await _shielded(factory) is True
+
+    async def test_an_unknown_cli_token_is_401(self, client, admin, factory):
+        response = await client.put(SANDBOX, json={"sandbox": False}, headers=_bearer("tooncli_abc_def"))
+
+        _problem(response, 401, "TOKEN_INVALID")
+        assert response.headers["WWW-Authenticate"] == WWW_AUTHENTICATE
+        assert await _shielded(factory) is True
+
+    async def test_a_revoked_cli_token_is_401(self, client, admin, factory):
+        token = await _token(factory, admin)
+        async with factory() as db:
+            await cli.revoke(db, uuid.UUID(await _cli_session_id(factory, admin)))
+
+        response = await client.put(SANDBOX, json={"sandbox": False}, headers=_bearer(token))
+
+        _problem(response, 401, "TOKEN_INVALID")
+        assert await _shielded(factory) is True
+
+    async def test_an_expired_cli_token_is_401(self, client, admin, factory):
+        token = await _token(factory, admin)
+        async with factory() as db:
+            await db.execute(update(CliSession).values(access_expires_at=datetime.now(UTC) - timedelta(minutes=1)))
+            await db.commit()
+
+        response = await client.put(SANDBOX, json={"sandbox": False}, headers=_bearer(token))
+
+        _problem(response, 401, "TOKEN_INVALID")
+        assert await _shielded(factory) is True
+
+    async def test_a_deactivated_admin_is_403(self, client, admin, factory):
+        token = await _token(factory, admin)
+        async with factory() as db:
+            await db.execute(update(Member).where(Member.id == admin.id).values(status=MemberStatus.DEACTIVATED))
+            await db.commit()
+
+        response = await client.put(SANDBOX, json={"sandbox": False}, headers=_bearer(token))
+
+        _problem(response, 403, "MEMBER_NOT_ACTIVE")
+        assert await _shielded(factory) is True
+
+    async def test_a_session_without_csrf_is_403(self, client, app, admin, factory):
+        _login(client, app, "beheerder")
+
+        response = await client.put(SANDBOX, json={"sandbox": False})
+
+        _problem(response, 403, "CSRF_INVALID")
+        assert await _shielded(factory) is True
+
+    async def test_no_session_and_no_token_is_401(self, client, admin, factory):
+        response = await client.put(SANDBOX, json={"sandbox": False})
+
+        _problem(response, 401, "NO_SESSION")
+        assert await _shielded(factory) is True
+
+    async def test_a_valid_session_does_not_rescue_a_bad_token(self, client, app, admin, factory):
+        headers = _login(client, app, "beheerder")
+
+        response = await client.put(
+            SANDBOX, json={"sandbox": False}, headers={**headers, "Authorization": "Bearer tooncli_abc_def"}
+        )
+
+        _problem(response, 401, "TOKEN_INVALID")
+        assert await _shielded(factory) is True
+
+    async def test_an_editors_token_is_not_rescued_by_an_admins_session(self, client, app, admin, factory):
+        """With a bearer header the bearer's member decides, not the session
+        riding along."""
+        editor = await _member(factory, "redacteur")
+        async with factory() as db:
+            site = await _site(factory, "team", "docs")
+            db.add(SiteMember(site_id=site.id, member_id=editor.id, role=Role.EDITOR))
+            await db.commit()
+        headers = _login(client, app, "beheerder")
+
+        response = await client.put(
+            SANDBOX, json={"sandbox": False}, headers={**headers, **_bearer(await _token(factory, editor))}
+        )
+
+        _problem(response, 403, "INSUFFICIENT_ROLE")
+        assert await _shielded(factory) is True
+
+
 # -- The creation budget ---------------------------------------------------------
 
 
@@ -822,6 +1167,7 @@ _OPENED = frozenset(
         ("POST", f"{BASE}/groups"),
         ("POST", f"{BASE}/groups/x/sites"),
         ("PUT", f"{BASE}/sites/x/x/repository"),
+        ("PUT", f"{BASE}/sites/x/x/sandbox"),
         ("GET", f"{BASE}/sites/x/x/feedback"),
         ("GET", f"{BASE}/sites/x/x/feedback/x"),
         ("GET", f"{BASE}/sites/x/x/feedback/x/screenshot"),
@@ -857,8 +1203,40 @@ async def test_a_valid_cli_token_on_any_other_admin_route_is_refused(client, fac
     assert response.headers["WWW-Authenticate"] == WWW_AUTHENTICATE
     assert body["detail"] == (
         "Bearer authentication is accepted only on the deploy and CLI endpoints, for creating a group or site, "
-        "for linking a repository and for reading, marking and answering feedback."
+        "for linking a repository, for turning a site's shielding on or off and for reading, marking and "
+        "answering feedback."
     )
+
+
+# Every path shape that takes a bearer. `$` also matches before a trailing
+# newline, which a `%0A` at the end of the path decodes to.
+_BEARER_SHAPES = sorted(
+    _OPENED | {("POST", f"{BASE}/sites/x/x/deploys"), ("DELETE", f"{BASE}/sites/x/x/previews/x")}
+)
+
+
+@pytest.mark.parametrize(("method_", "path"), _BEARER_SHAPES, ids=[f"{m} {p}" for m, p in _BEARER_SHAPES])
+async def test_a_trailing_newline_falls_outside_the_bearer_allowlist(method_, path):
+    """After a fixed last segment the newline is outside the allowlist. After
+    a path parameter it is part of that parameter, which `[^/]+` takes in the
+    allowlist and in the route alike: the same endpoint, with an id that
+    matches nothing."""
+    ends_in_a_parameter = path.endswith("/x")
+
+    assert accepts_bearer(method_, path)
+    assert accepts_bearer(method_, path + "\n") is ends_in_a_parameter
+
+
+async def test_a_bearer_on_a_path_ending_in_an_encoded_newline_is_refused_before_routing(client, factory):
+    member = await _member(factory, "beheerder")
+    await _site_with_roles(factory, on_site={member: Role.ADMIN})
+
+    response = await client.put(
+        f"{SANDBOX}%0A", json={"sandbox": False}, headers=_bearer(await _token(factory, member))
+    )
+
+    _problem(response, 401, "BEARER_NOT_ACCEPTED")
+    assert await _shielded(factory) is True
 
 
 class TestNeighbouringRoutesStayShut:
@@ -1003,6 +1381,14 @@ class TestNeighbouringRoutesStayShut:
             ("PUT", f"{BASE}/sites/team/docs/feedback/x/replies"),
             ("PUT", f"{BASE}/sites/team/docs/feedback-settings"),
             ("GET", f"{BASE}/sites/team/docs/feedback-settings"),
+            ("GET", f"{BASE}/sites/team/docs/sandbox"),
+            ("POST", f"{BASE}/sites/team/docs/sandbox"),
+            ("DELETE", f"{BASE}/sites/team/docs/sandbox"),
+            ("PUT", f"{BASE}/sites/team/docs/sandbox/"),
+            ("PUT", f"{BASE}/sites/team/sandbox"),
+            ("PUT", f"{BASE}/sites/team/docs/extra/sandbox"),
+            ("PUT", f"{BASE}/groups/team/sandbox"),
+            ("PUT", f"{BASE}/sites/team/docs/external-sources"),
         ],
     )
     async def test_the_opened_paths_open_only_for_their_exact_method_and_shape(

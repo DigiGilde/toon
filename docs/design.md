@@ -1194,8 +1194,9 @@ comes from the SPA, which ships with the server, or from a platform admin
 calling by hand (the audit lookups and the IP reveal), so a stray key is a
 client mistake or an attempt to set what the route does not offer. A body a
 separately distributed client sends ignores an unknown field instead: the CLI
-(creating a group or a site, linking a repository, the `toon login` device flow
-and logout, setting the status of a feedback item and replying to one) may run
+(creating a group or a site, linking a repository, turning a site's shielding
+on or off, the `toon login` device flow and logout, setting the status of a
+feedback item and replying to one) may run
 a different version than the server, and a newer CLI may send a field an older
 server does not know yet.
 

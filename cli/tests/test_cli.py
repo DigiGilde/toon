@@ -5568,6 +5568,171 @@ def test_site_link_names_the_repository_as_sent_without_one_in_the_answer_and_cl
     assert capsys.readouterr().out.splitlines()[0] == "Linked github.com/MinBZK/Prive [31m to team/docs."
 
 
+# --- site shielding ---------------------------------------------------------
+
+
+def _shielding_answer(sandbox: Any) -> dict:
+    return {"groupSlug": "team", "slug": "docs", "title": "Docs", "sandbox": sandbox}
+
+
+def test_site_shielding_off_puts_false_and_warns(stub_server, host, token_env, capsys):
+    stub_server.responder = _json_responder(200, _shielding_answer(False))
+
+    code = cli.main(["site", "shielding", "team/docs", "--off", "--host", host])
+
+    assert code == 0
+    record = stub_server.requests[0]
+    assert (record["method"], record["path"]) == ("PUT", "/-/api/v1/sites/team/docs/sandbox")
+    assert record["headers"]["Authorization"] == "Bearer tok"
+    assert json.loads(record["body"]) == {"sandbox": False}
+    assert capsys.readouterr().out.splitlines() == [
+        "Shielding from other sites is off for team/docs.",
+        (
+            "Its pages now share their web address with every other site without shielding: "
+            "keep it off only for content you trust."
+        ),
+        f"Turn it back on with: toon site shielding team/docs --on --host {host}",
+    ]
+
+
+def test_site_shielding_on_puts_true(stub_server, host, token_env, capsys):
+    stub_server.responder = _json_responder(200, _shielding_answer(True))
+
+    code = cli.main(["site", "shielding", "team/docs", "--on", "--host", host])
+
+    assert code == 0
+    assert json.loads(stub_server.requests[0]["body"]) == {"sandbox": True}
+    assert capsys.readouterr().out.splitlines() == ["Shielding from other sites is on for team/docs."]
+
+
+def test_site_shielding_prints_the_state_the_server_answers_not_the_flag(stub_server, host, token_env, capsys):
+    stub_server.responder = _json_responder(200, _shielding_answer(True))
+
+    code = cli.main(["site", "shielding", "team/docs", "--off", "--host", host])
+
+    assert code == 0
+    assert capsys.readouterr().out.splitlines() == ["Shielding from other sites is on for team/docs."]
+
+
+def test_site_shielding_uses_the_stored_session_and_host(stub_server, host, isolated_cwd, capsys):
+    _store_session(host, access="member-access")
+    stub_server.responder = _json_responder(200, _shielding_answer(True))
+
+    code = cli.main(["site", "shielding", "team/docs", "--on"])
+
+    assert code == 0
+    assert stub_server.requests[0]["headers"]["Authorization"] == "Bearer member-access"
+
+
+def test_site_shielding_without_a_session_asks_to_log_in_and_sends_nothing(
+    stub_server, host, isolated_cwd, capsys
+):
+    code = cli.main(["site", "shielding", "team/docs", "--off", "--host", host])
+
+    assert code == 2
+    assert "toon login" in capsys.readouterr().err
+    assert stub_server.requests == []
+
+
+def test_site_shielding_never_trades_for_a_ci_oidc_token(stub_server, host, isolated_cwd, monkeypatch):
+    monkeypatch.setenv("ACTIONS_ID_TOKEN_REQUEST_URL", f"{host}/oidc-token")
+    monkeypatch.setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "runner-token")
+
+    code = cli.main(["site", "shielding", "team/docs", "--off", "--host", host])
+
+    assert code == 2
+    assert stub_server.requests == []
+
+
+@pytest.mark.parametrize(
+    ("site", "message"),
+    [("team", "The site must have the form 'group/site'"), ("Team/Docs", "must be a valid slug")],
+)
+def test_site_shielding_refuses_an_invalid_site_before_sending(stub_server, host, token_env, capsys, site, message):
+    code = cli.main(["site", "shielding", site, "--off", "--host", host])
+
+    assert code == 2
+    assert message in capsys.readouterr().err
+    assert stub_server.requests == []
+
+
+@pytest.mark.parametrize("flags", [[], ["--on", "--off"]], ids=["neither", "both"])
+def test_site_shielding_needs_exactly_one_of_on_and_off(stub_server, host, token_env, flags):
+    code = cli.main(["site", "shielding", "team/docs", *flags, "--host", host])
+
+    assert code == 2
+    assert stub_server.requests == []
+
+
+@pytest.mark.parametrize(
+    ("status", "code", "detail"),
+    [
+        (401, "TOKEN_INVALID", "The token is not valid."),
+        (403, "INSUFFICIENT_ROLE", "Only a site admin can do this."),
+        (403, "MEMBER_NOT_ACTIVE", "Your account is not active."),
+        (404, "UNKNOWN_SITE", "No such site."),
+        (
+            409,
+            "SANDBOX_REQUIRED",
+            "In a preview, only a platform administrator can turn off shielding from other sites.",
+        ),
+    ],
+)
+def test_site_shielding_shows_a_refusal_and_exits_1(stub_server, host, token_env, capsys, status, code, detail):
+    stub_server.responder = _json_responder(status, {"code": code, "detail": detail})
+
+    result = cli.main(["site", "shielding", "team/docs", "--off", "--host", host])
+
+    assert result == 1
+    captured = capsys.readouterr()
+    assert captured.err.strip() == f"Error: {detail}"
+    assert captured.out == ""
+
+
+def test_site_shielding_connection_failure_gives_exit_1(stub_server, host, token_env, monkeypatch, capsys):
+    monkeypatch.setattr(cli.transport.httpx.Client, "request", _raise_connect_error)
+
+    code = cli.main(["site", "shielding", "team/docs", "--off", "--host", host])
+
+    assert code == 1
+    assert "could not connect to" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [{"title": "Docs"}, {"sandbox": "false"}, {"sandbox": None}, {"sandbox": 0}],
+    ids=["missing", "string", "null", "integer"],
+)
+def test_site_shielding_refuses_an_answer_without_a_usable_state(stub_server, host, token_env, capsys, answer):
+    stub_server.responder = _json_responder(200, answer)
+
+    code = cli.main(["site", "shielding", "team/docs", "--off", "--host", host])
+
+    assert code == 1
+    captured = capsys.readouterr()
+    assert "unexpected answer" in captured.err
+    assert captured.out == ""
+
+
+def test_site_shielding_refuses_an_answer_that_is_not_json(stub_server, host, token_env, capsys):
+    stub_server.responder = lambda _record: (200, b"<html>", "text/html")
+
+    code = cli.main(["site", "shielding", "team/docs", "--off", "--host", host])
+
+    assert code == 1
+    assert "unexpected answer" in capsys.readouterr().err
+
+
+def test_site_shielding_help_names_both_flags_and_the_trust_trade_off(capsys):
+    code = cli.main(["site", "shielding", "--help"])
+
+    assert code == 0
+    out = " ".join(capsys.readouterr().out.split())
+    assert "--on" in out
+    assert "--off" in out
+    assert "content you trust" in out
+
+
 # -- one client, retries, streaming upload ------------------------------------------
 
 

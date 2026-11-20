@@ -4174,7 +4174,6 @@ SESSION_BODIES = [
     ("PUT", "/sites/{group_slug}/{site_slug}/slug", {"slug": "andere-site"}),
     ("PUT", "/sites/{group_slug}/{site_slug}/access", {"base": "public"}),
     ("PUT", "/sites/{group_slug}/{site_slug}/external-sources", {"externalSources": False}),
-    ("PUT", "/sites/{group_slug}/{site_slug}/sandbox", {"sandbox": False}),
     ("PUT", "/sites/{group_slug}/{site_slug}/live-versions-kept", {"liveVersionsKept": 2}),
     (
         "PUT",
