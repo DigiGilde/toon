@@ -1,1 +1,0 @@
-- Optional `TOON_FEEDBACK_*` settings tune the screenshot limit and the retention of site feedback, and `TOON_RATELIMIT_FEEDBACK_*` the rate limit under `/-/feedback/` on the content host, all listed in `docs/deploying-on-zad.md`.

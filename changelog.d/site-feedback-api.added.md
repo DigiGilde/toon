@@ -1,2 +1,0 @@
-- The admin API for site feedback: `GET /sites/{group}/{site}/feedback`, `GET` and `DELETE /sites/{group}/{site}/feedback/{id}` with `GET .../screenshot`, `PUT .../status` and `POST .../replies` under it, `PUT /sites/{group}/{site}/feedback-settings`, and `feedbackEnabled`, `feedbackIdentity`, `feedbackLive` and `openFeedbackCount` on sites.
-- `openFeedbackCount` on previews, and `currentVersion` on feedback items.
