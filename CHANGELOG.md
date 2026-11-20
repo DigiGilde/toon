@@ -14,6 +14,37 @@ write a fragment and the rest of the model are in
 
 Merged but not released yet: the fragments in [changelog.d/](changelog.d/README.md).
 
+## [2026.11.20]
+
+### Added
+
+- With "Allow feedback" on the new "Feedback" tab, visitors of a site point at a spot, an area or a text on a page and send a remark with a screenshot, which the site team reads, answers and resolves there, with `toon feedback` or through the `toon-feedback` skill of the `toon` plugin.
+- Feedback and the replies to it show basic Markdown: paragraphs, lists, code, bold and italic, quotes and links. HTML stays text, and a link always shows the address it goes to. Visitors write their feedback and replies in an editor that shows the Markdown formatted as it is typed.
+- A preview with open feedback links to it on the "Previews" tab, and feedback given on an earlier version than the one shown now is marked "Earlier version".
+- A feedback item opens in a wider sheet, and on a page of its own with "Open as page".
+- The admin API for site feedback: `GET /sites/{group}/{site}/feedback`, `GET` and `DELETE /sites/{group}/{site}/feedback/{id}` with `GET .../screenshot`, `PUT .../status` and `POST .../replies` under it, `PUT /sites/{group}/{site}/feedback-settings`, and `feedbackEnabled`, `feedbackIdentity`, `feedbackLive` and `openFeedbackCount` on sites.
+- `openFeedbackCount` on previews, and `currentVersion` on feedback items.
+- Optional `TOON_FEEDBACK_*` settings tune the screenshot limit and the retention of site feedback, and `TOON_RATELIMIT_FEEDBACK_*` the rate limit under `/-/feedback/` on the content host, all listed in `docs/deploying-on-zad.md`.
+- `TOON_ENVIRONMENT=preview` runs Toon as a pull request preview: production's
+  requirements, demo data on an empty database, an editor role in the demo
+  group on first sign-in, and shielding that only a platform administrator
+  can turn off.
+
+### Changed
+
+- The privacy statement on `/-/privacy` now also describes site feedback: what it keeps, how long and who it is for.
+- A path in an uploaded bundle may be at most 1024 bytes long, and the headers of one entry in a `.tar.gz` at most 64 KiB, not counting the extended attributes `tar` on a Mac adds.
+- A `.tar.gz` bundle may not contain sparse files, and an entry whose size does not match its data is refused.
+- The admin API refuses an unknown field with a 422 in a body that only arrives over an admin session (the admin interface, or a platform admin calling the API by hand), instead of ignoring it. Bodies the CLI sends still ignore one.
+
+### Security
+
+- The content host takes site feedback under `/-/feedback/`, where the widget API answers any origin with `Access-Control-Allow-Origin: *` and accepts writes only under a sealed page token, and the pages of a site with feedback on get an injected script.
+- A CLI session from `toon login`, also one linked before this release, can now read, mark and answer site feedback (`toon feedback`), including the names, e-mail addresses and screenshots its member's roles show. Deleting feedback and changing the feedback settings stay in the admin.
+- The widget's text editor runs in a sandboxed frame from `/-/feedback/editor.<hash>.html` on the content host, with a policy of its own and no `frame-ancestors`, so any page can frame it and gets an empty editor.
+- Accepted risk: on a site with the shielding from other sites off, another site without it can read a page's token and, for its twelve hours, send feedback in the name of a visitor who consented, and read, reply to and delete that visitor's own feedback.
+- In CI the CLI writes the mask command for its ID token escaped as GitHub Actions expects, and at once, so the runner masks the token before anything else can print it.
+
 ## [2026.11.15]
 
 ### Added
@@ -453,7 +484,8 @@ The first tagged version: what ran in production on 30 September 2026.
 - Deployment on ZAD as one component, from an image that is scanned by
   Trivy and carries SBOM and provenance attestations.
 
-[Unreleased]: https://github.com/DigiGilde/toon/compare/v2026.11.15...HEAD
+[Unreleased]: https://github.com/DigiGilde/toon/compare/v2026.11.20...HEAD
+[2026.11.20]: https://github.com/DigiGilde/toon/compare/v2026.11.15...v2026.11.20
 [2026.11.15]: https://github.com/DigiGilde/toon/compare/v2026.11.11...v2026.11.15
 [2026.11.11]: https://github.com/DigiGilde/toon/compare/v2026.11.4...v2026.11.11
 [2026.11.4]: https://github.com/DigiGilde/toon/compare/v2026.11.2.1...v2026.11.4

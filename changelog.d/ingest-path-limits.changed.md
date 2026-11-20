@@ -1,1 +1,0 @@
-- A path in an uploaded bundle may be at most 1024 bytes long, and the headers of one entry in a `.tar.gz` at most 64 KiB, not counting the extended attributes `tar` on a Mac adds.

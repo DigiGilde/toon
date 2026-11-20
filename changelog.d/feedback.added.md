@@ -1,7 +1,0 @@
-- With "Allow feedback" on the new "Feedback" tab, visitors of a site point at a spot, an area or a text on a page and send a remark with a screenshot, which the site team reads, answers and resolves there, with `toon feedback` or through the `toon-feedback` skill of the `toon` plugin.
-- Feedback and the replies to it show basic Markdown: paragraphs, lists, code, bold and italic, quotes and links. HTML stays text, and a link always shows the address it goes to. Visitors write their feedback and replies in an editor that shows the Markdown formatted as it is typed.
-- A preview with open feedback links to it on the "Previews" tab, and feedback given on an earlier version than the one shown now is marked "Earlier version".
-- A feedback item opens in a wider sheet, and on a page of its own with "Open as page".
-- The admin API for site feedback: `GET /sites/{group}/{site}/feedback`, `GET` and `DELETE /sites/{group}/{site}/feedback/{id}` with `GET .../screenshot`, `PUT .../status` and `POST .../replies` under it, `PUT /sites/{group}/{site}/feedback-settings`, and `feedbackEnabled`, `feedbackIdentity`, `feedbackLive` and `openFeedbackCount` on sites.
-- `openFeedbackCount` on previews, and `currentVersion` on feedback items.
-- Optional `TOON_FEEDBACK_*` settings tune the screenshot limit and the retention of site feedback, and `TOON_RATELIMIT_FEEDBACK_*` the rate limit under `/-/feedback/` on the content host, all listed in `docs/deploying-on-zad.md`.
