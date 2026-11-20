@@ -10,7 +10,7 @@ dependencies = []
 
 [dependency-groups]
 dev = [
-    "coverage>=7.17.2,<8",
+    "coverage>=7.17.3,<8",
     "packaging>=24,<27",
     "pytest>=9,<10",
     "pyyaml>=6,<7",
