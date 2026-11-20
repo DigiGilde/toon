@@ -83,7 +83,7 @@ from toon.serving.feedback_routes import router as feedback_router
 from toon.serving.feedback_widget import load_widget_bundle
 from toon.serving.router import router as serving_router
 
-API_VERSION = "1.5.0"
+API_VERSION = "1.6.0"
 
 _logger = logging.getLogger(__name__)
 

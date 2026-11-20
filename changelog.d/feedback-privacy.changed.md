@@ -1,1 +1,0 @@
-- The privacy statement on `/-/privacy` now also describes site feedback: what it keeps, how long and who it is for.
