@@ -41,7 +41,7 @@ afterEach(() => {
 function makeWrapper(router = feedbackRouter(), provide = provideSiteGroup(backend)) {
   return mount(TabFeedback, {
     props: { group: 'team-aurora', site: 'website', contentBase: MOCK_CONTENT_BASE },
-    global: { stubs: { teleport: true }, provide, plugins: [router] },
+    global: { stubs: { teleport: true, FeedbackNotifications: true }, provide, plugins: [router] },
   });
 }
 

@@ -18,6 +18,7 @@ import { useRoute } from 'vue-router';
 import { ApiError } from '@/api/client';
 import { setMyLanguage } from '@/api/toon';
 import type { MemberLanguage } from '@/api/types';
+import FeedbackEmailChoice from '@/components/FeedbackEmailChoice.vue';
 import Notices from '@/components/site/Notices.vue';
 import { setBreadcrumbs } from '@/composables/breadcrumbs';
 import { currentMemberState, fetchCurrentMember } from '@/composables/currentMember';
@@ -175,6 +176,8 @@ onMounted(() => {
           </nldd-list>
         </nldd-container>
       </section>
+
+      <FeedbackEmailChoice level="profile" />
 
       <section aria-labelledby="heading-sessions">
         <nldd-container layout="stack" gap="8">

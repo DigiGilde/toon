@@ -11,6 +11,7 @@ import { addressEn } from './address.en';
 import { adminEn } from './admin.en';
 import { designSystemEn } from './designSystem.en';
 import { feedbackEn } from './feedback.en';
+import { notificationsEn } from './notifications.en';
 import { groupEn } from './group.en';
 import { pagesEn } from './pages.en';
 import { publishEn } from './publish.en';
@@ -142,6 +143,7 @@ export const en: Catalogue = {
   ...adminEn,
   ...siteEn,
   ...feedbackEn,
+  ...notificationsEn,
   ...publishEn,
   ...designSystemEn,
 };

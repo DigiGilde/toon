@@ -27,6 +27,9 @@ function makeWrapper(
     sites?: Site[];
     previousSlugs?: PreviousSlug[];
     redirectDays?: number;
+    canAdmin?: boolean;
+    /** The real notification controls, not stubs: they make calls of their own. */
+    notifications?: boolean;
     canDelete?: boolean;
     canRename?: boolean;
     canChangeAddress?: boolean;
@@ -44,11 +47,17 @@ function makeWrapper(
       previousSlugs: props.previousSlugs ?? [],
       contentBase: MOCK_CONTENT_BASE,
       redirectDays: props.redirectDays ?? 30,
+      canAdmin: props.canAdmin ?? false,
       canDelete: props.canDelete ?? false,
       canRename: props.canRename ?? false,
       canChangeAddress: props.canChangeAddress ?? false,
     },
-    global: { stubs: { teleport: true } },
+    global: {
+      stubs: {
+        teleport: true,
+        ...(props.notifications ? {} : { FeedbackEmailChoice: true, FeedbackWebhook: true }),
+      },
+    },
     attachTo: props.attach ? document.body : undefined,
   });
 }

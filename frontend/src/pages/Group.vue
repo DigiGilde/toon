@@ -67,6 +67,8 @@ const shownSlug = ref(groupSlug.value);
 const canPublish = computed(() => me.value == null || mayCreateSiteIn(me.value, shownSlug.value));
 // Unlike canPublish, an unknown role hides it: deleting is not a flow to strand.
 const canDeleteGroup = computed(() => isGroupAdmin(me.value, shownSlug.value));
+// Same for the Mattermost channel.
+const canAdminGroup = computed(() => isGroupAdmin(me.value, shownSlug.value));
 // Same for renaming: with the role unknown the name is shown, not offered.
 const canRenameGroup = computed(() => isGroupAdmin(me.value, shownSlug.value));
 // Same for the address.
@@ -323,6 +325,7 @@ function onGroupChanged(group: Group): void {
             :content-base="contentBase"
             :redirect-days="redirectDays"
             :can-publish="canPublish"
+            :can-admin="canAdminGroup"
             :can-delete="canDeleteGroup"
             :can-rename="canRenameGroup"
             :can-change-address="canChangeAddress"

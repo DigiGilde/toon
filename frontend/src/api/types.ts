@@ -277,6 +277,34 @@ export interface FeedbackSettings {
   live: boolean;
 }
 
+/** Where a member's email choice about new feedback comes from, narrowest level first. */
+export type FeedbackEmailSource = 'site' | 'group' | 'profile' | 'default';
+
+/**
+ * A member's own email choice about new feedback at one level (site, group or
+ * profile). `enabled` is this level's choice, null while it is not set;
+ * `effective` and `source` say what applies once the other levels are counted.
+ * `available` is false when the installation sends no email at all.
+ */
+export interface FeedbackEmailSetting {
+  available: boolean;
+  enabled: boolean | null;
+  effective: boolean;
+  source: FeedbackEmailSource;
+}
+
+/** The Mattermost webhook of a site or group. The URL itself is never returned. */
+export interface FeedbackWebhook {
+  /** False when the installation allows no webhooks. */
+  available: boolean;
+  configured: boolean;
+  host: string | null;
+  language: MemberLanguage | null;
+  setAt: string | null;
+  /** On a site only: the host of the group's webhook, which a site without its own posts to. */
+  groupHost: string | null;
+}
+
 export interface SiteStorage {
   /** What all versions of the site (live and preview) occupy on disk, in bytes. */
   usedBytes: number;

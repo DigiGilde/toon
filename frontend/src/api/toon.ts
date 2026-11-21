@@ -11,12 +11,14 @@ import type {
   CliSession,
   DeviceAuthorization,
   FeedbackDetail,
+  FeedbackEmailSetting,
   FeedbackPage,
   FeedbackReply,
   FeedbackSettings,
   FeedbackStatus,
   FeedbackStatusFilter,
   FeedbackTargetFilter,
+  FeedbackWebhook,
   Group,
   GroupDetail,
   GroupMember,
@@ -574,6 +576,78 @@ export function setFeedbackSettings(
   settings: FeedbackSettings,
 ): Promise<Site> {
   return sendJson<Site>('PUT', `${sitePath(group, site)}/feedback-settings`, settings);
+}
+
+// -- Notifications about new feedback ----------------------------------------
+
+/** The member's own choice at profile level. */
+export function myFeedbackEmail(): Promise<FeedbackEmailSetting> {
+  return request<FeedbackEmailSetting>(`${BASE}/me/feedback-email`);
+}
+
+/** `null` takes the choice back, to what the levels above it say. */
+export function setMyFeedbackEmail(enabled: boolean | null): Promise<FeedbackEmailSetting> {
+  return sendJson<FeedbackEmailSetting>('PUT', `${BASE}/me/feedback-email`, { enabled });
+}
+
+/** The member's own choice at group level. Any group role. */
+export function groupFeedbackEmail(group: string): Promise<FeedbackEmailSetting> {
+  return request<FeedbackEmailSetting>(`${groupPath(group)}/feedback-email`);
+}
+
+export function setGroupFeedbackEmail(
+  group: string,
+  enabled: boolean | null,
+): Promise<FeedbackEmailSetting> {
+  return sendJson<FeedbackEmailSetting>('PUT', `${groupPath(group)}/feedback-email`, { enabled });
+}
+
+/** The member's own choice at site level. Site role reader or more. */
+export function siteFeedbackEmail(group: string, site: string): Promise<FeedbackEmailSetting> {
+  return request<FeedbackEmailSetting>(`${sitePath(group, site)}/feedback-email`);
+}
+
+export function setSiteFeedbackEmail(
+  group: string,
+  site: string,
+  enabled: boolean | null,
+): Promise<FeedbackEmailSetting> {
+  return sendJson<FeedbackEmailSetting>('PUT', `${sitePath(group, site)}/feedback-email`, { enabled });
+}
+
+/** The Mattermost webhook of a group. Needs group role admin. */
+export function groupFeedbackWebhook(group: string): Promise<FeedbackWebhook> {
+  return request<FeedbackWebhook>(`${groupPath(group)}/feedback-webhook`);
+}
+
+export function setGroupFeedbackWebhook(
+  group: string,
+  url: string,
+  language?: MemberLanguage,
+): Promise<FeedbackWebhook> {
+  return sendJson<FeedbackWebhook>('PUT', `${groupPath(group)}/feedback-webhook`, { url, language });
+}
+
+export function deleteGroupFeedbackWebhook(group: string): Promise<void> {
+  return request<void>(`${groupPath(group)}/feedback-webhook`, { method: 'DELETE' });
+}
+
+/** The Mattermost webhook of a site. Needs site role admin. */
+export function siteFeedbackWebhook(group: string, site: string): Promise<FeedbackWebhook> {
+  return request<FeedbackWebhook>(`${sitePath(group, site)}/feedback-webhook`);
+}
+
+export function setSiteFeedbackWebhook(
+  group: string,
+  site: string,
+  url: string,
+  language?: MemberLanguage,
+): Promise<FeedbackWebhook> {
+  return sendJson<FeedbackWebhook>('PUT', `${sitePath(group, site)}/feedback-webhook`, { url, language });
+}
+
+export function deleteSiteFeedbackWebhook(group: string, site: string): Promise<void> {
+  return request<void>(`${sitePath(group, site)}/feedback-webhook`, { method: 'DELETE' });
 }
 
 /**

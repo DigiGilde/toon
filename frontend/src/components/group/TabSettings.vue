@@ -18,6 +18,8 @@ import type { Access, AccessBase, Group, PreviousSlug, Site } from '@/api/types'
 import { ACCESS_BASE_VALUES } from '@/api/types';
 import AddressSection from '@/components/AddressSection.vue';
 import ConfirmModal from '@/components/ConfirmModal.vue';
+import FeedbackEmailChoice from '@/components/FeedbackEmailChoice.vue';
+import FeedbackWebhook from '@/components/FeedbackWebhook.vue';
 import Notices from '@/components/site/Notices.vue';
 import { useAutosavedText } from '@/composables/autosavedText';
 import {
@@ -45,6 +47,8 @@ const props = defineProps<{
   contentBase: string;
   /** How many days an old address keeps redirecting. */
   redirectDays: number;
+  /** Group admin: may manage the Mattermost channel. */
+  canAdmin: boolean;
   canDelete: boolean;
   canRename: boolean;
   canChangeAddress: boolean;
@@ -328,6 +332,15 @@ function toggle(field: 'keys' | 'invitees', event: Event): void {
       </nldd-container>
     </nldd-container>
   </section>
+
+  <nldd-spacer size="24"></nldd-spacer>
+
+  <FeedbackEmailChoice level="group" :group="group" />
+
+  <template v-if="canAdmin">
+    <nldd-spacer size="24"></nldd-spacer>
+    <FeedbackWebhook :group="group" />
+  </template>
 
   <template v-if="canDelete">
     <nldd-spacer size="24"></nldd-spacer>

@@ -13,6 +13,7 @@ import { addressNl } from './address.nl';
 import { adminNl } from './admin.nl';
 import { designSystemNl } from './designSystem.nl';
 import { feedbackNl } from './feedback.nl';
+import { notificationsNl } from './notifications.nl';
 import { groupNl } from './group.nl';
 import { pagesNl } from './pages.nl';
 import { publishNl } from './publish.nl';
@@ -170,6 +171,7 @@ export const nl = {
   ...adminNl,
   ...siteNl,
   ...feedbackNl,
+  ...notificationsNl,
   ...publishNl,
   ...designSystemNl,
 } as const;
