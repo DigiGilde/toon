@@ -34,6 +34,13 @@ from toon.constants import (
 )
 from toon.models.feedback import FeedbackItem, FeedbackReply, FeedbackScreenshot
 from toon.models.identity import MemberLanguage
+from toon.models.notifications import (
+    FeedbackChannel,
+    FeedbackEmailDay,
+    FeedbackNotice,
+    FeedbackWebhook,
+    NoticeOutcome,
+)
 from toon.models.publication import VersionTarget
 
 pytestmark = pytest.mark.asyncio
@@ -141,6 +148,12 @@ async def test_all_core_tables_exist(db_connection: asyncpg.Connection) -> None:
         "feedback_items",
         "feedback_replies",
         "feedback_screenshots",
+        "group_feedback_email",
+        "site_feedback_email",
+        "feedback_webhooks",
+        "feedback_notices",
+        "feedback_notice_items",
+        "feedback_email_days",
     }
     rows = await db_connection.fetch(
         "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
@@ -2630,6 +2643,322 @@ async def test_the_feedback_migration_goes_down_and_up_again(postgres_container)
             )
             assert tuple(row) == (False, FeedbackIdentity.ACCOUNT.value, False)
             assert await conn.fetchval("SELECT count(*) FROM feedback_items") == 0
+        finally:
+            await conn.close()
+    finally:
+        await admin.execute(f'DROP DATABASE "{name}" WITH (FORCE)')
+        await admin.close()
+
+
+# -- Feedback notifications (0012_feedback_notifications) -------------------
+
+_FEEDBACK_NOTIFICATION_TABLES = (
+    "group_feedback_email",
+    "site_feedback_email",
+    "feedback_webhooks",
+    "feedback_notices",
+    "feedback_notice_items",
+    "feedback_email_days",
+)
+_FEEDBACK_NOTIFICATION_TYPES = ("feedback_channel", "feedback_notice_outcome")
+_FEEDBACK_NOTIFICATION_COLUMNS = (
+    ("members", "feedback_email"),
+    ("feedback_items", "email_batched_at"),
+    ("feedback_items", "mattermost_batched_at"),
+)
+_BEFORE_NOTIFICATIONS = "0011_feedback"
+_WEBHOOK_URL = "https://mattermost.example.org/hooks/geheim"
+
+
+async def _make_webhook(conn: asyncpg.Connection, **columns: object) -> uuid.UUID:
+    """A valid webhook, with `columns` (the owner) put in place."""
+    webhook_id = uuid.uuid4()
+    values = {
+        "id": webhook_id,
+        "url": _WEBHOOK_URL,
+        "host": "mattermost.example.org",
+        "language": "nl",
+        **columns,
+    }
+    await _insert(conn, "feedback_webhooks", values)
+    return webhook_id
+
+
+async def _make_notice(conn: asyncpg.Connection, site_id: uuid.UUID, **columns: object) -> uuid.UUID:
+    """A valid Mattermost notice for `site_id`, with `columns` put in place."""
+    notice_id = uuid.uuid4()
+    values = {
+        "id": notice_id,
+        "site_id": site_id,
+        "channel": "mattermost",
+        "next_attempt_at": datetime.now(UTC),
+        **columns,
+    }
+    await _insert(conn, "feedback_notices", values)
+    return notice_id
+
+
+async def _count_rows(conn: asyncpg.Connection, table: str) -> int:
+    # The table name comes from this module.
+    return await conn.fetchval(f"SELECT count(*) FROM {table}")  # noqa: S608
+
+
+@pytest.mark.parametrize(
+    ("type_name", "enum_class"),
+    [("feedback_channel", FeedbackChannel), ("feedback_notice_outcome", NoticeOutcome)],
+)
+async def test_a_notification_type_holds_the_application_values_in_their_order(
+    db_connection: asyncpg.Connection, type_name: str, enum_class: type
+) -> None:
+    assert await _enum_labels(db_connection, type_name) == [member.value for member in enum_class]
+
+
+async def test_the_notification_tables_exist(db_connection: asyncpg.Connection) -> None:
+    rows = await db_connection.fetch(
+        "SELECT tablename FROM pg_tables WHERE tablename = ANY($1::text[])", list(_FEEDBACK_NOTIFICATION_TABLES)
+    )
+    assert {row["tablename"] for row in rows} == set(_FEEDBACK_NOTIFICATION_TABLES)
+
+
+async def test_a_webhook_of_a_group_or_of_a_site_goes_in(db_connection: asyncpg.Connection) -> None:
+    group_id = await _make_group(db_connection)
+    site_id = await _make_site(db_connection, await _make_group(db_connection))
+    await _make_webhook(db_connection, group_id=group_id)
+    await _make_webhook(db_connection, site_id=site_id)
+    assert await _count_rows(db_connection, "feedback_webhooks") == 2
+
+
+@pytest.mark.parametrize("owners", ["both", "neither"])
+async def test_a_webhook_has_exactly_one_owner(db_connection: asyncpg.Connection, owners: str) -> None:
+    group_id = await _make_group(db_connection)
+    site_id = await _make_site(db_connection, group_id)
+    columns = {"group_id": group_id, "site_id": site_id} if owners == "both" else {}
+    refused_by = await _check_that_refuses(db_connection, lambda: _make_webhook(db_connection, **columns))
+    assert refused_by == "ck_feedback_webhooks_owner"
+
+
+@pytest.mark.parametrize(
+    ("constraint", "columns"),
+    [
+        ("ck_feedback_webhooks_url_length", {"url": "https://mattermost.example.org/" + "x" * 2048}),
+        ("ck_feedback_webhooks_host_lowercase", {"host": "Mattermost.example.org"}),
+    ],
+)
+async def test_a_webhook_that_breaks_a_rule_is_refused(
+    db_connection: asyncpg.Connection, constraint: str, columns: dict
+) -> None:
+    group_id = await _make_group(db_connection)
+    refused_by = await _check_that_refuses(
+        db_connection, lambda: _make_webhook(db_connection, group_id=group_id, **columns)
+    )
+    assert refused_by == constraint
+
+
+async def test_a_group_and_a_site_have_at_most_one_webhook(db_connection: asyncpg.Connection) -> None:
+    group_id = await _make_group(db_connection)
+    site_id = await _make_site(db_connection, group_id)
+    await _make_webhook(db_connection, group_id=group_id)
+    await _make_webhook(db_connection, site_id=site_id)
+    for owner in ({"group_id": group_id}, {"site_id": site_id}):
+        with pytest.raises(asyncpg.UniqueViolationError):
+            async with db_connection.transaction():
+                await _make_webhook(db_connection, **owner)
+
+
+async def test_a_mattermost_notice_has_no_member_and_an_email_notice_has_one(
+    db_connection: asyncpg.Connection,
+) -> None:
+    site_id = await _make_site(db_connection, await _make_group(db_connection))
+    member_id = await _make_member(db_connection)
+    await _make_notice(db_connection, site_id)
+    await _make_notice(db_connection, site_id, channel="email", member_id=member_id)
+    assert await _count_rows(db_connection, "feedback_notices") == 2
+
+
+@pytest.mark.parametrize("case", ["email-without-member", "mattermost-with-member"])
+async def test_a_notice_names_a_member_for_email_only(db_connection: asyncpg.Connection, case: str) -> None:
+    site_id = await _make_site(db_connection, await _make_group(db_connection))
+    member_id = await _make_member(db_connection)
+    columns = {"channel": "email"} if case == "email-without-member" else {"member_id": member_id}
+    refused_by = await _check_that_refuses(db_connection, lambda: _make_notice(db_connection, site_id, **columns))
+    assert refused_by == "ck_feedback_notices_recipient"
+
+
+@pytest.mark.parametrize("columns", [{"finished_at": datetime(2026, 11, 1, tzinfo=UTC)}, {"outcome": "sent"}])
+async def test_a_notice_is_finished_with_an_outcome_or_not_at_all(
+    db_connection: asyncpg.Connection, columns: dict
+) -> None:
+    site_id = await _make_site(db_connection, await _make_group(db_connection))
+    refused_by = await _check_that_refuses(db_connection, lambda: _make_notice(db_connection, site_id, **columns))
+    assert refused_by == "ck_feedback_notices_outcome"
+
+
+async def test_a_finished_notice_goes_in_and_attempts_never_go_negative(db_connection: asyncpg.Connection) -> None:
+    site_id = await _make_site(db_connection, await _make_group(db_connection))
+    await _make_notice(db_connection, site_id, finished_at=datetime(2026, 11, 1, tzinfo=UTC), outcome="failed")
+    refused_by = await _check_that_refuses(db_connection, lambda: _make_notice(db_connection, site_id, attempts=-1))
+    assert refused_by == "ck_feedback_notices_attempts"
+
+
+async def test_the_emails_of_a_day_never_count_negative(db_connection: asyncpg.Connection) -> None:
+    refused_by = await _check_that_refuses(
+        db_connection,
+        lambda: _insert(db_connection, "feedback_email_days", {"day": datetime.now(UTC).date(), "sent": -1}),
+    )
+    assert refused_by == "ck_feedback_email_days_sent"
+
+
+async def test_deleting_a_site_removes_its_notices_webhook_and_choices(db_connection: asyncpg.Connection) -> None:
+    group_id = await _make_group(db_connection)
+    site_id = await _make_site(db_connection, group_id)
+    member_id = await _make_member(db_connection)
+    await _make_webhook(db_connection, site_id=site_id)
+    await _make_notice(db_connection, site_id)
+    await _insert(db_connection, "site_feedback_email", {"site_id": site_id, "member_id": member_id, "enabled": True})
+    await db_connection.execute("DELETE FROM sites WHERE id = $1", site_id)
+    for table in ("feedback_webhooks", "feedback_notices", "site_feedback_email"):
+        assert await _count_rows(db_connection, table) == 0, table
+    assert await db_connection.fetchval("SELECT count(*) FROM members WHERE id = $1", member_id) == 1
+
+
+async def test_deleting_a_group_removes_its_webhook_and_choices(db_connection: asyncpg.Connection) -> None:
+    group_id = await _make_group(db_connection)
+    member_id = await _make_member(db_connection)
+    await _make_webhook(db_connection, group_id=group_id)
+    await _insert(
+        db_connection, "group_feedback_email", {"group_id": group_id, "member_id": member_id, "enabled": False}
+    )
+    await db_connection.execute("DELETE FROM groups WHERE id = $1", group_id)
+    for table in ("feedback_webhooks", "group_feedback_email"):
+        assert await _count_rows(db_connection, table) == 0, table
+
+
+async def test_deleting_a_member_removes_their_choices_and_email_notices_and_keeps_the_webhook(
+    db_connection: asyncpg.Connection,
+) -> None:
+    group_id = await _make_group(db_connection)
+    site_id = await _make_site(db_connection, group_id)
+    member_id = await _make_member(db_connection)
+    await _insert(db_connection, "site_feedback_email", {"site_id": site_id, "member_id": member_id, "enabled": True})
+    await _insert(
+        db_connection, "group_feedback_email", {"group_id": group_id, "member_id": member_id, "enabled": True}
+    )
+    await _make_notice(db_connection, site_id, channel="email", member_id=member_id)
+    channel_notice = await _make_notice(db_connection, site_id)
+    webhook_id = await _make_webhook(db_connection, group_id=group_id, set_by=member_id)
+    await db_connection.execute("DELETE FROM members WHERE id = $1", member_id)
+    for table in ("site_feedback_email", "group_feedback_email"):
+        assert await _count_rows(db_connection, table) == 0, table
+    notices = await db_connection.fetch("SELECT id FROM feedback_notices")
+    assert [row["id"] for row in notices] == [channel_notice]
+    assert await db_connection.fetchval("SELECT set_by FROM feedback_webhooks WHERE id = $1", webhook_id) is None
+
+
+async def test_deleting_an_item_drops_it_from_its_notice_and_keeps_the_notice(
+    db_connection: asyncpg.Connection,
+) -> None:
+    site_id = await _make_site(db_connection, await _make_group(db_connection))
+    kept = await _make_item(db_connection, site_id)
+    gone = await _make_item(db_connection, site_id)
+    notice_id = await _make_notice(db_connection, site_id)
+    for item_id in (kept, gone):
+        await _insert(db_connection, "feedback_notice_items", {"notice_id": notice_id, "item_id": item_id})
+    await db_connection.execute("DELETE FROM feedback_items WHERE id = $1", gone)
+    rows = await db_connection.fetch("SELECT item_id FROM feedback_notice_items WHERE notice_id = $1", notice_id)
+    assert [row["item_id"] for row in rows] == [kept]
+    assert await _count_rows(db_connection, "feedback_notices") == 1
+
+
+async def test_a_new_item_waits_to_be_batched(db_connection: asyncpg.Connection) -> None:
+    item_id = await _make_item(db_connection, await _feedback_site(db_connection))
+    row = await db_connection.fetchrow(
+        "SELECT email_batched_at, mattermost_batched_at FROM feedback_items WHERE id = $1", item_id
+    )
+    assert tuple(row) == (None, None)
+
+
+async def test_the_notification_checks_keep_the_names_the_models_declare(db_connection: asyncpg.Connection) -> None:
+    for model in (FeedbackWebhook, FeedbackNotice, FeedbackEmailDay):
+        rows = await db_connection.fetch(
+            "SELECT conname FROM pg_constraint WHERE contype = 'c' AND conrelid = $1::regclass", model.__tablename__
+        )
+        declared = {
+            constraint.name for constraint in model.__table__.constraints if isinstance(constraint, CheckConstraint)
+        }
+        assert {row["conname"] for row in rows} == declared, model.__tablename__
+
+
+async def _notification_schema(
+    conn: asyncpg.Connection,
+) -> tuple[set[str], set[str], set[tuple[str, str]]]:
+    """Which of the notification tables, types and columns exist."""
+    tables = await conn.fetch(
+        "SELECT tablename FROM pg_tables WHERE tablename = ANY($1::text[])", list(_FEEDBACK_NOTIFICATION_TABLES)
+    )
+    types = await conn.fetch(
+        "SELECT typname FROM pg_type WHERE typname = ANY($1::text[])", list(_FEEDBACK_NOTIFICATION_TYPES)
+    )
+    columns = await conn.fetch(
+        "SELECT table_name, column_name FROM information_schema.columns "
+        "WHERE (table_name, column_name) IN (('members', 'feedback_email'), "
+        "('feedback_items', 'email_batched_at'), ('feedback_items', 'mattermost_batched_at'))"
+    )
+    return (
+        {row["tablename"] for row in tables},
+        {row["typname"] for row in types},
+        {(row["table_name"], row["column_name"]) for row in columns},
+    )
+
+
+async def test_the_notifications_migration_goes_down_and_up_again(postgres_container) -> None:
+    """Down drops the tables, types and columns and keeps the feedback itself.
+    Up again, the item that was there counts as batched, so switching
+    notifications on never sends old feedback."""
+    base = postgres_container.get_connection_url(driver=None)
+    name = f"meldingen_{uuid.uuid4().hex[:8]}"
+    admin = await asyncpg.connect(base)
+    await admin.execute(f'CREATE DATABASE "{name}"')
+    dsn = f"{base.rsplit('/', 1)[0]}/{name}"
+    everything = (
+        set(_FEEDBACK_NOTIFICATION_TABLES),
+        set(_FEEDBACK_NOTIFICATION_TYPES),
+        set(_FEEDBACK_NOTIFICATION_COLUMNS),
+    )
+    try:
+        await asyncio.to_thread(_alembic, dsn, "upgrade", "head")
+        conn = await asyncpg.connect(dsn)
+        try:
+            assert await _notification_schema(conn) == everything
+            group_id = await _make_group(conn)
+            site_id = await _make_site(conn, group_id)
+            member_id = await _make_member(conn)
+            item_id = await _make_item(conn, site_id)
+            assert await conn.fetchval("SELECT email_batched_at FROM feedback_items WHERE id = $1", item_id) is None
+            await _make_webhook(conn, site_id=site_id)
+            await conn.execute("UPDATE members SET feedback_email = true WHERE id = $1", member_id)
+            await _insert(conn, "site_feedback_email", {"site_id": site_id, "member_id": member_id, "enabled": True})
+        finally:
+            await conn.close()
+
+        await asyncio.to_thread(_alembic, dsn, "downgrade", _BEFORE_NOTIFICATIONS)
+        conn = await asyncpg.connect(dsn)
+        try:
+            assert await _notification_schema(conn) == (set(), set(), set())
+            assert await conn.fetchval("SELECT count(*) FROM feedback_items WHERE id = $1", item_id) == 1
+        finally:
+            await conn.close()
+
+        await asyncio.to_thread(_alembic, dsn, "upgrade", "head")
+        conn = await asyncpg.connect(dsn)
+        try:
+            assert await _notification_schema(conn) == everything
+            row = await conn.fetchrow(
+                "SELECT email_batched_at, mattermost_batched_at FROM feedback_items WHERE id = $1", item_id
+            )
+            assert row["email_batched_at"] is not None
+            assert row["mattermost_batched_at"] is not None
+            assert await conn.fetchval("SELECT count(*) FROM feedback_webhooks") == 0
+            assert await conn.fetchval("SELECT feedback_email FROM members WHERE id = $1", member_id) is None
         finally:
             await conn.close()
     finally:

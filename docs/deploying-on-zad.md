@@ -205,6 +205,15 @@ anybody an administrator.
 | `TOON_FEEDBACK_RESOLVED_RETENTION_DAYS` | env-vars | optional, default `90`, from 0 to 3650, `0` keeps. The nightly cleanup deletes a resolved feedback item this many days after it was resolved |
 | `TOON_FEEDBACK_SCREENSHOT_RETENTION_DAYS` | env-vars | optional, default `30`, from 0 to 3650, `0` keeps. The same for the screenshot of a resolved item |
 | `TOON_FEEDBACK_OPEN_RETENTION_DAYS` | env-vars | optional, default `365`, from 0 to 3650, `0` keeps. The same for an item still new or seen, counted from when it came in |
+| `TOON_SMTP_HOST` | alias on the `send-email` service | optional, empty by default, which means no email: the email choices are not offered and nothing is sent. Toon reads `SMTP_HOST` itself when this is empty, so nothing needs mapping (§6b) |
+| `TOON_SMTP_PORT` | alias on the `send-email` service | optional, default `587`. Falls back to `SMTP_PORT` |
+| `TOON_SMTP_USERNAME`, `TOON_SMTP_PASSWORD` | alias on the `send-email` service | optional. Fall back to `SMTP_USERNAME` and `SMTP_PASSWORD`. Both or neither; the password is never logged |
+| `TOON_SMTP_FROM` | alias on the `send-email` service | optional. Falls back to `SMTP_FROM`. The relay rewrites the sender anyway (§6b) |
+| `TOON_SMTP_TLS` | env-vars | optional, `starttls` (the default) or `none`. ZAD's relay needs `none` today (§6b) |
+| `TOON_FEEDBACK_EMAIL_DAILY_MAX` | env-vars | optional, default `2000`, from 1 to 100000. Notification emails per UTC day, counted in the database across every replica. Keep it under the project's `messages-per-day` (§6b) |
+| `TOON_FEEDBACK_EMAIL_WINDOW_MINUTES` | env-vars | optional, default `10`, from 0 to 1440. How long the oldest waiting item of a site waits for others before one email carries them all; `0` sends an email per item |
+| `TOON_FEEDBACK_MATTERMOST_WINDOW_MINUTES` | env-vars | optional, default `0`, from 0 to 1440. The same for Mattermost; `0` is one post per item |
+| `TOON_FEEDBACK_WEBHOOK_HOSTS` | env-vars | optional, empty by default, which turns Mattermost off. The hosts a Mattermost incoming webhook may point at, comma-separated, each `host` (port 443) or `host:port`, never an IP address (§6b) |
 | `TOON_RATELIMIT_FEEDBACK_MAX` | env-vars | optional, default `300`, at least 1. Requests per window per client to anything under `/-/feedback/` on the content host |
 | `TOON_RATELIMIT_FEEDBACK_WINDOW_S` | env-vars | optional, seconds, default `60`, at least 1. The window of that limit |
 | `TOON_RATELIMIT_FEEDBACK_GLOBAL_MAX` | env-vars | optional, default `10000`, at least 1. Those requests of every client together, per window |
@@ -475,6 +484,83 @@ Test it: log in, sign the session out from Users -> Sessions in the Keycloak
 console, and refresh. You should land on the login page at once rather than
 after the session's 12-hour cap; the attempt shows up as an `idp_session_ended`
 audit event with reason `IDP_BACKCHANNEL_LOGOUT` (`audit/vocabulary.py`).
+
+## 6b. Notifications of new feedback
+
+Toon tells people of new feedback by email and in a Mattermost channel
+(`docs/design.md` §16.16, TDR-0018). Both are optional and off until the
+steps below are done: without them Toon runs as before.
+
+**Email goes through ZAD's `send-email` service.** Enabling it is a request:
+it shows on `/admin/approvals` and a ZAD administrator approves it. Until then
+there is no SMTP account, no network policy and no `SMTP_*` variable, so
+`TOON_SMTP_HOST` stays empty and Toon simply has no email: the email choices
+are not offered and nothing is sent. Request it in two places, in the project
+file:
+
+```yaml
+services:
+  - name: send-email
+    config:
+      from-name: Toon
+      messages-per-day: 5000
+```
+
+and on the component `beheer`, by adding `send-email` to its `services`, as
+for the other services. `from-name` is what recipients see: the relay rewrites
+the whole `From:` header from it, address and name, so Toon's own sender is
+replaced. `messages-per-day` is at most 5000 and is one budget for the whole
+project, shared with everything else it sends.
+
+Once approved, the component gets `SMTP_HOST`, `SMTP_PORT` (587),
+`SMTP_USERNAME`, `SMTP_PASSWORD` and `SMTP_FROM`, each with an `APP_` alias,
+and the service adds the egress network policy to the relay on 587 itself.
+Toon reads those `SMTP_*` variables as the fallback for the `TOON_SMTP_*`
+settings, as it does for the `OIDC_*` ones, so nothing needs mapping.
+
+**`TOON_SMTP_TLS=none`, for now.** The relay's submission port offers no TLS
+today: the login (`PLAIN` or `LOGIN`) and the message cross the cluster in the
+clear. Toon's default, `starttls`, refuses a server without STARTTLS, so on
+ZAD set `TOON_SMTP_TLS=none` in `env-vars`. In production Toon then logs a
+WARNING at startup that starts with `TOON_SMTP_TLS=none`. Switch back to
+`starttls` as soon as ZAD's relay offers it (TDR-0018, "Revisit when").
+
+**The daily cap.** `TOON_FEEDBACK_EMAIL_DAILY_MAX` (default 2000) is Toon's
+own ceiling, counted in the database. Set it under the project's
+`messages-per-day` and leave room for other mail of the project. At the cap
+every waiting email moves to the next day, one WARNING says so, and Mattermost
+goes on.
+
+**The windows.** `TOON_FEEDBACK_EMAIL_WINDOW_MINUTES` (default 10) batches
+email per site, so a burst is one message per member per window.
+`TOON_FEEDBACK_MATTERMOST_WINDOW_MINUTES` (default 0) posts one message per
+item.
+
+**Mattermost.** Toon posts only to a host the operator lists in
+`TOON_FEEDBACK_WEBHOOK_HOSTS`: the host of the organisation's Mattermost, as
+`host` for port 443 or `host:port`. List only hosts you trust: Toon trusts
+DNS for them. The tenant baseline network policy lets a pod out on 443 and 80
+only, so a webhook on another port does not get out on ZAD without a change
+to that policy. An empty list turns Mattermost off, and the admin interface
+does not offer it. The text of a comment lands in the channel and stays there
+after Toon deletes the item (`docs/privacy.md`).
+
+**`TOON_BASE_URL`** must be set, for the links in the messages. Production
+sets it anyway.
+
+Turning it on:
+
+1. Add `send-email` to the project file (with `from-name` and
+   `messages-per-day`) and to the component `beheer`, and have a ZAD
+   administrator approve the request.
+2. Set `TOON_SMTP_TLS=none` in `env-vars` and `TOON_FEEDBACK_EMAIL_DAILY_MAX`
+   under the project's `messages-per-day`.
+3. For Mattermost, set `TOON_FEEDBACK_WEBHOOK_HOSTS` to the Mattermost host
+   (port 443).
+4. Roll out with `zadctl deployment refresh productie` and check the startup
+   log for the `TOON_SMTP_TLS=none` warning.
+5. As a member, open the profile page and choose email, then give feedback on
+   a preview and see the message arrive.
 
 ## 7. Running migrations
 

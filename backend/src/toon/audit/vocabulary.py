@@ -32,6 +32,7 @@ CLI_TOKEN_ISSUED: Final = "cli_token_issued"  # noqa: S105 - an action name, not
 CLI_LOGOUT: Final = "cli_logout"
 CLI_SESSION_REVOKE: Final = "cli_session_revoke"
 MEMBER_LANGUAGE: Final = "member_language"
+FEEDBACK_EMAIL: Final = "feedback_email"
 CLI_REFRESH_REUSE: Final = "cli_refresh_reuse"
 IDP_SESSION_ENDED_ACTION: Final = "idp_session_ended"
 VERSION_CLEANUP: Final = "version_cleanup"
@@ -75,6 +76,8 @@ ADMIN_ACTIONS: Final = frozenset(
         "feedback_status",
         "feedback_reply",
         "feedback_delete",
+        "group_feedback_webhook",
+        "site_feedback_webhook",
     }
 )
 
@@ -100,6 +103,7 @@ ACTIONS: Final = frozenset(
         CLI_SESSION_REVOKE,
         CLI_REFRESH_REUSE,
         MEMBER_LANGUAGE,
+        FEEDBACK_EMAIL,
         IDP_SESSION_ENDED_ACTION,
         VERSION_CLEANUP,
         SITE_REPOSITORY_RENAME,

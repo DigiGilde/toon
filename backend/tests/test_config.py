@@ -10,12 +10,13 @@ from toon.audit import chain, checkpoint, retention
 from toon.config import ConfigurationError, load_settings
 
 ZAD_OIDC_VARIABLES = ("OIDC_DISCOVERY_URL", "OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET")
+ZAD_SMTP_VARIABLES = ("SMTP_HOST", "SMTP_PORT", "SMTP_USERNAME", "SMTP_PASSWORD", "SMTP_FROM")
 
 
 @pytest.fixture(autouse=True)
 def _clean_environment(monkeypatch):
     for key in list(os.environ):
-        if key.upper().startswith("TOON_") or key in ZAD_OIDC_VARIABLES:
+        if key.upper().startswith("TOON_") or key in ZAD_OIDC_VARIABLES or key in ZAD_SMTP_VARIABLES:
             monkeypatch.delenv(key, raising=False)
 
 
@@ -1227,3 +1228,151 @@ def test_an_audit_job_without_a_database_url_refuses_and_names_the_new_one(
     assert run() == 1
     assert seen == []
     assert "TOON_DB_URL is not set" in caplog.text
+
+
+# -- Notifications of new feedback --------------------------------------------
+
+ADMIN = "https://beheer.toon.example"
+
+
+def test_notifications_are_off_and_batched_by_default(monkeypatch):
+    """No SMTP host is no email, no hosts is no Mattermost; email waits ten
+    minutes for more items, Mattermost posts each item at once."""
+    _set_required_env(monkeypatch)
+    settings = load_settings()
+    assert settings.email_available is False
+    assert settings.webhook_hosts == frozenset()
+    assert settings.smtp_tls == "starttls"
+    assert settings.smtp_port_effective == 587
+    assert settings.feedback_email_window_minutes == 10
+    assert settings.feedback_mattermost_window_minutes == 0
+    assert settings.feedback_email_daily_max == 2000
+
+
+def test_smtp_comes_from_the_zad_variables(monkeypatch):
+    _set_required_env(monkeypatch, TOON_BASE_URL=ADMIN)
+    for name, value in (
+        ("SMTP_HOST", "relay.mail.svc"),
+        ("SMTP_PORT", "587"),
+        ("SMTP_USERNAME", "project-toon"),
+        ("SMTP_PASSWORD", "relay-password"),
+        ("SMTP_FROM", "noreply-rijksapp+toon@rijksoverheid.nl"),
+    ):
+        monkeypatch.setenv(name, value)
+    settings = load_settings()
+    assert settings.email_available is True
+    assert (settings.smtp_host, settings.smtp_port_effective) == ("relay.mail.svc", 587)
+    assert (settings.smtp_username, settings.smtp_password) == ("project-toon", "relay-password")
+    assert settings.smtp_from == "noreply-rijksapp+toon@rijksoverheid.nl"
+
+
+def test_a_toon_smtp_setting_beats_its_zad_variable(monkeypatch):
+    _set_required_env(
+        monkeypatch,
+        TOON_BASE_URL=ADMIN,
+        TOON_SMTP_HOST="smtp.example.org",
+        TOON_SMTP_PORT="2525",
+        TOON_SMTP_FROM="toon@example.org",
+        TOON_SMTP_TLS="none",
+    )
+    monkeypatch.setenv("SMTP_HOST", "relay.mail.svc")
+    monkeypatch.setenv("SMTP_PORT", "587")
+    monkeypatch.setenv("SMTP_FROM", "noreply@rijksoverheid.nl")
+    settings = load_settings()
+    assert (settings.smtp_host, settings.smtp_port_effective, settings.smtp_from) == (
+        "smtp.example.org",
+        2525,
+        "toon@example.org",
+    )
+    assert settings.smtp_tls == "none"
+
+
+@pytest.mark.parametrize(
+    ("overrides", "zad", "message"),
+    [
+        ({"TOON_SMTP_HOST": "smtp.example.org"}, {}, "TOON_SMTP_FROM is required"),
+        ({"TOON_SMTP_HOST": "smtp.example.org", "TOON_SMTP_FROM": "Toon <toon@example.org>"}, {}, "TOON_SMTP_FROM"),
+        ({"TOON_SMTP_HOST": "smtp .example.org", "TOON_SMTP_FROM": "toon@example.org"}, {}, "TOON_SMTP_HOST"),
+        (
+            {"TOON_SMTP_HOST": "smtp.example.org", "TOON_SMTP_FROM": "toon@example.org", "TOON_SMTP_USERNAME": "u"},
+            {},
+            "go together",
+        ),
+        ({"TOON_SMTP_TLS": "ssl"}, {}, "TOON_SMTP_TLS"),
+        ({}, {"SMTP_HOST": "relay", "SMTP_FROM": "a@b.nl", "SMTP_PORT": "submission"}, "SMTP_PORT is not a number"),
+        ({}, {"SMTP_HOST": "relay", "SMTP_FROM": "a@b.nl", "SMTP_PORT": "70000"}, "SMTP_PORT is not a port"),
+        ({"TOON_SMTP_PORT": "0"}, {}, "TOON_SMTP_PORT"),
+    ],
+)
+def test_a_broken_smtp_setting_is_refused(monkeypatch, overrides, zad, message):
+    _set_required_env(monkeypatch, TOON_BASE_URL=ADMIN, **overrides)
+    for name, value in zad.items():
+        monkeypatch.setenv(name, value)
+    with pytest.raises(ConfigurationError) as excinfo:
+        load_settings()
+    assert message in str(excinfo.value)
+
+
+def test_the_smtp_password_never_shows_in_a_refusal(monkeypatch):
+    _set_required_env(
+        monkeypatch,
+        TOON_BASE_URL=ADMIN,
+        TOON_SMTP_HOST="smtp.example.org",
+        TOON_SMTP_FROM="not an address",
+        TOON_SMTP_PASSWORD="hunter2-relay-secret",
+        TOON_SMTP_USERNAME="toon",
+    )
+    with pytest.raises(ConfigurationError) as excinfo:
+        load_settings()
+    assert "hunter2-relay-secret" not in str(excinfo.value)
+    assert "hunter2-relay-secret" not in "".join(traceback.format_exception(excinfo.value))
+
+
+def test_email_needs_the_admin_url_for_its_links(monkeypatch):
+    _set_required_env(monkeypatch, TOON_SMTP_HOST="smtp.example.org", TOON_SMTP_FROM="toon@example.org")
+    with pytest.raises(ConfigurationError) as excinfo:
+        load_settings()
+    assert "TOON_BASE_URL is required with TOON_SMTP_HOST" in str(excinfo.value)
+
+
+def test_webhooks_need_the_admin_url_for_their_links(monkeypatch):
+    _set_required_env(monkeypatch, TOON_FEEDBACK_WEBHOOK_HOSTS="mattermost.example.org")
+    with pytest.raises(ConfigurationError) as excinfo:
+        load_settings()
+    assert "TOON_BASE_URL is required with TOON_FEEDBACK_WEBHOOK_HOSTS" in str(excinfo.value)
+
+
+def test_webhook_hosts_are_hosts_with_an_optional_port(monkeypatch):
+    _set_required_env(
+        monkeypatch,
+        TOON_BASE_URL=ADMIN,
+        TOON_FEEDBACK_WEBHOOK_HOSTS=" Mattermost.Example.org , chat.example.org:8443,mattermost.example.org",
+    )
+    settings = load_settings()
+    assert settings.webhook_hosts == frozenset({("mattermost.example.org", 443), ("chat.example.org", 8443)})
+    assert settings.feedback_webhook_hosts == "mattermost.example.org:443,chat.example.org:8443"
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "10.0.0.1",
+        "[::1]",
+        "::1",
+        "2130706433",
+        "intranet.10",
+        "x.0x7f",
+        "https://mattermost.example.org",
+        "mattermost.example.org/hooks",
+        "mattermost.example.org:0",
+        "mattermost.example.org:https",
+        "-mattermost.example.org",
+        "matter_most.example.org",
+        "mattermöst.example.org",
+    ],
+)
+def test_a_webhook_host_that_is_no_host_name_is_refused(monkeypatch, entry):
+    _set_required_env(monkeypatch, TOON_BASE_URL=ADMIN, TOON_FEEDBACK_WEBHOOK_HOSTS=entry)
+    with pytest.raises(ConfigurationError) as excinfo:
+        load_settings()
+    assert "TOON_FEEDBACK_WEBHOOK_HOSTS" in str(excinfo.value)

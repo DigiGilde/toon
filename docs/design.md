@@ -148,6 +148,9 @@ platform administrator may do without a group role (§3.4).
 | Read the feedback of a site and its screenshots (§16.11) | effective site `reader`, and `editor` for the email address of a submitter |
 | Mark feedback seen, resolved or new again, reply to it | effective site `editor` |
 | Delete a feedback item, change the feedback settings | effective site `admin` |
+| Choose email about new feedback for oneself (§16.16) | effective site `reader` on a site, any group role on a group |
+| Set or remove the Mattermost webhook of a site (§16.16) | effective site `admin` |
+| Set or remove the Mattermost webhook of a group (§16.16) | group `admin` |
 | Read the audit log, resolve a pseudonym, reveal an IP | platform administrator |
 | Read how full the content volume is (`GET /platform/storage`) | platform administrator |
 
@@ -1334,7 +1337,11 @@ Tables: `members`, `groups`, `group_members`, `sites`, `site_members`,
 `site_repositories`, `versions`, `previews`, `invitees`, `access_keys`,
 `audit_log_entries`, `content_viewers`, `cli_device_authorizations`,
 `cli_sessions`, `cli_refresh_tokens`, `group_slugs`, `site_slugs`,
-`feedback_items`, `feedback_replies`, `feedback_screenshots`.
+`feedback_items`, `feedback_replies`, `feedback_screenshots`,
+`group_feedback_email`, `site_feedback_email`, `feedback_webhooks`,
+`feedback_notices`, `feedback_notice_items`, `feedback_email_days`.
+`0012_feedback_notifications` adds those last six, `members.feedback_email`
+and `feedback_items.email_batched_at` and `mattermost_batched_at` (§16.16).
 
 Rules that live in the database rather than only in the application:
 
@@ -1379,6 +1386,14 @@ Rules that live in the database rather than only in the application:
   site, its replies and its screenshot go with the item, and a removed
   version or member only empties the reference (`ON DELETE SET NULL`). The
   screenshot sits in a table of its own, in the database (TDR-0013).
+- Notifications of new feedback (`0012_feedback_notifications`, §16.16).
+  A webhook belongs to exactly one site or one group
+  (`ck_feedback_webhooks_owner`, unique per owner), a notice for email names
+  its member and one for Mattermost none (`ck_feedback_notices_recipient`),
+  and a notice has an outcome exactly when it is finished. A preference, a
+  webhook or a notice goes with its site, group or member, and a notice's
+  link to an item goes with the item, so a deleted item drops out of what
+  is still to be sent.
 
 Append-only on the audit log rests on triggers: `audit_log_no_update` refuses
 every UPDATE always, `audit_log_delete_after_retention` refuses the DELETE of a
@@ -1418,7 +1433,10 @@ Code: `alembic/versions/`, `models/`. Guarded by:
   consent pages with every refusal, the widget API with every code, the
   quotas under concurrency, the admin API with its roles and the CLI token,
   the purge, and a matrix over HTTP that holds every policy and visitor to
-  the gate (`test_feedback_matrix.py`).
+  the gate (`test_feedback_matrix.py`). For its notifications (§16.16):
+  every refusal of the API and of a webhook URL, the preference matrix, who
+  gets an email at the moment of sending, batching, restarts, two replicas
+  at once, retries, the caps, and hostile visitor text in a post.
 - **Frontend**: vitest (`npm test` in `frontend/`), including a check on the
   built `index.html` for inline scripts against the CSP of §9. The feedback
   widget is covered the same way, with a guard that imports every module under
@@ -1447,13 +1465,13 @@ Subdomain or wildcard per site; magic-link login for externals (secret links
 cover externals, invitees need SSO); custom domains per group; object storage
 (not planned: content stays on the volume, #42); the API
 following an old slug (a deploy to an old address fails at once, §8); moving a
-site to another group; releasing an old slug early; email notification
-(inviting sends no mail, the administrator shares the URL themselves); central
+site to another group; releasing an old slug early; email when someone is invited (inviting sends
+no mail, the administrator shares the URL themselves; the only email Toon
+sends is about new feedback, §16.16); central
 session revocation (deactivating works immediately because member status is
 checked per request).
 
-For site feedback (§16): notifications of new feedback (by mail, in
-Mattermost or otherwise), one inbox across sites, acting on several items at
+For site feedback (§16): one inbox across sites, acting on several items at
 once in the admin interface (the CLI marks several at once), assigning items,
 labels, search, editing an item after it was sent, feedback on `_version`
 views and on a site's own 404 page, pins of other people's feedback for
@@ -2690,3 +2708,159 @@ Guarded by:
 `test_feedback_editor.py`, `test_feedback_inject.py`,
 `test_app_integration.py`, `test_host_separation.py`, `test_ratelimit.py`,
 `e2e/tests/feedback.spec.ts`.
+
+### 16.16 Notifications of new feedback
+
+Toon tells people of new feedback, on the live site and on previews alike,
+in two ways: an email to each member who asked for one, and a post in a
+Mattermost channel through an incoming webhook. Why these two, and what each
+carries: `docs/tdr/0018-notify-of-new-feedback.md`.
+
+**Who gets an email.** Each member decides for themselves, at three levels,
+each on, off or not set: a site, a group, and their profile. The narrowest
+level that is set wins: the site, else the group, else the profile. Nothing
+set anywhere is no email, so "off" on a site beats "on" on its group. A
+member sets the site level where they may read its feedback (effective site
+`reader`, §3.6), the group level with any role in the group, and the profile
+level always. Toon decides who gets a message when it sends it: an active
+member, with an effective role on the site at that moment, with an address
+the IdP verified (`members.email`, which only a verified claim fills), and
+whose choice says yes. An item a member sent with their own account is left
+out of their email, and they get none for it alone. The language is the
+member's own (`members.language`), else English: there is no browser to
+ask.
+
+**What an email says.** Plain text, metadata only: per item the site
+(`group/site`), the page path, the kind ("Punt", "Gebied", "Tekst", "Hele
+pagina", or the English labels), the time in Amsterdam time, whether a
+screenshot came with it, and a link to the item in the admin interface
+(`/{group}/{site}/feedback/{id}`, §16.11). Never the comment, never the
+name or address of the submitter: an inbox is forwarded and kept outside
+Toon's retention, and the link asks for a session that may read the rest.
+The subject counts the items ("3 new feedback items on aurora/docs"). A
+message lists 20 items and then says how many more there are, with a link
+to the Feedback tab. It carries `Auto-Submitted: auto-generated` and
+`List-Unsubscribe` with the site's Feedback tab, where the narrowest choice
+is made, and a closing line with that link and the profile's.
+
+**Mattermost.** A site may have an incoming webhook of its own, set by an
+effective site `admin`, and a group one for its sites, set by a group
+`admin`. A site without its own posts to its group's. With it comes the
+language of the posts, chosen with the webhook and by default the language
+of the admin who sets it. A post carries per item the site, the page, the
+kind, the time and a link, and the comment itself, never the submitter. The
+comment comes from a visitor, possibly anonymous, so nothing in it is read
+as Markdown or as a mention:
+
+- It stands in an indented code block, every line indented by four spaces:
+  no link, image, formatting or HTML, and no closing fence the text could
+  forge. U+2028, U+2029, NEL and a carriage return become a line break
+  first, so every line gets the indent.
+- Every `@` in visitor text, the page path included, becomes U+FF20
+  FULLWIDTH COMMERCIAL AT, so `@channel`, `@all`, `@here` or `@name`
+  mentions nobody.
+- Control and format characters go, except a line break, a tab, U+200C and
+  U+200D, so no bidi override turns a post around.
+- The page path stands in a code span. A path from the widget holds no
+  backtick (§16.9).
+- A comment is cut at 500 characters and 20 lines and marked as shortened,
+  and a post at 12,000 characters, under Mattermost's limit of 16,383.
+
+What lands in the channel stays there after the item is deleted or purged
+in Toon. The webhook section says so to the admin who sets it, and
+`docs/privacy.md` says so too.
+
+**The webhook URL is a secret.** Whoever has it posts in the channel. The
+API takes it (`PUT`) and removes it (`DELETE`) and never gives it back: a
+read says whether one is set, on which host, in which language and since
+when. The audit row of a change names the host, never the URL, and a
+refused URL is never quoted in the answer. It sits in `feedback_webhooks`,
+a table of its own, so loading a site never loads it, and it is stored as
+it is (TDR-0018). Toon posts only to a host the operator lists in
+`TOON_FEEDBACK_WEBHOOK_HOSTS` (`host` for port 443, or `host:port`, matched
+exactly, never an IP address). The URL is checked when it is saved and again
+before every post: `https` only, no user name or password, no IP literal, a
+listed host on its listed port, at most 2048 characters, no fragment, no
+whitespace, control or non-ASCII character. The post goes through a client
+of its own: no redirects followed, no proxy from the environment, a connect
+timeout of 3 seconds and 5 for the rest, and the answer is never read. A
+2xx is success, anything else a failed attempt. An empty list turns
+Mattermost off, and the admin interface does not offer it.
+
+**Batching.** Per channel, a column on `feedback_items`, `email_batched_at`
+or `mattermost_batched_at`, is NULL while an item waits. Per site, the
+oldest waiting item starts a window, `TOON_FEEDBACK_EMAIL_WINDOW_MINUTES`
+(10) for email and `TOON_FEEDBACK_MATTERMOST_WINDOW_MINUTES` (0) for
+Mattermost. Once it has passed, one batch takes every waiting item of the
+site, and a window of 0 makes a batch of each item. So email comes at most
+once per window per site per member, and Mattermost gets one post per item.
+Every item is taken, also where nobody would be told, so turning a channel
+on later sends no backlog, and the migration marks every item that already
+exists as taken. Taking items sets the column and writes the notices in one
+transaction, under `FOR NO KEY UPDATE SKIP LOCKED` on the items, so two
+replicas never take the same item.
+
+**Sending.** A notice (`feedback_notices`) is one message to one
+destination: an email to one member, or a post for one site, with its items
+in `feedback_notice_items`. The job, started in the lifespan like the
+cleanup job, runs every minute: it takes items into batches, then locks one
+due notice at a time (`FOR UPDATE SKIP LOCKED`), checks again who and what
+is left, sends, and records the outcome (`sent`, `dropped`, `failed`) in the
+same transaction. An item deleted in the meantime drops out of the message,
+and a notice with nothing left, or nobody to send it to, is dropped. A
+failure counts an attempt and tries again after 2, 4, 8 and 16 minutes. The
+fifth failure ends the notice with one warning in the log that names the
+notice, the site and the class of the error (an SMTP reply code, an HTTP
+status), never an address or a URL. Each notice fails on its own, so a dead
+webhook holds up neither another site nor the email. A restart loses
+nothing. A process that dies between a send and its commit sends that one
+message again. On shutdown the job lets a message on its way finish for up
+to 10 seconds. A finished notice is kept for 7 days.
+
+**Email transport and the daily cap.** SMTP from `TOON_SMTP_HOST`,
+`TOON_SMTP_PORT` (587), `TOON_SMTP_USERNAME`, `TOON_SMTP_PASSWORD` and
+`TOON_SMTP_FROM`, each falling back to the `SMTP_` variable ZAD's
+`send-email` service injects. `TOON_SMTP_TLS` is `starttls` (the default: a
+server that does not offer STARTTLS, or whose certificate does not verify,
+is an error, never a reason to go on in the clear) or `none`, which ZAD's
+relay needs today (`docs/deploying-on-zad.md`). Without a host there is no
+email: the choices are not offered and nothing is sent. Before an email
+goes out, the counter of the UTC day in `feedback_email_days` goes up by
+one, so every replica counts against `TOON_FEEDBACK_EMAIL_DAILY_MAX` (2000,
+under ZAD's budget of 5000 a day for the whole project). At the cap, every
+waiting email moves to the next day, one warning says so for the whole
+installation, and Mattermost goes on.
+
+**The API.** Session only, CSRF on every write, tag `Feedback`:
+
+| Method and path | Minimum role | Audit action |
+|---|---|---|
+| `GET`, `PUT /me/feedback-email` | active member | `feedback_email` |
+| `GET`, `PUT /groups/{group}/feedback-email` | any group role | `feedback_email` |
+| `GET`, `PUT /sites/{group}/{site}/feedback-email` | effective site `reader` | `feedback_email` |
+| `GET`, `PUT`, `DELETE /groups/{group}/feedback-webhook` | group `admin` | `group_feedback_webhook` |
+| `GET`, `PUT`, `DELETE /sites/{group}/{site}/feedback-webhook` | effective site `admin` | `site_feedback_webhook` |
+
+Reads are not audited. An email choice answers with the choice at that
+level, whether email applies there, which level decides (`site`, `group`,
+`profile` or `default`), and `available`. A write on an installation
+without email is 409 `FEEDBACK_EMAIL_UNAVAILABLE`. A webhook answers with
+`available`, `configured`, `host`, `language`, `setAt` and, on a site, the
+group's host. A write without listed hosts is 409 `WEBHOOKS_UNAVAILABLE`, a
+refused URL 422 `WEBHOOK_URL_INVALID` or `WEBHOOK_HOST_NOT_ALLOWED`.
+Removing a webhook that is not there is a 204 without an audit row.
+
+**The admin interface.** The profile page, the group page and the site's
+Feedback tab each have the member's own email choice, with what applies
+when it is left to the wider level. The webhook sits with the group's
+settings and on the site's Feedback tab, for those who may set it, with the
+warning that the feedback text then lands in the channel.
+
+Code: `notifications/` (`job.py`, `recipients.py`, `mail.py`,
+`mattermost.py`, `webhooks.py`, `content.py`, `texts.py`),
+`api/admin/notifications.py`, `models/notifications.py`, `config.py`,
+`main.py`, `alembic/versions/0012_feedback_notifications.py`,
+`frontend/src/components/FeedbackEmailChoice.vue`, `FeedbackWebhook.vue`.
+Guarded by: `test_notifications.py`, `test_notifications_job.py`,
+`test_notifications_api.py`, `test_config.py`, `test_migrations.py`,
+`test_app_integration.py`, and the component tests beside them.

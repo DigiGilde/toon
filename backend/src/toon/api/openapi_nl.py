@@ -2664,6 +2664,362 @@ NL: Final[dict[str, str]] = {
         "**Mag:** effectieve siterol `admin`, met een geldige CSRF-header."
     ),
     "The site with its new feedback settings.": "De site met zijn nieuwe feedbackinstellingen.",
+    # -- Notifications of new feedback --
+    "A Mattermost incoming webhook. The URL is a secret: Toon never shows it again.": (
+        "Een inkomende webhook van Mattermost. De URL is geheim: Toon laat hem nooit meer zien."
+    ),
+    "A member's email choice at one level, and what applies there.": (
+        "De e-mailkeuze van een lid op een niveau, en wat daar geldt."
+    ),
+    "A member's own choice about email on new feedback, at one level.": (
+        "De eigen keuze van een lid over e-mail bij nieuwe feedback, op een niveau."
+    ),
+    "Conflict. This installation allows no Mattermost webhooks (`WEBHOOKS_UNAVAILABLE`).": (
+        "Conflict. Deze installatie staat geen Mattermost-webhooks toe (`WEBHOOKS_UNAVAILABLE`)."
+    ),
+    "Conflict. This installation sends no email about new feedback (`FEEDBACK_EMAIL_UNAVAILABLE`).": (
+        "Conflict. Deze installatie verstuurt geen e-mail over nieuwe feedback (`FEEDBACK_EMAIL_UNAVAILABLE`)."
+    ),
+    "My email choice for new feedback, on a group": "Mijn e-mailkeuze voor nieuwe feedback, op een groep",
+    "My email choice for new feedback, on a site": "Mijn e-mailkeuze voor nieuwe feedback, op een site",
+    "My email choice for new feedback, on my profile": "Mijn e-mailkeuze voor nieuwe feedback, op mijn profiel",
+    (
+        "On a site only: the host of the group's webhook, which a site without one of its own posts to. `null` on a "
+        "group, and when the group has none."
+    ): (
+        "Alleen op een site: de host van de webhook van de groep, waar een site zonder eigen webhook naartoe post. "
+        "`null` op een groep, en als de groep er geen heeft."
+    ),
+    "Remove the Mattermost webhook of a group": "De Mattermost-webhook van een groep verwijderen",
+    "Remove the Mattermost webhook of a site": "De Mattermost-webhook van een site verwijderen",
+    "Set my email choice for new feedback, on a group": "Mijn e-mailkeuze voor nieuwe feedback zetten, op een groep",
+    "Set my email choice for new feedback, on a site": "Mijn e-mailkeuze voor nieuwe feedback zetten, op een site",
+    "Set my email choice for new feedback, on my profile": (
+        "Mijn e-mailkeuze voor nieuwe feedback zetten, op mijn profiel"
+    ),
+    "Set the Mattermost webhook of a group": "De Mattermost-webhook van een groep zetten",
+    "Set the Mattermost webhook of a site": "De Mattermost-webhook van een site zetten",
+    (
+        "Sets or clears the member's own choice for the sites of this group.\n"
+        "\n"
+        "A member gets email about new feedback on a site when the narrowest level they set says so: the site, else "
+        "its group, else their profile. Nothing set anywhere is no email. Toon decides when it sends: the member must"
+        " still be active, still have a role on the site, and have an e-mail address their identity provider "
+        "verified. An email names the site, the page, the kind, the time and whether a screenshot came with it, and "
+        "links to the item; it never holds the comment or who sent it.\n"
+        "\n"
+        "**Who can call this:** any active member with a role in the group, for themselves, with a valid CSRF header."
+    ): (
+        "Zet of wist de eigen keuze van het lid voor de sites van deze groep.\n"
+        "\n"
+        "Een lid krijgt e-mail over nieuwe feedback op een site als het smalste niveau dat het heeft ingesteld dat "
+        "zegt: de site, anders de groep, anders het profiel. Nergens iets ingesteld is geen e-mail. Toon beslist op "
+        "het moment van versturen: het lid moet dan nog actief zijn, nog een rol op de site hebben en een e-mailadres"
+        " hebben dat de identity provider heeft geverifieerd. Een e-mail noemt de site, de pagina, de soort, het "
+        "tijdstip en of er een schermafbeelding bij zat, en linkt naar het item. Het bevat nooit de opmerking en "
+        "nooit wie die stuurde.\n"
+        "\n"
+        "**Mag:** elk actief lid met een rol in de groep, voor zichzelf, met een geldige CSRF-header."
+    ),
+    (
+        "Sets or clears the member's own choice for this one site.\n"
+        "\n"
+        "A member gets email about new feedback on a site when the narrowest level they set says so: the site, else "
+        "its group, else their profile. Nothing set anywhere is no email. Toon decides when it sends: the member must"
+        " still be active, still have a role on the site, and have an e-mail address their identity provider "
+        "verified. An email names the site, the page, the kind, the time and whether a screenshot came with it, and "
+        "links to the item; it never holds the comment or who sent it.\n"
+        "\n"
+        "**Who can call this:** any active member who may read the site's feedback (effective site role `reader` or "
+        "more), for themselves, with a valid CSRF header."
+    ): (
+        "Zet of wist de eigen keuze van het lid voor deze ene site.\n"
+        "\n"
+        "Een lid krijgt e-mail over nieuwe feedback op een site als het smalste niveau dat het heeft ingesteld dat "
+        "zegt: de site, anders de groep, anders het profiel. Nergens iets ingesteld is geen e-mail. Toon beslist op "
+        "het moment van versturen: het lid moet dan nog actief zijn, nog een rol op de site hebben en een e-mailadres"
+        " hebben dat de identity provider heeft geverifieerd. Een e-mail noemt de site, de pagina, de soort, het "
+        "tijdstip en of er een schermafbeelding bij zat, en linkt naar het item. Het bevat nooit de opmerking en "
+        "nooit wie die stuurde.\n"
+        "\n"
+        "**Mag:** elk actief lid dat de feedback van de site mag lezen (effectieve siterol `reader` of meer), voor "
+        "zichzelf, met een geldige CSRF-header."
+    ),
+    (
+        "Sets or replaces the incoming webhook every site of this group without one of its own posts new feedback to."
+        " Toon checks the URL against the hosts the operator allows, now and before every post.\n"
+        "\n"
+        "A post carries the comment itself, cut at 500 characters, never the name or e-mail address of who sent it. "
+        "What lands in the channel stays there, also after the item is deleted in Toon.\n"
+        "\n"
+        "**Who can call this:** group role `admin`, with a valid CSRF header."
+    ): (
+        "Zet of vervangt de inkomende webhook waar elke site van deze groep zonder eigen webhook nieuwe feedback "
+        "naartoe post. Toon toetst de URL aan de hosts die de installatie toestaat, nu en voor elk bericht.\n"
+        "\n"
+        "Een bericht bevat de opmerking zelf, ingekort tot 500 tekens, nooit de naam of het e-mailadres van wie die "
+        "stuurde. Wat in het kanaal staat, blijft daar staan, ook nadat het item in Toon is verwijderd.\n"
+        "\n"
+        "**Mag:** groepsrol `admin`, met een geldige CSRF-header."
+    ),
+    (
+        "Sets or replaces the incoming webhook this site posts new feedback to, instead of its group's. Toon checks "
+        "the URL against the hosts the operator allows, now and before every post.\n"
+        "\n"
+        "A post carries the comment itself, cut at 500 characters, never the name or e-mail address of who sent it. "
+        "What lands in the channel stays there, also after the item is deleted in Toon.\n"
+        "\n"
+        "**Who can call this:** effective site role `admin`, with a valid CSRF header."
+    ): (
+        "Zet of vervangt de inkomende webhook waar deze site nieuwe feedback naartoe post, in plaats van die van de "
+        "groep. Toon toetst de URL aan de hosts die de installatie toestaat, nu en voor elk bericht.\n"
+        "\n"
+        "Een bericht bevat de opmerking zelf, ingekort tot 500 tekens, nooit de naam of het e-mailadres van wie die "
+        "stuurde. Wat in het kanaal staat, blijft daar staan, ook nadat het item in Toon is verwijderd.\n"
+        "\n"
+        "**Mag:** effectieve siterol `admin`, met een geldige CSRF-header."
+    ),
+    (
+        "Sets the widest level of the member's own choice.\n"
+        "\n"
+        "A member gets email about new feedback on a site when the narrowest level they set says so: the site, else "
+        "its group, else their profile. Nothing set anywhere is no email. Toon decides when it sends: the member must"
+        " still be active, still have a role on the site, and have an e-mail address their identity provider "
+        "verified. An email names the site, the page, the kind, the time and whether a screenshot came with it, and "
+        "links to the item; it never holds the comment or who sent it.\n"
+        "\n"
+        "**Who can call this:** any active member, for themselves, with a valid CSRF header."
+    ): (
+        "Zet het breedste niveau van de eigen keuze van het lid.\n"
+        "\n"
+        "Een lid krijgt e-mail over nieuwe feedback op een site als het smalste niveau dat het heeft ingesteld dat "
+        "zegt: de site, anders de groep, anders het profiel. Nergens iets ingesteld is geen e-mail. Toon beslist op "
+        "het moment van versturen: het lid moet dan nog actief zijn, nog een rol op de site hebben en een e-mailadres"
+        " hebben dat de identity provider heeft geverifieerd. Een e-mail noemt de site, de pagina, de soort, het "
+        "tijdstip en of er een schermafbeelding bij zat, en linkt naar het item. Het bevat nooit de opmerking en "
+        "nooit wie die stuurde.\n"
+        "\n"
+        "**Mag:** elk actief lid, voor zichzelf, met een geldige CSRF-header."
+    ),
+    "The Mattermost webhook of a group": "De Mattermost-webhook van een groep",
+    "The Mattermost webhook of a site": "De Mattermost-webhook van een site",
+    (
+        "The URL of the incoming webhook, as Mattermost gives it: `https://`, a host the operator allows "
+        "(`TOON_FEEDBACK_WEBHOOK_HOSTS`), no user name or password, no IP address. At most 2048 characters."
+    ): (
+        "De URL van de inkomende webhook, zoals Mattermost hem geeft: `https://`, een host die de beheerder van de "
+        "installatie toestaat (`TOON_FEEDBACK_WEBHOOK_HOSTS`), geen gebruikersnaam of wachtwoord, geen IP-adres. "
+        "Hoogstens 2048 tekens."
+    ),
+    "The choice at this level itself: `true`, `false`, or `null` when nothing is set here.": (
+        "De keuze op dit niveau zelf: `true`, `false`, of `null` als hier niets is ingesteld."
+    ),
+    "The choice on the profile, as stored.": "De keuze op het profiel, zoals opgeslagen.",
+    "The choice on the profile.": "De keuze op het profiel.",
+    "The choice on this group, and what applies.": "De keuze op deze groep, en wat er geldt.",
+    "The choice on this group, as stored, and what applies.": (
+        "De keuze op deze groep, zoals opgeslagen, en wat er geldt."
+    ),
+    "The choice on this site, and what applies.": "De keuze op deze site, en wat er geldt.",
+    "The choice on this site, as stored, and what applies.": (
+        "De keuze op deze site, zoals opgeslagen, en wat er geldt."
+    ),
+    "The group has no webhook. No content is returned.": "De groep heeft geen webhook. Er komt geen inhoud terug.",
+    "The group's webhook as stored, without the URL.": "De webhook van de groep zoals opgeslagen, zonder de URL.",
+    "The host of its webhook, or `null`.": "De host van de webhook, of `null`.",
+    "The language of the posts, or `null` without a webhook.": "De taal van de berichten, of `null` zonder webhook.",
+    (
+        "The language of the posts: `nl` or `en`. Without it, the language of the member who sets the webhook: their "
+        "own choice, else the language of the request."
+    ): (
+        "De taal van de berichten: `nl` of `en`. Zonder dit veld de taal van het lid dat de webhook zet: de eigen "
+        "keuze, anders de taal van het verzoek."
+    ),
+    "The level whose choice applies.": "Het niveau waarvan de keuze geldt.",
+    (
+        "The member's own choice for every site of this group where they set nothing on the site itself.\n"
+        "\n"
+        "A member gets email about new feedback on a site when the narrowest level they set says so: the site, else "
+        "its group, else their profile. Nothing set anywhere is no email. Toon decides when it sends: the member must"
+        " still be active, still have a role on the site, and have an e-mail address their identity provider "
+        "verified. An email names the site, the page, the kind, the time and whether a screenshot came with it, and "
+        "links to the item; it never holds the comment or who sent it.\n"
+        "\n"
+        "**Who can call this:** any active member with a role in the group."
+    ): (
+        "De eigen keuze van het lid voor elke site van deze groep waar het op de site zelf niets heeft ingesteld.\n"
+        "\n"
+        "Een lid krijgt e-mail over nieuwe feedback op een site als het smalste niveau dat het heeft ingesteld dat "
+        "zegt: de site, anders de groep, anders het profiel. Nergens iets ingesteld is geen e-mail. Toon beslist op "
+        "het moment van versturen: het lid moet dan nog actief zijn, nog een rol op de site hebben en een e-mailadres"
+        " hebben dat de identity provider heeft geverifieerd. Een e-mail noemt de site, de pagina, de soort, het "
+        "tijdstip en of er een schermafbeelding bij zat, en linkt naar het item. Het bevat nooit de opmerking en "
+        "nooit wie die stuurde.\n"
+        "\n"
+        "**Mag:** elk actief lid met een rol in de groep."
+    ),
+    (
+        "The member's own choice for this one site, which beats the group and the profile.\n"
+        "\n"
+        "A member gets email about new feedback on a site when the narrowest level they set says so: the site, else "
+        "its group, else their profile. Nothing set anywhere is no email. Toon decides when it sends: the member must"
+        " still be active, still have a role on the site, and have an e-mail address their identity provider "
+        "verified. An email names the site, the page, the kind, the time and whether a screenshot came with it, and "
+        "links to the item; it never holds the comment or who sent it.\n"
+        "\n"
+        "**Who can call this:** any active member who may read the site's feedback: effective site role `reader` or "
+        "more."
+    ): (
+        "De eigen keuze van het lid voor deze ene site, die voorgaat op de groep en het profiel.\n"
+        "\n"
+        "Een lid krijgt e-mail over nieuwe feedback op een site als het smalste niveau dat het heeft ingesteld dat "
+        "zegt: de site, anders de groep, anders het profiel. Nergens iets ingesteld is geen e-mail. Toon beslist op "
+        "het moment van versturen: het lid moet dan nog actief zijn, nog een rol op de site hebben en een e-mailadres"
+        " hebben dat de identity provider heeft geverifieerd. Een e-mail noemt de site, de pagina, de soort, het "
+        "tijdstip en of er een schermafbeelding bij zat, en linkt naar het item. Het bevat nooit de opmerking en "
+        "nooit wie die stuurde.\n"
+        "\n"
+        "**Mag:** elk actief lid dat de feedback van de site mag lezen: effectieve siterol `reader` of meer."
+    ),
+    "The site has no webhook of its own. No content is returned.": (
+        "De site heeft geen eigen webhook. Er komt geen inhoud terug."
+    ),
+    "The site's webhook as stored, without the URL.": "De webhook van de site zoals opgeslagen, zonder de URL.",
+    (
+        "The widest level of the member's own choice: email about new feedback on every site they may read, unless a "
+        "group or a site says otherwise.\n"
+        "\n"
+        "A member gets email about new feedback on a site when the narrowest level they set says so: the site, else "
+        "its group, else their profile. Nothing set anywhere is no email. Toon decides when it sends: the member must"
+        " still be active, still have a role on the site, and have an e-mail address their identity provider "
+        "verified. An email names the site, the page, the kind, the time and whether a screenshot came with it, and "
+        "links to the item; it never holds the comment or who sent it.\n"
+        "\n"
+        "**Who can call this:** any active member, for themselves."
+    ): (
+        "Het breedste niveau van de eigen keuze van het lid: e-mail over nieuwe feedback op elke site die het mag "
+        "lezen, tenzij een groep of site iets anders zegt.\n"
+        "\n"
+        "Een lid krijgt e-mail over nieuwe feedback op een site als het smalste niveau dat het heeft ingesteld dat "
+        "zegt: de site, anders de groep, anders het profiel. Nergens iets ingesteld is geen e-mail. Toon beslist op "
+        "het moment van versturen: het lid moet dan nog actief zijn, nog een rol op de site hebben en een e-mailadres"
+        " hebben dat de identity provider heeft geverifieerd. Een e-mail noemt de site, de pagina, de soort, het "
+        "tijdstip en of er een schermafbeelding bij zat, en linkt naar het item. Het bevat nooit de opmerking en "
+        "nooit wie die stuurde.\n"
+        "\n"
+        "**Mag:** elk actief lid, voor zichzelf."
+    ),
+    (
+        "Toon posts new feedback of a site to its own webhook, else to its group's. This says whether the group has "
+        "one, on which host and in which language. The URL itself is never returned.\n"
+        "\n"
+        "A post carries the comment itself, cut at 500 characters, never the name or e-mail address of who sent it. "
+        "What lands in the channel stays there, also after the item is deleted in Toon.\n"
+        "\n"
+        "**Who can call this:** group role `admin`."
+    ): (
+        "Toon post nieuwe feedback van een site naar de eigen webhook van de site, anders naar die van de groep. Dit "
+        "zegt of de groep er een heeft, op welke host en in welke taal. De URL zelf komt nooit terug.\n"
+        "\n"
+        "Een bericht bevat de opmerking zelf, ingekort tot 500 tekens, nooit de naam of het e-mailadres van wie die "
+        "stuurde. Wat in het kanaal staat, blijft daar staan, ook nadat het item in Toon is verwijderd.\n"
+        "\n"
+        "**Mag:** groepsrol `admin`."
+    ),
+    (
+        "Toon posts new feedback of this site to its own webhook, else to its group's. This says whether the site has"
+        " one and whether the group has one, with their hosts. The URL itself is never returned.\n"
+        "\n"
+        "A post carries the comment itself, cut at 500 characters, never the name or e-mail address of who sent it. "
+        "What lands in the channel stays there, also after the item is deleted in Toon.\n"
+        "\n"
+        "**Who can call this:** effective site role `admin`."
+    ): (
+        "Toon post nieuwe feedback van deze site naar de eigen webhook van de site, anders naar die van de groep. Dit"
+        " zegt of de site er een heeft en of de groep er een heeft, met hun hosts. De URL zelf komt nooit terug.\n"
+        "\n"
+        "Een bericht bevat de opmerking zelf, ingekort tot 500 tekens, nooit de naam of het e-mailadres van wie die "
+        "stuurde. Wat in het kanaal staat, blijft daar staan, ook nadat het item in Toon is verwijderd.\n"
+        "\n"
+        "**Mag:** effectieve siterol `admin`."
+    ),
+    (
+        "Toon stops posting to the group's webhook; a site with a webhook of its own goes on posting there. What is "
+        "already in the channel stays. Removing a webhook that is not there changes nothing.\n"
+        "\n"
+        "**Who can call this:** group role `admin`, with a valid CSRF header."
+    ): (
+        "Toon post niet meer naar de webhook van de groep. Een site met een eigen webhook blijft daar posten. Wat al "
+        "in het kanaal staat, blijft. Een webhook verwijderen die er niet is, verandert niets.\n"
+        "\n"
+        "**Mag:** groepsrol `admin`, met een geldige CSRF-header."
+    ),
+    (
+        "Toon stops posting to the site's own webhook and posts to its group's instead, if the group has one. What is"
+        " already in the channel stays. Removing a webhook that is not there changes nothing.\n"
+        "\n"
+        "**Who can call this:** effective site role `admin`, with a valid CSRF header."
+    ): (
+        "Toon post niet meer naar de eigen webhook van de site, maar naar die van de groep, als de groep er een "
+        "heeft. Wat al in het kanaal staat, blijft. Een webhook verwijderen die er niet is, verandert niets.\n"
+        "\n"
+        "**Mag:** effectieve siterol `admin`, met een geldige CSRF-header."
+    ),
+    (
+        "Unprocessable input. The URL is refused (`WEBHOOK_URL_INVALID`): it is not `https`, holds a user name or "
+        "password, names an IP address, has a port the operator does not allow, is longer than 2048 characters, or is"
+        " no URL; or its host is not one the operator allows (`WEBHOOK_HOST_NOT_ALLOWED`). The answer never repeats "
+        "the URL."
+    ): (
+        "Onverwerkbare invoer. De URL wordt geweigerd (`WEBHOOK_URL_INVALID`): hij is geen `https`, bevat een "
+        "gebruikersnaam of wachtwoord, noemt een IP-adres, heeft een poort die de installatie niet toestaat, is "
+        "langer dan 2048 tekens of is geen URL. Of de host is er geen die de beheerder van de installatie toestaat "
+        "(`WEBHOOK_HOST_NOT_ALLOWED`). Het antwoord herhaalt de URL nooit."
+    ),
+    "When the webhook was set, in UTC (RFC 3339), or `null`.": (
+        "Wanneer de webhook is gezet, in UTC (RFC 3339), of `null`."
+    ),
+    "Whether a site or a group has a Mattermost webhook. Never the URL.": (
+        "Of een site of groep een Mattermost-webhook heeft. Nooit de URL."
+    ),
+    "Whether the group has one, and on which host. Never the URL.": (
+        "Of de groep er een heeft, en op welke host. Nooit de URL."
+    ),
+    "Whether the member gets email at this level, after the narrower and wider levels.": (
+        "Of het lid op dit niveau e-mail krijgt, na de smallere en bredere niveaus."
+    ),
+    "Whether the site and its group have one, and on which host. Never the URL.": (
+        "Of de site en de groep er een hebben, en op welke host. Nooit de URL."
+    ),
+    (
+        "Whether this installation posts to Mattermost at all: the operator allows at least one host "
+        "(`TOON_FEEDBACK_WEBHOOK_HOSTS`)."
+    ): (
+        "Of deze installatie überhaupt naar Mattermost post: de installatie staat minstens een host toe "
+        "(`TOON_FEEDBACK_WEBHOOK_HOSTS`)."
+    ),
+    (
+        "Whether this installation sends email about new feedback at all (`TOON_SMTP_HOST`). When it is `false`, a "
+        "choice can be read but not changed."
+    ): (
+        "Of deze installatie überhaupt e-mail over nieuwe feedback verstuurt (`TOON_SMTP_HOST`). Is het `false`, dan "
+        "is een keuze te lezen maar niet te wijzigen."
+    ),
+    "Whether this site or group has a webhook of its own.": "Of deze site of groep een eigen webhook heeft.",
+    (
+        "Which level decides `effective`: `site`, `group`, `profile`, or `default` when nothing is set anywhere, "
+        "which means no email."
+    ): (
+        "Welk niveau `effective` bepaalt: `site`, `group`, `profile`, of `default` als nergens iets is ingesteld, wat"
+        " geen e-mail betekent."
+    ),
+    (
+        "`true` for email, `false` for none, `null` to leave it to the wider level: the group for a site, the profile"
+        " for a group. On the profile, `null` is the same as `false`."
+    ): (
+        "`true` voor e-mail, `false` voor geen, `null` om het aan het bredere niveau te laten: de groep voor een "
+        "site, het profiel voor een groep. Op het profiel betekent `null` hetzelfde als `false`."
+    ),
     (
         "The base answer to \"who can look at this site\": exactly one per site,\n"
         "and never the whole story.\n"

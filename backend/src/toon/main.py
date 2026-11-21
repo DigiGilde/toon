@@ -67,6 +67,9 @@ from toon.head_requests import ContentHeadMiddleware
 from toon.host_separation import HostSeparationMiddleware
 from toon.ingest.storage_health import content_root_complaint, storage_check_job, storage_watch
 from toon.ingest.store import ContentStore
+from toon.notifications import webhooks
+from toon.notifications.job import notification_job
+from toon.notifications.mail import SmtpMailer
 from toon.platform import pages
 from toon.platform.backchannel import router as backchannel_router
 from toon.platform.health import health_response
@@ -171,6 +174,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Its own client: CI providers get no redirects and a short timeout on
         # every call (ci/providers.py), whatever the IdP client does.
         ci_http = httpx.AsyncClient(follow_redirects=False)
+        # And one for Mattermost webhooks: no redirects, no proxy from the
+        # environment, short timeouts (notifications/webhooks.py).
+        webhook_http = webhooks.make_client()
+        mailer = SmtpMailer(settings) if settings.email_available else None
+        if mailer is not None and settings.smtp_tls == "none" and settings.hardened:
+            # A warning, because nothing shows INFO for this logger under uvicorn.
+            _logger.warning(
+                "TOON_SMTP_TLS=none: feedback email and the SMTP password go to %s without TLS",
+                settings.smtp_host,
+            )
         content_store = ContentStore(settings.content_root)
         if settings.hardened:
             root_complaint = content_root_complaint(content_store.root)
@@ -221,7 +234,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 audit_retention_job(settings.db_url) as audit_retention_task,
                 write_counter_sweep(app.state.feedback_author_writes, app.state.feedback_site_writes),
                 refused_token_sweep(),
+                notification_job(session_factory, settings, http=webhook_http, mailer=mailer) as notification_task,
             ):
+                app.state.notification_task = notification_task
                 app.state.cleanup_task = cleanup_task
                 app.state.storage_task = storage_task
                 app.state.audit_retention_task = audit_retention_task
@@ -229,6 +244,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         finally:
             await oidc_http.aclose()
             await ci_http.aclose()
+            await webhook_http.aclose()
             await engine.dispose()
 
     app = FastAPI(

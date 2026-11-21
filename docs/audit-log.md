@@ -123,6 +123,7 @@ who attempted it, and more personal data adds little for investigation.
 | `key_create`, `key_revoke` | `allowed` |
 | `site_repository_set`, `site_repository_remove`, `site_repository_site_id_required` | `allowed` |
 | `site_feedback`, `feedback_status`, `feedback_reply`, `feedback_delete` | `allowed` |
+| `group_feedback_webhook`, `site_feedback_webhook` | `allowed` |
 | `member_activate`, `member_deactivate`, `member_platform_role` | `allowed` |
 | `admin_access` | `refused` |
 
@@ -177,6 +178,16 @@ group, site and the new state of all three: `enabled` (`true` or `false`),
 `identity` (`account`, `name` or `anonymous`) and `live` (`true` or `false`).
 They are set in one PUT and so belong in one row, as with visibility.
 
+`group_feedback_webhook` and `site_feedback_webhook` are about the Mattermost
+webhook that new feedback is posted to, set by a group admin and an effective
+site admin. Setting or replacing one writes `refs.group` (and `refs.site` for
+the site's), `refs.host` (the host of the URL), `refs.language` (`nl` or `en`,
+the language of the posts) and `refs.set` as `true`. Removing one writes only
+`refs.group` (and `refs.site`) and `refs.set` as `false`, and removing one
+that is not there writes no row. The URL is never in a row, not even in
+part: it is a secret, and whoever has it posts in the channel. Reading a
+webhook is not audited.
+
 `feedback_status` is written when a site editor or admin marks a feedback item
 seen or resolved, or opens it again. `refs` carries group, site, `item` (the id
 of the item), and `from` and `to`: the status before and after, each `new`,
@@ -197,6 +208,13 @@ the CLI session, as a creation does. `resolve` with `--message` or
 `feedback_status` row. None of these rows ever carries the comment, the
 quote, a reply, a name or an email address: what was said stays with the
 item, and goes when the item goes.
+
+The notification job writes no row either. Telling members and channels of
+new feedback is sending, not an action of a person, and the settings that
+decide it are audited where they are changed. What the job does is in the
+application log only, as one WARNING when a notice is given up after five
+attempts and one when the daily email cap is reached, with no address and no
+URL (`docs/design.md` §16.16).
 
 What happens through the feedback widget on the content host writes no row:
 giving feedback, a submitter replying to or deleting their own item, saying
@@ -369,10 +387,12 @@ years, a trace of what the purge is there to remove.
 | Action | Result | When |
 |---|---|---|
 | `member_language` | `allowed` | a member set the interface language of the admin on their own account, from the profile page. `refs.language` is the new value: `nl`, `en`, or `null` when the member handed the choice back to their browser |
+| `feedback_email` | `allowed` | a member set their own choice of email about new feedback, on their profile, on a group or on a site. `refs.level` is `profile`, `group` or `site`, `refs.group` is present for the last two and `refs.site` for a site, `refs.enabled` is the new choice: `true`, `false`, or `null` when the member handed the choice back to the wider level |
 
 The value is in the row because it is a setting somebody changed about
 themselves, and a row saying only that something changed answers nothing. It
-is a language, not personal data beyond the account it already hangs on.
+is a language or a yes or no, not personal data beyond the account it already
+hangs on.
 
 ### The audit log itself
 

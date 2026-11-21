@@ -70,6 +70,12 @@ sends the language it is showing, so a refusal arrives in the language
 on screen. A new message is added to both catalogues at once, which
 `test_messages.py` enforces.
 
+The email and the Mattermost post about new feedback are bilingual too:
+their words live in `backend/src/toon/notifications/texts.py`, in both
+languages, which `test_notifications.py` holds to the same keys. An email
+goes out in the member's own language, a post in the language chosen with
+its webhook.
+
 The OpenAPI schema and the docs page on `/-/api/docs` are bilingual the
 same way, English by default. The routes, models and `api/docs.py` are
 written in English; the Dutch schema comes from `api/openapi_nl.py`, a

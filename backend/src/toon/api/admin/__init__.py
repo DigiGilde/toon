@@ -29,7 +29,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from toon.api.admin import cli, me, overview
+from toon.api.admin import cli, me, notifications, overview
 from toon.api.admin.common import KEY_ADMIN_ONLY, KEY_CSRF_INVALID, KEY_NO_SESSION, KEY_NOT_GROUP_MEMBER
 from toon.api.admin.dependencies import require_csrf
 from toon.api.admin.feedback import add_feedback_routes
@@ -64,6 +64,7 @@ def make_admin_router() -> APIRouter:
     versions.add_routes(router)
     previews.add_routes(router)
     add_feedback_routes(router)
+    notifications.add_routes(router)
 
     # NB: POST .../deploys and DELETE .../previews/{ref} live in api/deploys/routes.py
     # (bearer as well as session); see the module docstring.
