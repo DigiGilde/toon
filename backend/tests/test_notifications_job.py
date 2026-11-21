@@ -731,7 +731,7 @@ async def test_a_host_taken_off_the_list_is_not_posted_to(factory, world, http, 
         await _deliver(factory, http, FakeMailer(), settings=elsewhere, at=T0)
     assert receiver.posts == []
     (record,) = [r for r in caplog.records if "no longer allowed" in r.getMessage()]
-    assert "mattermost.example.org" in record.getMessage()
+    assert record.args[:2] == ("team/docs", "mattermost.example.org")
     assert "secret" not in record.getMessage()
 
 
