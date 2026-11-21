@@ -74,6 +74,9 @@ class Member(IDMixin, Base):
         nullable=True,
         default=None,
     )
+    # Email about new site feedback, at the level of the profile: NULL is
+    # "not set", which sends nothing unless a group or site says otherwise.
+    feedback_email: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=None)
 
     __table_args__ = (CheckConstraint("email = lower(email)", name="ck_members_email_lowercase"),)
 

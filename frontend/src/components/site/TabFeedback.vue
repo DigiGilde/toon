@@ -26,6 +26,7 @@ import { errorText } from '@/api/client';
 import type { FeedbackCounts, FeedbackDetail, FeedbackItem, Me, Preview, Site } from '@/api/types';
 import ErrorBanner from '@/components/ErrorBanner.vue';
 import FeedbackInbox from '@/components/site/FeedbackInbox.vue';
+import FeedbackNotifications from '@/components/site/FeedbackNotifications.vue';
 import FeedbackSettings from '@/components/site/FeedbackSettings.vue';
 import FeedbackSheet from '@/components/site/FeedbackSheet.vue';
 import Notices from '@/components/site/Notices.vue';
@@ -281,6 +282,8 @@ function settingsSaved(site: Site): void {
       :public-preview="publicPreview"
       @saved="settingsSaved"
     />
+
+    <FeedbackNotifications v-if="ready" :group="group" :site="site" :can-admin="canAdmin" />
 
     <!-- Only while nothing has loaded: after that a failure takes the place of
          the rows, and the filters stay to try again with. -->

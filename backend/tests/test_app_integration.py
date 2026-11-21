@@ -162,6 +162,44 @@ async def test_startup_logs_a_secret_rotation_as_counts_only(
         assert _key_id(key).hex() not in caplog.text
 
 
+_SMTP = {"smtp_host": "relay.mail.svc", "smtp_from": "noreply@example.org", "base_url": "https://beheer.toon.example"}
+_HARDENED = {
+    "environment": "productie",
+    "behind_proxy": True,
+    "oidc_iss_required": True,
+}
+
+
+@pytest.mark.parametrize(
+    ("overrides", "warned"),
+    [
+        ({**_SMTP, **_HARDENED, "smtp_tls": "none"}, True),
+        ({**_SMTP, **_HARDENED}, False),
+        ({**_SMTP, "smtp_tls": "none"}, False),
+        ({**_HARDENED, "base_url": "https://beheer.toon.example", "smtp_tls": "none"}, False),
+    ],
+    ids=["hardened-without-tls", "hardened-starttls", "dev-without-tls", "no-email"],
+)
+async def test_startup_warns_once_about_email_without_tls_in_production(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, overrides: dict, warned: bool
+) -> None:
+    """The ZAD relay offers no TLS today, so production may have to run
+    without it; that is said, with the host and never the password."""
+    settings = _make_settings(tmp_path, smtp_username="toon", smtp_password="relay-wachtwoord", **overrides)
+    app = create_app(settings)
+
+    with caplog.at_level(logging.WARNING, logger="toon.main"):
+        async with app.router.lifespan_context(app):
+            assert not app.state.notification_task.done()
+        assert app.state.notification_task.done()
+
+    lines = [row.getMessage() for row in caplog.records if "TOON_SMTP_TLS=none" in row.getMessage()]
+    assert lines == (
+        ["TOON_SMTP_TLS=none: feedback email and the SMTP password go to relay.mail.svc without TLS"] if warned else []
+    )
+    assert "relay-wachtwoord" not in caplog.text
+
+
 async def test_startup_without_a_secret_rotation_logs_no_rotation(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:

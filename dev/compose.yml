@@ -1,4 +1,5 @@
-# Podman dev stack: nginx (dumb reverse proxy) + app + postgres + mock OIDC.
+# Podman dev stack: nginx (dumb reverse proxy) + app + postgres + mock OIDC
+# + Mailpit.
 # The app itself serves content, SPA and host separation (course correction
 # 2026-09-12 decision 1); nginx only passes the Host through and provides
 # the oidc alias. Secrets come from dev/.secrets/ (outside git, see
@@ -102,6 +103,12 @@ services:
       # inotify events do not reach the container there, so --reload sees
       # nothing without polling.
       WATCHFILES_FORCE_POLLING: "true"
+      # Email about new feedback goes to Mailpit below, which keeps it and
+      # sends nothing on. Mailpit offers no STARTTLS, like ZAD's relay today.
+      TOON_SMTP_HOST: mailpit
+      TOON_SMTP_PORT: "1025"
+      TOON_SMTP_FROM: noreply@toon.localhost
+      TOON_SMTP_TLS: none
     volumes:
       - content:/content
       - ../frontend/dist:/spa:ro
@@ -131,6 +138,15 @@ services:
         condition: service_started
       migrate:
         condition: service_completed_successfully
+      mailpit:
+        condition: service_started
+
+  # Catches every email the app sends and delivers none: the messages show
+  # on http://localhost:8025 (docs/local-development.md).
+  mailpit:
+    image: docker.io/axllent/mailpit:v1.33.1@sha256:aef2aacc11f075ec0fb6874275ee4a421e688e11a96ebb296134d1735c7761ce
+    ports:
+      - "127.0.0.1:8025:8025"
 
   nginx:
     build:

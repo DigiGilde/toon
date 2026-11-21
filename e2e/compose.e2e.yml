@@ -4,8 +4,9 @@
 #   podman compose -p toon-e2e -f dev/compose.yml -f e2e/compose.e2e.yml up -d --build
 #
 # Differences from dev:
-# - own host ports (18888/18889, overridable via TOON_E2E_PORT and
-#   TOON_E2E_OIDC_PORT), because 8080/8081 may be taken;
+# - own host ports (18888/18889/18025, overridable via TOON_E2E_PORT,
+#   TOON_E2E_OIDC_PORT and TOON_E2E_MAIL_PORT), because 8080/8081/8025 may
+#   be taken;
 # - mock OIDC with interactiveLogin so the suite can log in as multiple
 #   identities (dev always logs in as dev-beheerder);
 # - the app runs the SPA and the backend source of the image, not the
@@ -54,3 +55,8 @@ services:
   nginx:
     ports: !override
       - "127.0.0.1:${TOON_E2E_PORT:-18888}:8080"
+
+  # The dev stack's Mailpit binds 8025; the suite's gets a port of its own.
+  mailpit:
+    ports: !override
+      - "127.0.0.1:${TOON_E2E_MAIL_PORT:-18025}:8025"

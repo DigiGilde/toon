@@ -1051,6 +1051,23 @@ export function makeMockBackend(seed: MockData = defaultData()): MockBackend {
     // ['-', 'api', 'v1', ...rest]
     const rest = segments.slice(3);
 
+    // An installation that sends no email and allows no webhooks: the
+    // notification controls draw nothing. Tests of those controls put
+    // `makeNotificationsMock` in front of this backend.
+    if (/\/feedback-email$/.test(path)) {
+      return json(200, { available: false, enabled: null, effective: false, source: 'default' });
+    }
+    if (/\/feedback-webhook$/.test(path)) {
+      return json(200, {
+        available: false,
+        configured: false,
+        host: null,
+        language: null,
+        setAt: null,
+        groupHost: null,
+      });
+    }
+
     const readJson = (): Record<string, unknown> =>
       init.body ? (JSON.parse(init.body as string) as Record<string, unknown>) : {};
 

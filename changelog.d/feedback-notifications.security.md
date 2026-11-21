@@ -1,0 +1,1 @@
+- A Mattermost webhook URL is write-only and never logged or audited, Toon posts only to hosts the operator lists, over https without redirects or proxies, and visitor text in a post cannot mention, link or format.

@@ -4181,6 +4181,11 @@ SESSION_BODIES = [
         "/sites/{group_slug}/{site_slug}/feedback-settings",
         {"enabled": True, "identity": "name", "live": False},
     ),
+    ("PUT", "/me/feedback-email", {"enabled": True}),
+    ("PUT", "/groups/{group_slug}/feedback-email", {"enabled": True}),
+    ("PUT", "/sites/{group_slug}/{site_slug}/feedback-email", {"enabled": False}),
+    ("PUT", "/groups/{group_slug}/feedback-webhook", {"url": "https://mattermost.example.org/hooks/a"}),
+    ("PUT", "/sites/{group_slug}/{site_slug}/feedback-webhook", {"url": "https://mattermost.example.org/hooks/b"}),
     ("POST", "/sites/{group_slug}/{site_slug}/invitees", {"identifier": "gast@example.nl"}),
     ("POST", "/sites/{group_slug}/{site_slug}/keys", {"label": "reviewers"}),
     ("PUT", "/sites/{group_slug}/{site_slug}/repository/site-id-required", {"siteIdRequired": True}),
@@ -4225,6 +4230,9 @@ class TestUnknownBodyFields:
         # With a budget of one lookup, the clean lookup below only goes
         # through if the refused one did not use it up.
         app.state.settings.audit_lookup_daily_limit = 1
+        # An installation with email and Mattermost, so their writes go through.
+        app.state.settings.smtp_host = "relay.example"
+        app.state.settings.feedback_webhook_hosts = "mattermost.example.org:443"
         headers = login(client, app, sub="admin-sub", email="admin@example.nl")
         url = BASE + route.format(**world)
         clean = {name: value.format(**world) if isinstance(value, str) else value for name, value in body.items()}

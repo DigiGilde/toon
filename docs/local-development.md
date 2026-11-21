@@ -209,6 +209,24 @@ toon feedback list --site rijksoverheid/jaarverslag --host http://beheer.toon.lo
 Pages get no widget when `TOON_BASE_URL` is not set: its link to the privacy
 statement has to be an absolute address. `dev/compose.yml` sets it.
 
+### Email about new feedback
+
+The dev stack sends notification email to Mailpit, which keeps every
+message and delivers none: its inbox is on `http://localhost:8025`. Turn
+email on for yourself on the profile page, a group or the site's "Feedback"
+tab, give feedback on a page of a site you have a role on, and the message
+shows in Mailpit once the site's window has passed: ten minutes after the
+first new item, and the job looks once a minute. For a quicker round, set
+`TOON_FEEDBACK_EMAIL_WINDOW_MINUTES: "0"` under the app in
+`dev/compose.yml`, which sends a message per item. Only a member with an
+address the mock IdP marked as verified gets mail, and never about their own
+feedback. Mailpit offers no STARTTLS, so the stack runs with
+`TOON_SMTP_TLS=none`, as ZAD's relay needs today.
+
+Mattermost stays off in the dev stack: `TOON_FEEDBACK_WEBHOOK_HOSTS` is not
+set, so the admin interface offers no webhook. The backend tests post to a
+local fake receiver instead (`backend/tests/test_notifications_job.py`).
+
 ## Compose topology
 
 The app serves everything itself: content via `FileResponse` (Range,
@@ -282,7 +300,10 @@ point at the same nginx on port `8080`; the app makes the distinction.
   the file `TOON_MOCK_CONFIG` points at (default
   `dev/mock-oidc-config.json`), reachable on `127.0.0.1:8081`.
 
-Both ports are bound explicitly to `127.0.0.1`, not to all interfaces:
+- **mailpit**: `docker.io/axllent/mailpit`, takes the app's SMTP on port
+  1025 inside the stack and shows what it caught on `127.0.0.1:8025`.
+
+The ports are bound explicitly to `127.0.0.1`, not to all interfaces:
 the dev stack is not meant to be reachable from outside your own
 machine.
 
@@ -290,6 +311,7 @@ machine.
 |---|---|---|
 | `127.0.0.1:8080` | nginx | `beheer.toon.localhost`: SPA and API; `toon.localhost`: content |
 | `127.0.0.1:8081` | mock-oidc | OIDC discovery and tokens (reachable separately for debugging) |
+| `127.0.0.1:8025` | mailpit | The inbox of every email the app sent |
 
 ## Mock login as dev administrator
 

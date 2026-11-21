@@ -413,6 +413,21 @@ EN: Final[dict[str, str]] = {
     "FEEDBACK_TIMEOUT": "Sending took too long. Try again, without the screenshot if need be.",
     "FEEDBACK_NOT_FOUND": "Unknown feedback.",
     "FEEDBACK_REF_WITHOUT_PREVIEW": "The filter ref only works together with target=preview.",
+    # -- Notifications of new feedback ----------------------------------------
+    "FEEDBACK_EMAIL_UNAVAILABLE": "This installation sends no email about new feedback.",
+    "WEBHOOKS_UNAVAILABLE": "This installation does not post feedback to Mattermost.",
+    "WEBHOOK_URL_INVALID.scheme": "The webhook address must start with https://.",
+    "WEBHOOK_URL_INVALID.credentials": "The webhook address may not hold a user name or a password.",
+    "WEBHOOK_URL_INVALID.ip_literal": "The webhook address must name a host, not an IP address.",
+    "WEBHOOK_URL_INVALID.port": "The webhook address uses a port this installation does not allow for that host.",
+    "WEBHOOK_URL_INVALID.length": "The webhook address is longer than 2048 characters.",
+    "WEBHOOK_URL_INVALID.form": (
+        "This is not a webhook address. Copy the whole address of the incoming webhook from Mattermost."
+    ),
+    "WEBHOOK_HOST_NOT_ALLOWED": (
+        "This installation does not post to that host. Ask the organisation that runs Toon which Mattermost "
+        "server it may use."
+    ),
     # -- Examples in the OpenAPI document, one per status code ----------------
     "example.401": "There is no active session.",
     "example.403": "You have no access here.",
@@ -771,6 +786,21 @@ NL: Final[dict[str, str]] = {
     ),
     "FEEDBACK_NOT_FOUND": "Onbekende feedback.",
     "FEEDBACK_REF_WITHOUT_PREVIEW": "Het filter ref werkt alleen samen met target=preview.",
+    # -- Notifications of new feedback ----------------------------------------
+    "FEEDBACK_EMAIL_UNAVAILABLE": "Deze installatie verstuurt geen e-mail over nieuwe feedback.",
+    "WEBHOOKS_UNAVAILABLE": "Deze installatie zet geen feedback in Mattermost.",
+    "WEBHOOK_URL_INVALID.scheme": "Het webhookadres moet beginnen met https://.",
+    "WEBHOOK_URL_INVALID.credentials": "Het webhookadres mag geen gebruikersnaam of wachtwoord bevatten.",
+    "WEBHOOK_URL_INVALID.ip_literal": "Het webhookadres moet een hostnaam hebben, geen IP-adres.",
+    "WEBHOOK_URL_INVALID.port": "Het webhookadres gebruikt een poort die deze installatie voor die host niet toestaat.",
+    "WEBHOOK_URL_INVALID.length": "Het webhookadres is langer dan 2048 tekens.",
+    "WEBHOOK_URL_INVALID.form": (
+        "Dit is geen webhookadres. Kopieer het hele adres van de inkomende webhook uit Mattermost."
+    ),
+    "WEBHOOK_HOST_NOT_ALLOWED": (
+        "Naar die host verstuurt deze installatie niets. Vraag de organisatie die Toon aanbiedt welke "
+        "Mattermost-server het mag gebruiken."
+    ),
     # -- Examples in the OpenAPI document, one per status code ----------------
     "example.401": "Er is geen actieve sessie.",
     "example.403": "Je hebt hier geen toegang.",

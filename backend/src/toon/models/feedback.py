@@ -76,6 +76,10 @@ class FeedbackItem(IDMixin, Base):
     )
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    # When the notification job took the item into a batch for that channel;
+    # NULL while it waits (models/notifications.py).
+    email_batched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    mattermost_batched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         CheckConstraint("(target = 'preview') = (preview_ref IS NOT NULL)", name="ck_feedback_items_preview_ref"),

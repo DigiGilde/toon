@@ -66,6 +66,10 @@ such rather than assumed.
 | `feedback_items` (`models/feedback.py`) | The comment. The page (its path within the site or preview, its title). The place on it (`anchor`: the CSS selector of an element and the point or the area in it, or the quoted text with at most 32 characters around it). The window size (`viewport`: width, height, device pixel ratio), the version, and the moment it came in (`created_at`). Per author kind: `account` the SSO `sub`, the name, and the email address when the IdP marked it verified. `name` the name the submitter typed, which nobody checked. `anonymous` nothing about the person. The status, and the member who changed it last (`status_changed_by`, an id) | collecting remarks on a site's pages, so that the site team can read, answer and resolve them | the submitter, through the widget. The account fields come from the consented content session, never from the request | with its site or group, or when a site admin deletes it, or its submitter for an item sent with an account. Otherwise a resolved item 90 days after `resolved_at` and an item still new or seen 365 days after `created_at` (`TOON_FEEDBACK_RESOLVED_RETENTION_DAYS`, `TOON_FEEDBACK_OPEN_RETENTION_DAYS`), see "Retention and deletion" |
 | `feedback_replies` (`models/feedback.py`) | The text of a reply. For a reply of the site team the member's id, by which the reply shows the member's current name and never their email address, for a reply of the submitter no member | the conversation between the site team and the submitter | members, in the admin or with the CLI, and submitters who sent with an account, under "Mijn feedback" in the widget | with its item |
 | `feedback_screenshots` (`models/feedback.py`) | An image of the submitter's viewport, or of the part of it they chose, with what they covered painted over. It can show any personal data that was on the screen: of the submitter, of people named on the page, of anyone else. | showing the site team what the submitter saw | made in the submitter's browser by the widget. The submitter sees it before sending and can cover parts of it or leave it out | with its item, and for a resolved item 30 days after `resolved_at` (`TOON_FEEDBACK_SCREENSHOT_RETENTION_DAYS`) |
+| `members.feedback_email`, `group_feedback_email`, `site_feedback_email` (`models/identity.py`, `models/notifications.py`) | per member a choice, on, off or not set, on their profile, on a group and on a site, and the member's id with it. The email address it applies to is the one already in `members.email` | telling members who asked for it of new feedback by email | the member, from the profile page, the group page or the site's Feedback tab | with the member, the group or the site |
+| `feedback_webhooks` (`models/notifications.py`) | the Mattermost webhook URL of a group or a site (a secret: whoever has it posts in the channel), its host, the language of the posts, `set_by` (a member id) and `set_at` | posting new feedback in a team's channel | a site or group admin | until the admin removes it, or with its site or group |
+| `feedback_notices`, `feedback_notice_items` (`models/notifications.py`) | per message to send: the site, the channel (email or Mattermost), for an email the member's id, the items it is about, the number of attempts and the outcome. No address, no text | sending each notification once, retrying a failure and dropping what nobody is left to receive | made by the notification job when it takes new items | 7 days after the notice is finished (`sent`, `dropped` or `failed`) |
+| `feedback_email_days` (`models/notifications.py`) | per UTC day a count of the emails sent and the moment the daily cap was reached. Nothing about a person | keeping the number of emails under the daily cap, across replicas | the notification job | 7 days after its day; no personal data |
 | Feedback write counters (`serving/feedback_api.py`) | per author and site a key, the start of its window and a count, and per site a key with the same. The author's key is the site's id together with the session's `sub` when the page token carries a consented session, with the `sub` of the session that let a signed-in visitor in when the token carries one for the gate alone (under a key of its own), and otherwise with the client's IP address (an IPv6 address by its /64). The site's key is its id alone | limiting misuse of the widget | authors count attempts, a site counts accepted writes. The author's counter counts every attempt at a write through the widget, a create, a reply or a delete, that passes authentication, refused ones included, before its body is read. The site's counter reserves a write for every attempt its author's budget admits and gives it back unless the write is stored, so it holds the writes that are stored and those still in flight | in process memory only, for the window of `FEEDBACK_WRITES_WINDOW_S` (600 s) and at most one more window after it ends, lost on a restart |
 | Feedback bodies in flight (`serving/feedback_body.py`, `BodyBudget`) | per client its IP address (an IPv6 address by its /64) and how many request bodies it has in flight | keeping the memory that uploads take bounded, so one client cannot hold all of it | every create or reply through the widget, from before its body is read until its request is done | in process memory only, until none of that client's requests is in flight, lost on a restart |
 
@@ -182,6 +186,34 @@ tenant/region Toon runs in, guarantees storage within the EEA is a platform
 question, not something this repository's code can establish. That
 confirmation belongs with whoever operates the ZAD deployment.
 
+**Notifications of new feedback.** Toon tells members of new feedback by
+email and in Mattermost (`docs/design.md` §16.16,
+`docs/tdr/0018-notify-of-new-feedback.md`). Three things are processed for
+it, all in the tables above:
+
+- **The member's address and choices.** An email goes only to an active member
+  with a role on the site, at the address the IdP verified, whose own choice
+  says yes. The member makes that choice themselves, on their profile, on a
+  group or on a site. Toon never sends a member an email about their own
+  feedback.
+- **The email.** Metadata only: the site, the page, the kind of item, the
+  time, whether a screenshot came with it, and a link into the admin
+  interface. It carries no comment and nothing about the submitter, because
+  an inbox is forwarded and kept outside Toon's retention.
+- **The Mattermost post.** It carries the comment, without the name or the
+  email address of the submitter, into the channel that the site or group
+  admin chose by setting the webhook. What is posted stays in the channel
+  after the item is deleted in Toon, whether by an admin, by its submitter or
+  by the retention purge, and Toon cannot take it back. The admin who sets a
+  webhook decides where the text goes, and the interface says so. The
+  organisation running Toon covers this in its own privacy statement, as it
+  does the collection of feedback itself.
+
+The notices Toon keeps to send these hold ids only, and go 7 days after they
+are finished. The counter of emails per day holds no personal data and goes
+after 7 days as well. The notification job writes no audit rows
+(`docs/audit-log.md`).
+
 ## Retention and deletion
 
 What Toon does today:
@@ -208,6 +240,10 @@ What Toon does today:
   the nightly cleanup on the terms in the table above (`docs/design.md`
   §16.12). Reopening an item clears its resolved moment, so the term for
   open items, counted from when it came in, applies to it again.
+- Notices of new feedback (`feedback_notices`) and the daily email counter
+  go 7 days after they are finished, by the notification job
+  (`notifications/job.py`). What was posted in Mattermost stays in the
+  channel.
 
 **Open gap: database backups.** Backups carry personal data (members,
 invitees, content viewers, audit rows including encrypted IPs, site feedback

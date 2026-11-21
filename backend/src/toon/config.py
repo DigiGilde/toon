@@ -16,6 +16,7 @@ from __future__ import annotations
 import base64
 import binascii
 import ipaddress
+import re
 import unicodedata
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -102,6 +103,43 @@ def normalise_operator_email(value: str) -> str:
             f"TOON_OPERATOR_EMAIL: {address!r} is not a plain e-mail address such as name@example.org"
         )
     return address
+
+
+SMTP_TLS_MODES = ("starttls", "none")
+SMTP_SUBMISSION_PORT = 587
+HTTPS_PORT = 443
+# A DNS name in ASCII: labels of letters, digits and hyphens. An
+# internationalised name is given in its xn-- form.
+_HOSTNAME = re.compile(r"(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*")
+
+
+def is_ip_literal(host: str) -> bool:
+    """An IPv4 or IPv6 address, bracketed or not, or a name whose last label
+    is a number (`10.1`, `2130706433`, `0x7f.1`), which a resolver may read as
+    an address. No top-level domain is a number."""
+    bare = host.strip("[]").rstrip(".")
+    try:
+        ipaddress.ip_address(bare)
+    except ValueError:
+        last = bare.rsplit(".", 1)[-1].lower()
+        return last.isdigit() or bool(re.fullmatch(r"0x[0-9a-f]*", last))
+    return True
+
+
+def parse_webhook_host(entry: str) -> tuple[str, int]:
+    """One entry of TOON_FEEDBACK_WEBHOOK_HOSTS: `host` or `host:port`, a DNS
+    name and never an IP address."""
+    host, colon, port_text = entry.strip().lower().partition(":")
+    port = HTTPS_PORT
+    if colon:
+        if not port_text.isdigit() or not 1 <= int(port_text) <= 65535:
+            raise ValueError(f"TOON_FEEDBACK_WEBHOOK_HOSTS: {entry.strip()!r} has no valid port")
+        port = int(port_text)
+    if is_ip_literal(host) or not _HOSTNAME.fullmatch(host):
+        raise ValueError(
+            f"TOON_FEEDBACK_WEBHOOK_HOSTS: {entry.strip()!r} is not a host name such as mattermost.example.org"
+        )
+    return host, port
 
 
 def _comma_separated(value: str) -> list[str]:
@@ -243,6 +281,37 @@ class Settings(BaseSettings):
     feedback_screenshot_retention_days: int = Field(default=30, ge=0, le=3650)
     feedback_open_retention_days: int = Field(default=365, ge=0, le=3650)
 
+    # Notifications of new site feedback (docs/design.md §16.16). Email goes
+    # out over SMTP. On ZAD the platform service send-email injects
+    # SMTP_HOST, SMTP_PORT, SMTP_USERNAME, SMTP_PASSWORD and SMTP_FROM
+    # (without a prefix); each serves as the source of its TOON_SMTP_ setting
+    # as long as that one is not set. No host: no email at all.
+    smtp_host: str = ""
+    smtp_port: int | None = Field(default=None, ge=1, le=65535)
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    # `starttls` refuses a server that does not offer STARTTLS or whose
+    # certificate does not verify; there is no fallback to plain text. `none`
+    # talks plain SMTP, for a relay inside the cluster that offers no TLS.
+    smtp_tls: str = "starttls"
+    zad_smtp_host: str = Field(default="", validation_alias="SMTP_HOST")
+    zad_smtp_port: str = Field(default="", validation_alias="SMTP_PORT")
+    zad_smtp_username: str = Field(default="", validation_alias="SMTP_USERNAME")
+    zad_smtp_password: str = Field(default="", validation_alias="SMTP_PASSWORD")
+    zad_smtp_from: str = Field(default="", validation_alias="SMTP_FROM")
+    # At most this many notification emails per UTC day, counted across every
+    # replica. ZAD gives a project 5000 a day, shared by everything it sends.
+    feedback_email_daily_max: int = Field(default=2000, ge=1, le=100_000)
+    # How long the first new item of a site waits for others before one
+    # message carries them all; 0 sends a message per item.
+    feedback_email_window_minutes: int = Field(default=10, ge=0, le=1440)
+    feedback_mattermost_window_minutes: int = Field(default=0, ge=0, le=1440)
+    # The hosts a Mattermost incoming webhook may point at, comma-separated,
+    # each `host` (port 443) or `host:port`, matched exactly. Empty: no
+    # webhooks, and the admin interface does not offer them.
+    feedback_webhook_hosts: str = ""
+
     ratelimit_login_max: int = Field(default=10)
     ratelimit_login_window_s: int = Field(default=60)
     ratelimit_login_global_max: int = Field(default=1000)
@@ -277,6 +346,73 @@ class Settings(BaseSettings):
             normalise_https_base_url(entry, "TOON_CI_FORGEJO_HOSTS") for entry in value.split(",") if entry.strip()
         ]
         return ",".join(dict.fromkeys(hosts))
+
+    @field_validator("feedback_webhook_hosts")
+    @classmethod
+    def _feedback_webhook_hosts_valid(cls, value: str) -> str:
+        entries = [parse_webhook_host(entry) for entry in _comma_separated(value)]
+        return ",".join(dict.fromkeys(f"{host}:{port}" for host, port in entries))
+
+    @property
+    def webhook_hosts(self) -> frozenset[tuple[str, int]]:
+        """The (host, port) pairs a webhook may point at; empty turns webhooks off."""
+        return frozenset(parse_webhook_host(entry) for entry in _comma_separated(self.feedback_webhook_hosts))
+
+    @field_validator("smtp_tls")
+    @classmethod
+    def _smtp_tls_valid(cls, value: str) -> str:
+        if value not in SMTP_TLS_MODES:
+            raise ValueError("TOON_SMTP_TLS must be one of " + ", ".join(SMTP_TLS_MODES))
+        return value
+
+    @model_validator(mode="after")
+    def _smtp_source(self) -> Settings:
+        """Takes each SMTP setting from ZAD's variable where TOON_ leaves it
+        unset, then holds the result together. Never names a password."""
+        self.smtp_host = (self.smtp_host or self.zad_smtp_host).strip()
+        self.smtp_username = self.smtp_username or self.zad_smtp_username
+        self.smtp_password = self.smtp_password or self.zad_smtp_password
+        self.smtp_from = self.smtp_from or self.zad_smtp_from
+        if self.smtp_port is None and self.zad_smtp_port.strip():
+            try:
+                port = int(self.zad_smtp_port.strip())
+            except ValueError:
+                raise ValueError("SMTP_PORT is not a number; set TOON_SMTP_PORT explicitly") from None
+            if not 1 <= port <= 65535:
+                raise ValueError("SMTP_PORT is not a port number; set TOON_SMTP_PORT explicitly")
+            self.smtp_port = port
+        if not self.smtp_host:
+            return self
+        if any(char.isspace() or unicodedata.category(char)[0] == "C" for char in self.smtp_host):
+            raise ValueError("TOON_SMTP_HOST holds whitespace or a control character")
+        if not self.smtp_from.strip():
+            raise ValueError("TOON_SMTP_FROM is required with TOON_SMTP_HOST (on ZAD, SMTP_FROM suffices)")
+        try:
+            self.smtp_from = normalise_operator_email(self.smtp_from)
+        except ValueError:
+            raise ValueError("TOON_SMTP_FROM is not a plain e-mail address such as name@example.org") from None
+        if bool(self.smtp_username) != bool(self.smtp_password):
+            raise ValueError("TOON_SMTP_USERNAME and TOON_SMTP_PASSWORD go together: set both or neither")
+        if not self.base_url:
+            raise ValueError("TOON_BASE_URL is required with TOON_SMTP_HOST: an email links to the admin host")
+        return self
+
+    @model_validator(mode="after")
+    def _webhooks_need_base_url(self) -> Settings:
+        if self.feedback_webhook_hosts and not self.base_url:
+            raise ValueError(
+                "TOON_BASE_URL is required with TOON_FEEDBACK_WEBHOOK_HOSTS: a post links to the admin host"
+            )
+        return self
+
+    @property
+    def email_available(self) -> bool:
+        """Whether this installation sends email about new feedback."""
+        return bool(self.smtp_host)
+
+    @property
+    def smtp_port_effective(self) -> int:
+        return self.smtp_port or SMTP_SUBMISSION_PORT
 
     @field_validator("operator_name")
     @classmethod
