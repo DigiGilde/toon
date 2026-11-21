@@ -97,3 +97,4 @@ next free number before it merges.
 | [0015](0015-feedback-with-an-account-on-unshielded-pages.md) | Feedback with an account on pages without the shielding | Accepted |
 | [0016](0016-beta-rolls-out-to-a-standing-deployment.md) | beta rolls out to a standing deployment in the preview project | Accepted |
 | [0017](0017-type-check-with-ty.md) | Type check with ty, pinned to an exact version | Accepted |
+| [0018](0018-feedback-keeps-a-fragment-that-names-a-place.md) | Feedback keeps a fragment that names a place, and an inline script restores it | Accepted |

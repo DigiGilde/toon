@@ -6,6 +6,7 @@
  */
 import { isLocalPath } from './config';
 import { parseHighlight } from './fragment';
+import { isFragment } from './place';
 import { formatWait, type Params, type Translate, type WidgetKey } from './i18n';
 import { collapse, cut } from './text';
 import type { Anchor, Highlight, Kind, Lang, Status } from './types';
@@ -15,7 +16,8 @@ export type Author = { kind: 'account' } | { kind: 'name'; name: string } | { ki
 export interface NewItem {
   kind: Kind;
   comment: string;
-  page: { path: string; title: string };
+  /** `fragment` only where the address has one that names a place (place.ts). */
+  page: { path: string; title: string; fragment?: string };
   anchor: Anchor | null;
   viewport: { width: number; height: number; dpr: number };
   author: Author;
@@ -36,7 +38,8 @@ export interface MineItem {
   comment: string;
   quote: string | null;
   anchor: Highlight | null;
-  page: { path: string; title: string | null; url: string | null };
+  /** `fragment`: where on the page the item was given, such as `#/7`, or null. */
+  page: { path: string; title: string | null; fragment: string | null; url: string | null };
   createdAt: string;
   /** The latest replies, oldest first: at most ten come along. */
   replies: MineReply[];
@@ -150,7 +153,12 @@ export function parseItem(value: unknown): MineItem | null {
     comment,
     quote,
     anchor: parseHighlight(value.anchor),
-    page: { path, title, url: typeof url === 'string' && isLocalPath(url) ? url : null },
+    page: {
+      path,
+      title,
+      fragment: isFragment(value.page.fragment) ? value.page.fragment : null,
+      url: typeof url === 'string' && isLocalPath(url) ? url : null,
+    },
     createdAt,
     replies: shown,
     replyCount: Math.max(count, shown.length),

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { translator } from './i18n';
 import { STYLES } from './styles';
 import { FakePort, fakeConfig, fakePlatform, frameHello, json, problem, SHOW_URL } from './testPlatform';
-import type { Box, Capture, Config, Lang } from './types';
+import type { Box, Capture, Config, Highlight, Lang } from './types';
 import { HIDE_FOR_MS, samePage, Widget } from './widget';
 
 const t = translator('nl');
@@ -1231,6 +1231,22 @@ describe('sending', () => {
     return mounted;
   }
 
+  it('sends where on the page it was given when the address has a fragment that names a place', async () => {
+    window.history.replaceState(null, '', '/team/site/docs/#/7');
+    const { press, platform, widget } = await composing();
+    press('composer.send');
+    await vi.waitFor(() => expect(widget.state).toBe('sent'));
+    expect(sentItem(platform).item.page).toEqual({ path: '/team/site/docs/', title: 'Documentatie', fragment: '#/7' });
+  });
+
+  it('sends no fragment that could hold a value', async () => {
+    window.history.replaceState(null, '', '/team/site/docs/#access_token=secret');
+    const { press, platform, widget } = await composing();
+    press('composer.send');
+    await vi.waitFor(() => expect(widget.state).toBe('sent'));
+    expect(sentItem(platform).item.page).toEqual({ path: '/team/site/docs/', title: 'Documentatie' });
+  });
+
   it('does not send what does not pass the checks', async () => {
     const { press, platform, widget, find } = await composing();
     find<HTMLTextAreaElement>('comment')!.value = '   ';
@@ -1516,6 +1532,34 @@ describe('"My feedback"', () => {
     expect([lostOf('gone'), lostOf('back')]).toEqual([true, false]);
   });
 
+  it('pins an item given on another view of the page, such as another slide, only where its element shows', async () => {
+    const SLIDE = { ...ON_PAGE, id: 'slide', page: { ...ON_PAGE.page, fragment: '#/3' } };
+    const ADRIFT = { ...SLIDE, id: 'adrift', anchor: { k: 'point', s: '#nowhere', x: 0.5, y: 0.5, px: 10, py: 10 } };
+    const QUOTED = { ...SLIDE, id: 'quoted', kind: 'text', anchor: { k: 'text', q: 'verdwenen zin', px: 10, py: 10 } };
+    window.history.replaceState(null, '', '/team/site/docs/#/1');
+    const { root, platform } = await openMine([SLIDE, ADRIFT, QUOTED]);
+    await vi.waitFor(() => expect(root.querySelectorAll('li.item').length).toBe(3));
+    const relayout = platform.observeLayout.mock.calls[0]![0];
+    const lostOf = (id: string) => root.querySelector(`[data-item="${id}"]`)!.textContent!.includes(t('mine.lost'));
+    // On slide 1 the element of slide 3 has no box: no pin, and nothing is lost.
+    platform.box.mockReturnValue({ left: 0, top: 0, width: 0, height: 0 });
+    relayout();
+    expect(root.querySelectorAll('.pins .pin').length).toBe(0);
+    expect([lostOf('slide'), lostOf('adrift'), lostOf('quoted')]).toEqual([false, false, false]);
+    // A deck that shows every slide at once: the element shows, so its pin does.
+    platform.box.mockReturnValue({ left: 100, top: 200, width: 40, height: 20 });
+    relayout();
+    expect([...root.querySelectorAll('.pins .pin')].map((pin) => pin.getAttribute('data-pin'))).toEqual(['slide']);
+    // On slide 3 a place not found on its element falls back on where it was on the page, as before.
+    window.history.replaceState(null, '', '/team/site/docs/#/3');
+    relayout();
+    expect(root.querySelectorAll('.pins .pin').length).toBe(3);
+    // The list names the slide, and its link goes there.
+    const link = root.querySelector<HTMLAnchorElement>('[data-item="slide"] .url a')!;
+    expect(link.textContent).toBe('Docs #/3');
+    expect(link.getAttribute('href')).toBe('/team/site/docs/#/3');
+  });
+
   it('hands focus from a pin whose place is gone to its item in the list', async () => {
     const GONE = { ...ON_PAGE, id: 'gone', anchor: { k: 'point', s: '#target', x: 0.5, y: 0.5 } };
     const { root, platform, focused } = await openMine([GONE]);
@@ -1530,7 +1574,7 @@ describe('"My feedback"', () => {
   it('stops following the layout when it closes, and follows it once for a place from a link meanwhile', async () => {
     const { root, platform, widget, escape } = await openMine();
     await vi.waitFor(() => expect(root.querySelector('.pins .pin')).not.toBeNull());
-    widget.highlightWhenLoaded({ k: 'point', s: null, x: null, y: null, px: 40, py: 50, w: null, h: null, pw: null, ph: null, q: null });
+    widget.highlightWhenLoaded({ k: 'point', s: null, x: null, y: null, px: 40, py: 50, w: null, h: null, pw: null, ph: null, q: null, f: null });
     expect(root.querySelector('.pin-highlight')).not.toBeNull();
     expect(platform.observeLayout).toHaveBeenCalledOnce();
     const stop = platform.observeLayout.mock.results[0]!.value as ReturnType<typeof vi.fn>;
@@ -2426,7 +2470,7 @@ describe('keeping focus where it can be seen', () => {
 });
 
 describe('a place from a link', () => {
-  const GONE = { k: 'text' as const, s: null, x: null, y: null, px: null, py: null, w: null, h: null, pw: null, ph: null, q: 'nergens' };
+  const GONE = { k: 'text' as const, s: null, x: null, y: null, px: null, py: null, w: null, h: null, pw: null, ph: null, q: 'nergens', f: null };
 
   it('marks an area with a frame over it and its ring at the corner, and scrolls that corner into view', () => {
     pageText('<p id="a">x</p>');
@@ -2434,7 +2478,7 @@ describe('a place from a link', () => {
     platform.box.mockImplementation((element) =>
       element === widget.host ? { left: 0, top: 0, width: 0, height: 0 } : { left: 10, top: 20, width: 100, height: 50 },
     );
-    widget.highlightWhenLoaded({ k: 'area', s: '#a', x: 0.2, y: 0.4, w: 0.5, h: 0.2, px: null, py: null, pw: null, ph: null, q: null });
+    widget.highlightWhenLoaded({ k: 'area', s: '#a', x: 0.2, y: 0.4, w: 0.5, h: 0.2, px: null, py: null, pw: null, ph: null, q: null, f: null });
     expect(platform.scrollToPage.mock.calls).toEqual([[30, 40]]);
     const marks = Array.from(root.querySelectorAll<HTMLElement>('.mark'));
     expect(marks.map((mark) => [mark.style.left, mark.style.top, mark.style.width, mark.style.height])).toEqual([
@@ -2451,7 +2495,7 @@ describe('a place from a link', () => {
     platform.box.mockImplementation((element) =>
       element === widget.host ? { left: 0, top: 0, width: 0, height: 0 } : { left: 10, top: 20, width: 100, height: 50 },
     );
-    widget.highlightWhenLoaded({ k: 'point', s: '#a', x: 0.5, y: 0.5, px: null, py: null, w: null, h: null, pw: null, ph: null, q: null });
+    widget.highlightWhenLoaded({ k: 'point', s: '#a', x: 0.5, y: 0.5, px: null, py: null, w: null, h: null, pw: null, ph: null, q: null, f: null });
     // Nothing on this page scrolls but the window, which puts the point in
     // its middle, not the element the point is on.
     expect(platform.scrollers).toHaveBeenCalledWith(document.getElementById('a'));
@@ -2476,7 +2520,7 @@ describe('a place from a link', () => {
   it('marks a quote with its boxes, in two tones that show on any band of the page in any scheme', () => {
     pageText('<p>Hier staat de knop.</p>');
     const { widget, root } = mount();
-    widget.highlightWhenLoaded({ k: 'text', s: null, x: null, y: null, px: null, py: null, w: null, h: null, pw: null, ph: null, q: 'de knop' });
+    widget.highlightWhenLoaded({ k: 'text', s: null, x: null, y: null, px: null, py: null, w: null, h: null, pw: null, ph: null, q: 'de knop', f: null });
     const mark = root.querySelector<HTMLElement>('.mark')!;
     expect([mark.style.left, mark.style.top, mark.style.width, mark.style.height]).toEqual(['10px', '20px', '120px', '18px']);
     const rule = /^\.mark \{[^}]*\}/m.exec(STYLES)![0];
@@ -2500,14 +2544,14 @@ describe('a place from a link', () => {
     pageText('<p>Hier staat de knop.</p>');
     const { widget, root } = mount();
     const lost = root.querySelector<HTMLElement>('.lost')!;
-    widget.highlightWhenLoaded({ k: 'text', s: null, x: null, y: null, px: null, py: null, w: null, h: null, pw: null, ph: null, q: 'de knop' });
-    widget.highlightWhenLoaded({ k: 'point', s: null, x: null, y: null, px: 70, py: 80, w: null, h: null, pw: null, ph: null, q: null });
+    widget.highlightWhenLoaded({ k: 'text', s: null, x: null, y: null, px: null, py: null, w: null, h: null, pw: null, ph: null, q: 'de knop', f: null });
+    widget.highlightWhenLoaded({ k: 'point', s: null, x: null, y: null, px: 70, py: 80, w: null, h: null, pw: null, ph: null, q: null, f: null });
     expect(root.querySelectorAll('.mark').length).toBe(0);
     expect(root.querySelectorAll('.pin-highlight').length).toBe(1);
     widget.highlightWhenLoaded(GONE);
     expect(root.querySelectorAll('[data-highlight]').length).toBe(0);
     expect(lost.hidden).toBe(false);
-    widget.highlightWhenLoaded({ k: 'point', s: null, x: null, y: null, px: 70, py: 80, w: null, h: null, pw: null, ph: null, q: null });
+    widget.highlightWhenLoaded({ k: 'point', s: null, x: null, y: null, px: 70, py: 80, w: null, h: null, pw: null, ph: null, q: null, f: null });
     expect(lost.hidden).toBe(true);
   });
 
@@ -2549,7 +2593,7 @@ describe('a place from a link', () => {
   it('waits for the page to finish loading', () => {
     const { widget, platform } = mount();
     const readyState = vi.spyOn(document, 'readyState', 'get').mockReturnValue('interactive');
-    widget.highlightWhenLoaded({ k: 'point', s: null, x: null, y: null, px: 5, py: 6, w: null, h: null, pw: null, ph: null, q: null });
+    widget.highlightWhenLoaded({ k: 'point', s: null, x: null, y: null, px: 5, py: 6, w: null, h: null, pw: null, ph: null, q: null, f: null });
     expect(platform.scrollToPage).not.toHaveBeenCalled();
     readyState.mockReturnValue('complete');
     window.dispatchEvent(new Event('load'));
@@ -2561,7 +2605,7 @@ describe('a place from a link', () => {
       pageText('<p id="a">x</p>');
       const { widget, platform, status } = mount();
       platform.visibleText.mockReturnValue('Onderdeel A\nHet eerste onderdeel');
-      widget.highlightWhenLoaded({ k: 'point', s: '#a', x: 0.5, y: 0.5, px: null, py: null, w: null, h: null, pw: null, ph: null, q: 'Geef je wachtwoord' });
+      widget.highlightWhenLoaded({ k: 'point', s: '#a', x: 0.5, y: 0.5, px: null, py: null, w: null, h: null, pw: null, ph: null, q: 'Geef je wachtwoord', f: null });
       expect(platform.visibleText).toHaveBeenCalledWith(document.getElementById('a'));
       expect(status()).toBe('Gemarkeerd: Onderdeel A Het eerste onderdeel');
     });
@@ -2571,9 +2615,9 @@ describe('a place from a link', () => {
       const { widget, platform, root } = mount();
       platform.visibleText.mockReturnValue('Annual report');
       const line = () => root.querySelector('[role="status"]')!.lastElementChild!;
-      widget.highlightWhenLoaded({ k: 'point', s: '#a', x: 0.5, y: 0.5, px: null, py: null, w: null, h: null, pw: null, ph: null, q: null });
+      widget.highlightWhenLoaded({ k: 'point', s: '#a', x: 0.5, y: 0.5, px: null, py: null, w: null, h: null, pw: null, ph: null, q: null, f: null });
       expect(line().innerHTML).toBe('Gemarkeerd: <span lang="en">Annual report</span>');
-      widget.highlightWhenLoaded({ k: 'text', s: null, x: null, y: null, px: null, py: null, w: null, h: null, pw: null, ph: null, q: 'jierferslach' });
+      widget.highlightWhenLoaded({ k: 'text', s: null, x: null, y: null, px: null, py: null, w: null, h: null, pw: null, ph: null, q: 'jierferslach', f: null });
       expect(line().innerHTML).toBe('Gemarkeerd: <span lang="fy">jierferslach</span>');
     });
 
@@ -2582,11 +2626,11 @@ describe('a place from a link', () => {
       // whitespace one space.
       pageText('<p>Hier staat de\n   \ue001knop van het formulier.</p>');
       const { widget, status } = mount();
-      widget.highlightWhenLoaded({ k: 'text', s: null, x: null, y: null, px: null, py: null, w: null, h: null, pw: null, ph: null, q: 'de knop van' });
+      widget.highlightWhenLoaded({ k: 'text', s: null, x: null, y: null, px: null, py: null, w: null, h: null, pw: null, ph: null, q: 'de knop van', f: null });
       expect(status()).toBe('Gemarkeerd: de knop van');
       const long = 'een twee drie vier vijf zes zeven acht negen tien elf twaalf dertien';
       pageText(`<p>${long}</p>`);
-      widget.highlightWhenLoaded({ k: 'text', s: null, x: null, y: null, px: null, py: null, w: null, h: null, pw: null, ph: null, q: long });
+      widget.highlightWhenLoaded({ k: 'text', s: null, x: null, y: null, px: null, py: null, w: null, h: null, pw: null, ph: null, q: long, f: null });
       expect(status()).toBe('Gemarkeerd: een twee drie vier vijf zes zeven acht negen tien elf twaalf...');
     });
 
@@ -2596,7 +2640,7 @@ describe('a place from a link', () => {
       platform.viewport.mockReturnValue({ ...platform.viewport(), scrollX: 10, scrollY: 500 });
       platform.elementAt.mockReturnValue(document.getElementById('b'));
       platform.visibleText.mockReturnValue('Contact');
-      widget.highlightWhenLoaded({ k: 'point', s: '#weg', x: 0.5, y: 0.5, px: 70, py: 580, w: null, h: null, pw: null, ph: null, q: 'Geef je wachtwoord' });
+      widget.highlightWhenLoaded({ k: 'point', s: '#weg', x: 0.5, y: 0.5, px: 70, py: 580, w: null, h: null, pw: null, ph: null, q: 'Geef je wachtwoord', f: null });
       expect(platform.elementAt).toHaveBeenCalledWith(60, 80, widget.host);
       expect(status()).toBe('Marked: Contact');
     });
@@ -2606,7 +2650,7 @@ describe('a place from a link', () => {
       const { widget, platform, status } = mount();
       // The page as a whole has words, which are not the place.
       platform.visibleText.mockImplementation((element) => (element.id === 'a' ? '' : 'De hele pagina'));
-      const at = { k: 'point' as const, s: null, x: null, y: null, px: 70, py: 80, w: null, h: null, pw: null, ph: null, q: 'Geef je wachtwoord' };
+      const at = { k: 'point' as const, s: null, x: null, y: null, px: 70, py: 80, w: null, h: null, pw: null, ph: null, q: 'Geef je wachtwoord', f: null };
       const shown = 'De plek waar de feedback over gaat, is gemarkeerd.';
       for (const element of [null, document.body, document.documentElement, document.getElementById('a')]) {
         platform.elementAt.mockReturnValue(element);
@@ -2700,10 +2744,10 @@ describe('a place from a link', () => {
 });
 
 describe('following the layout', () => {
-  const POINT = { k: 'point' as const, s: '#a', x: 0.5, y: 0.5, px: null, py: null, w: null, h: null, pw: null, ph: null, q: null };
-  const QUOTE = { k: 'text' as const, s: null, x: null, y: null, px: null, py: null, w: null, h: null, pw: null, ph: null, q: 'de knop' };
+  const POINT = { k: 'point' as const, s: '#a', x: 0.5, y: 0.5, px: null, py: null, w: null, h: null, pw: null, ph: null, q: null, f: null };
+  const QUOTE = { k: 'text' as const, s: null, x: null, y: null, px: null, py: null, w: null, h: null, pw: null, ph: null, q: 'de knop', f: null };
 
-  function placed(highlight: typeof POINT | typeof QUOTE) {
+  function placed(highlight: Highlight) {
     pageText('<p id="a">Hier staat de knop.</p>');
     const mounted = mount();
     let target: Box = { left: 10, top: 20, width: 100, height: 50 };
@@ -2727,6 +2771,28 @@ describe('following the layout', () => {
     expect(root.querySelector('.pin-highlight')).toBe(pin);
     expect([pin.style.left, pin.style.top]).toEqual(['350px', '425px']);
     expect(platform.scrollToPage).toHaveBeenCalledOnce();
+  });
+
+  it('takes the place from a link away when the deck moves on to another slide', () => {
+    window.history.replaceState(null, '', '/team/site/docs/#/3');
+    const { root, platform, relayout, move } = placed({ ...POINT, px: 60, py: 45, f: '#/3' });
+    expect(root.querySelector('.pin-highlight')).not.toBeNull();
+    // Slide 1 hides slide 3: the place is not drawn where it was on the page instead.
+    window.history.replaceState(null, '', '/team/site/docs/#/1');
+    move({ left: 0, top: 0, width: 0, height: 0 });
+    relayout();
+    expect(root.querySelector('.pin-highlight')).toBeNull();
+    expect(platform.scrollToPage).toHaveBeenCalledOnce();
+  });
+
+  it('says the place from a link is gone when the page does not show the slide it was given on', () => {
+    window.history.replaceState(null, '', '/team/site/docs/#/1');
+    pageText('<p id="a">x</p>');
+    const { widget, platform, root } = mount();
+    platform.box.mockReturnValue({ left: 0, top: 0, width: 0, height: 0 });
+    widget.highlightWhenLoaded({ ...POINT, px: 60, py: 45, f: '#/9' });
+    expect(root.querySelector('.pin-highlight')).toBeNull();
+    expect(root.querySelector<HTMLElement>('.lost')!.hidden).toBe(false);
   });
 
   it('draws the marks of a quote anew when it wraps differently, under the pin', () => {
@@ -2771,8 +2837,8 @@ describe('following the layout', () => {
 });
 
 describe('a place from a link, as the page scrolls', () => {
-  const POINT = { k: 'point' as const, s: '#a', x: 0.5, y: 0.5, px: null, py: null, w: null, h: null, pw: null, ph: null, q: null };
-  const QUOTE = { k: 'text' as const, s: null, x: null, y: null, px: null, py: null, w: null, h: null, pw: null, ph: null, q: 'de knop' };
+  const POINT = { k: 'point' as const, s: '#a', x: 0.5, y: 0.5, px: null, py: null, w: null, h: null, pw: null, ph: null, q: null, f: null };
+  const QUOTE = { k: 'text' as const, s: null, x: null, y: null, px: null, py: null, w: null, h: null, pw: null, ph: null, q: 'de knop', f: null };
   // An app shell in a window of 1024 by 768: the page does not scroll, its
   // main does, below a header of 100 px.
   const PANE: Box = { left: 0, top: 100, width: 1024, height: 668 };

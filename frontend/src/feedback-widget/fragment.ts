@@ -1,19 +1,15 @@
 /**
  * The highlight form of a stored place: `{k, s, x, y, w, h, px, py, pw, ph,
- * q}`, sent by the server as `#toon-feedback=<base64url JSON>` (the admin's
+ * q, f}`, sent by the server as `#toon-feedback=<base64url JSON>` (the admin's
  * "Show on the site") and as the anchor of an item under "My feedback".
  * Only used to find the place again; nothing from it is ever rendered as text.
  */
 import { MAX_COORDINATE, MAX_SELECTOR } from './anchor';
-import { decodeBase64Url } from './config';
+import { FRAGMENT_PREFIX, isFragment, linkJson } from './place';
 import { codePoints, MAX_QUOTE } from './text';
 import type { Highlight } from './types';
 
-export const FRAGMENT_PREFIX = '#toon-feedback=';
-
-/** 2 KiB of JSON, as base64url without padding. */
-const MAX_JSON_BYTES = 2048;
-const MAX_ENCODED_LENGTH = Math.ceil((MAX_JSON_BYTES * 4) / 3);
+export { FRAGMENT_PREFIX };
 
 const ABSENT = Symbol('absent');
 
@@ -50,8 +46,9 @@ export function parseHighlight(value: unknown): Highlight | null {
   const pw = field(record, 'pw', coordinate);
   const ph = field(record, 'ph', coordinate);
   const q = field(record, 'q', text(MAX_QUOTE));
-  if ([s, x, y, w, h, px, py, pw, ph, q].includes(ABSENT)) return null;
-  const highlight = { k, s, x, y, w, h, px, py, pw, ph, q } as Highlight;
+  const f = field(record, 'f', isFragment);
+  if ([s, x, y, w, h, px, py, pw, ph, q, f].includes(ABSENT)) return null;
+  const highlight = { k, s, x, y, w, h, px, py, pw, ph, q, f } as Highlight;
   return placeable(highlight) ? highlight : null;
 }
 
@@ -70,14 +67,5 @@ export function isOurFragment(hash: string): boolean {
 }
 
 export function readFragment(hash: string): Highlight | null {
-  if (!isOurFragment(hash)) return null;
-  const encoded = hash.slice(FRAGMENT_PREFIX.length);
-  if (encoded.length > MAX_ENCODED_LENGTH) return null;
-  const json = decodeBase64Url(encoded);
-  if (json === null) return null;
-  try {
-    return parseHighlight(JSON.parse(json));
-  } catch {
-    return null;
-  }
+  return parseHighlight(linkJson(hash));
 }

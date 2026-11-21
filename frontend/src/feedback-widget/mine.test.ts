@@ -22,7 +22,7 @@ function item(overrides: Partial<MineItem> = {}): MineItem {
     comment: 'De knop valt weg',
     quote: null,
     anchor: null,
-    page: { path: 'docs/', title: 'Documentatie', url: '/team/site/docs/' },
+    page: { path: 'docs/', title: 'Documentatie', fragment: null, url: '/team/site/docs/' },
     createdAt: '2026-11-03T13:30:00Z',
     replies: [],
     replyCount: 0,
@@ -96,7 +96,7 @@ describe('"My feedback"', () => {
           ],
           replyCount: 3,
         }),
-        item({ id: 'i2', page: { path: '', title: null, url: null }, createdAt: 'never' }),
+        item({ id: 'i2', page: { path: '', title: null, fragment: null, url: null }, createdAt: 'never' }),
       ],
       new Set(['i2']),
       false,
@@ -161,8 +161,8 @@ describe('"My feedback"', () => {
     const path = 'werkinstructies/2026/aanvraagformulier_subsidieregeling_duurzame_energie_bijlage.html';
     view.show(
       [
-        item({ page: { path: 'docs/', title: 'Arbeidsongeschiktheidsverzekeringsvoorwaardenoverzicht', url: '/x/' } }),
-        item({ id: 'i2', page: { path, title: null, url: `/team/site/${path}` } }),
+        item({ page: { path: 'docs/', title: 'Arbeidsongeschiktheidsverzekeringsvoorwaardenoverzicht', fragment: null, url: '/x/' } }),
+        item({ id: 'i2', page: { path, title: null, fragment: null, url: `/team/site/${path}` } }),
       ],
       new Set(),
       false,

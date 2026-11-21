@@ -3067,12 +3067,13 @@ NL: Final[dict[str, str]] = {
         "het scherm (`dpr`), of `null` als de widget die niet stuurde."
     ),
     (
-        "The address of the page with a fragment that makes the feedback widget scroll to the place and mark it. That "
-        "only works where Toon adds the widget to the page. Elsewhere the address just opens the page. `null` for "
-        "`page` items."
+        "The address of the page with a fragment that makes the feedback widget scroll to the place and mark it, "
+        "after it puts `page.fragment` back in the address, so that a slide deck opens on the slide. That only works "
+        "where Toon adds the widget to the page. Elsewhere the address just opens the page. `null` for `page` items."
     ): (
-        "Het adres van de pagina met een fragment waarmee de feedbackwidget naar de plek scrolt en die markeert. Dat "
-        "werkt alleen waar Toon de widget aan de pagina toevoegt. Elders opent het adres gewoon de pagina. `null` bij "
+        "Het adres van de pagina met een fragment waarmee de feedbackwidget naar de plek scrolt en die markeert, "
+        "nadat hij `page.fragment` terugzet in het adres, zodat een presentatie op de dia opent. Dat werkt alleen "
+        "waar Toon de widget aan de pagina toevoegt. Elders opent het adres gewoon de pagina. `null` bij "
         "`page`-items."
     ),
     "The replies, oldest first.": "De reacties, oudste eerst.",
@@ -3097,6 +3098,15 @@ NL: Final[dict[str, str]] = {
     ),
     "Title of the page as the browser had it, or `null` if there was none.": (
         "Titel van de pagina zoals de browser die had, of `null` als er geen was."
+    ),
+    (
+        "Where on the page the item was given: the fragment of the page's address with its `#`, such as `#/7` "
+        "for slide 7 of a slide deck, or `null`. Only a fragment that names a place is kept: up to 64 letters, "
+        "digits and `/_.~-`, never one with `=`, `&`, `?` or `%`."
+    ): (
+        "Waar op de pagina het item gegeven is: het fragment van het adres van de pagina met zijn `#`, zoals `#/7` "
+        "voor dia 7 van een presentatie, of `null`. Alleen een fragment dat een plek aanwijst wordt bewaard: tot 64 "
+        "letters, cijfers en `/_.~-`, nooit een met `=`, `&`, `?` of `%`."
     ),
     (
         "Address of the page on the content origin, at the current address of the site. For an item given on a preview "

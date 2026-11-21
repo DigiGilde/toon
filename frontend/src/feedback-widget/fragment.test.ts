@@ -12,6 +12,7 @@ afterEach(() => {
 const POINT = { k: 'point', s: '#a', x: 0.5, y: 0, px: 10, py: 20 };
 const AREA = { k: 'area', s: '#a', x: 0.1, y: 0.2, w: 0.5, h: 0.25, px: 10, py: 20, pw: 300, ph: 120 };
 const NO_AREA = { w: null, h: null, pw: null, ph: null };
+const NO_PLACE = { f: null };
 
 describe('parseHighlight refuses', () => {
   it.each([
@@ -39,6 +40,9 @@ describe('parseHighlight refuses', () => {
     ['an area on its element without its size', { k: 'area', s: '#a', x: 0.1, y: 0.2, w: 0.5 }],
     ['an area at page coordinates without its size', { k: 'area', px: 1, py: 2, pw: 3 }],
     ['an area with only a point', { k: 'area', s: '#a', x: 0.1, y: 0.2, px: 1, py: 2 }],
+    ['a fragment that holds a value', { ...POINT, f: '#access_token=x' }],
+    ['a fragment that is not text', { ...POINT, f: 7 }],
+    ['a fragment of only #', { ...POINT, f: '#' }],
   ])('%s', (_name, value) => {
     expect(parseHighlight(value)).toBeNull();
   });
@@ -55,6 +59,7 @@ describe('parseHighlight accepts', () => {
       py: null,
       q: null,
       ...NO_AREA,
+      ...NO_PLACE,
     });
   });
 
@@ -71,6 +76,7 @@ describe('parseHighlight accepts', () => {
       pw: null,
       ph: null,
       q: null,
+      f: null,
     });
   });
 
@@ -119,6 +125,7 @@ describe('parseHighlight accepts', () => {
       py: null,
       q: 'de knop',
       ...NO_AREA,
+      ...NO_PLACE,
     });
   });
 });
@@ -131,8 +138,12 @@ describe('the #toon-feedback= fragment', () => {
   });
 
   it('reads a highlight', () => {
-    expect(readFragment(`${FRAGMENT_PREFIX}${encodeConfig(POINT)}`)).toEqual({ ...POINT, ...NO_AREA, q: null });
-    expect(readFragment(`${FRAGMENT_PREFIX}${encodeConfig(AREA)}`)).toEqual({ ...AREA, q: null });
+    expect(readFragment(`${FRAGMENT_PREFIX}${encodeConfig(POINT)}`)).toEqual({ ...POINT, ...NO_AREA, q: null, f: null });
+    expect(readFragment(`${FRAGMENT_PREFIX}${encodeConfig(AREA)}`)).toEqual({ ...AREA, q: null, f: null });
+  });
+
+  it('reads the fragment the place was given at', () => {
+    expect(readFragment(`${FRAGMENT_PREFIX}${encodeConfig({ ...POINT, f: '#/7' })}`)).toMatchObject({ f: '#/7' });
   });
 
   it('reads a quote of 1000 characters with emoji in it, as the server writes it: ASCII JSON', () => {

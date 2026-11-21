@@ -577,6 +577,15 @@ async def test_the_feedback_editor_is_read_at_startup_and_served_on_the_content_
         assert (refused.status_code, refused.content) == (404, NEUTRAL_404_BODY)
 
 
+async def test_the_place_script_is_read_at_startup(tmp_path: Path) -> None:
+    spa, _ = _built_widget(tmp_path)
+    (spa / "feedback-place.js").write_bytes(b"(function(){})();\n")
+    app = create_app(_make_settings(tmp_path, spa_path=spa))
+
+    async with app.router.lifespan_context(app):
+        assert app.state.feedback_place == b"(function(){})();"
+
+
 async def test_without_a_built_editor_toon_starts_and_says_so(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:

@@ -39,6 +39,7 @@ import { EditorField, type EditorParts } from './editor';
 import { FocusPlan } from './focus';
 import { otherLanguage, pageLanguage, type Translate, translator } from './i18n';
 import { MineView } from './mine';
+import { placeHere, placeOf } from './place';
 import { frameOverlay, type Overlay, placingOverlay } from './overlay';
 import {
   centreThrough,
@@ -921,10 +922,15 @@ export class Widget {
       return;
     }
     const screenshot = shot.attachment;
+    const fragment = placeOf(location.hash);
     const item: NewItem = {
       kind: subject.kind,
       comment: input.comment,
-      page: { path: location.pathname, title: cut(document.title, MAX_TITLE) },
+      page: {
+        path: location.pathname,
+        title: cut(document.title, MAX_TITLE),
+        ...(fragment === null ? {} : { fragment }),
+      },
       anchor: subject.anchor,
       viewport: { width: Math.round(view.width), height: Math.round(view.height), dpr: Math.min(view.dpr, 10) },
       author: input.author,
@@ -1016,20 +1022,22 @@ export class Widget {
   /** Pins for the items on this page: new where there were none, moved where
    * there were, hidden while a part of the page that scrolls on its own
    * holds their place out of sight. After a scroll each is measured again
-   * where it was found. Returns the ids whose place is gone, whose pins go
-   * too. */
+   * where it was found. An item given on another view of the page, such as
+   * another slide, gets a pin only where its own element shows. Returns the
+   * ids whose place is gone, whose pins go too. */
   private placePins(items: MineItem[], scrolled = false): Set<string> {
     const lost = new Set<string>();
     for (const item of items) {
       if (item.anchor === null || !samePage(item.page.url, location.pathname)) continue;
+      const here = placeHere(item.page.fragment, location.hash, document);
       const previous = scrolled ? (this.pinPlaces.get(item.id) ?? null) : null;
-      const place = locate(item.anchor, document, this.platform, this.host, previous);
+      const place = locate(item.anchor, document, this.platform, this.host, previous, here);
       const pin = this.pins.querySelector<HTMLElement>(`[data-pin="${CSS.escape(item.id)}"]`);
       const shows = place !== null && this.shows(place);
       // A pin with focus hands it to its item in the list before it goes.
       if (!shows && pin !== null && pin === this.root.activeElement) this.mine!.focusItem(item.id);
       if (place === null) {
-        lost.add(item.id);
+        if (here) lost.add(item.id);
         this.pinPlaces.delete(item.id);
         pin?.remove();
         continue;
@@ -1071,7 +1079,7 @@ export class Widget {
    * view. */
   private highlight(highlight: Highlight): void {
     this.clearHighlight();
-    const place: Located | null = locate(highlight, document, this.platform, this.host);
+    const place: Located | null = this.locateHighlight(highlight, null);
     if (place === null) {
       this.lostNote.hidden = false;
       this.announce(this.t('highlight.lost'));
@@ -1195,6 +1203,13 @@ export class Widget {
     this.announceWhenInView(clip);
   }
 
+  /** The place from a link, where it shows: off the view it was given on,
+   * such as another slide, only on its own element. */
+  private locateHighlight(highlight: Highlight, previous: Located | null): Located | null {
+    const here = placeHere(highlight.f, location.hash, document);
+    return locate(highlight, document, this.platform, this.host, previous, here);
+  }
+
   private clearHighlight(): void {
     for (const mark of Array.from(this.pins.querySelectorAll('[data-highlight]'))) mark.remove();
     this.highlighted = null;
@@ -1253,7 +1268,7 @@ export class Widget {
   private relayout(scrolled = false): void {
     if (this.highlighted !== null) {
       const previous = scrolled ? this.highlightPlace : null;
-      const place = locate(this.highlighted, document, this.platform, this.host, previous);
+      const place = this.locateHighlight(this.highlighted, previous);
       if (place === null) this.clearHighlight();
       else this.showHighlight(place);
     }

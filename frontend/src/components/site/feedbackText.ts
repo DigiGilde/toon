@@ -224,3 +224,24 @@ export function replyAuthor(reply: FeedbackReply): string {
     ? t('feedback.thread.teamNamed', { name: reply.author.name })
     : t('feedback.thread.team');
 }
+
+/** What a fragment from the server has to look like before it goes into an address. */
+export const FEEDBACK_FRAGMENT_PATTERN = /^#[A-Za-z0-9/_.~-]{1,64}$/u;
+
+/** The fragment when it is well-formed, else null. */
+export function safeFragment(fragment: string | null | undefined): string | null {
+  return fragment != null && FEEDBACK_FRAGMENT_PATTERN.test(fragment) ? fragment : null;
+}
+
+/** The address with the visitor's place on the page, or as it is when there is none or it is malformed. */
+export function withFragment(url: string, fragment: string | null | undefined): string {
+  return url + (safeFragment(fragment) ?? '');
+}
+
+/** Where to open an item: the page with the place the widget highlights, else the page where the visitor was. */
+export function feedbackViewUrl(item: {
+  highlightUrl: string | null;
+  page: { url: string; fragment: string | null };
+}): string {
+  return item.highlightUrl ?? withFragment(item.page.url, item.page.fragment);
+}

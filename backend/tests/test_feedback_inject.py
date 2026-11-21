@@ -490,6 +490,12 @@ class TestConfigAndTag:
         assert match.group(1) == BUNDLE_HASH.encode()
         assert _config(tag) == config
 
+    def test_the_place_script_goes_right_behind_the_tag(self):
+        bundle = WidgetBundle(content=BUNDLE, hash=BUNDLE_HASH)
+        alone = script_tag(bundle, {"p": 1})
+        assert alone is not None
+        assert script_tag(bundle, {"p": 1}, b"(function(){})();") == alone + b"<script>(function(){})();</script>"
+
     def test_no_tag_for_a_config_longer_than_the_widget_reads(self):
         bundle = WidgetBundle(content=BUNDLE, hash=BUNDLE_HASH)
         # `{"p":""}` is 8 bytes, and 3 bytes are 4 base64url characters.
@@ -812,6 +818,21 @@ class TestPageWithTheWidget:
         assert config.keys() == {*CONFIG_KEYS, "editorUrl"}
         assert config["editorUrl"] == frame_url(editor)
         assert re.fullmatch(r"/-/feedback/editor\.[0-9a-f]{16}\.html", config["editorUrl"])
+
+    async def test_the_place_script_follows_the_tag_inline(self, client, environment):
+        place = b"(function(){})();"
+        environment.app.state.feedback_place = place
+        response = await client.get("/aurora/feedback/", headers=NAVIGATION)
+        assert response.status_code == 200
+        extra = len(response.content) - len(DOC)
+        inserted = response.content[DOCTYPE_END : DOCTYPE_END + extra]
+        tag, _, rest = inserted.partition(b"</script>")
+        assert TAG_RE.fullmatch(tag + b"</script>")
+        assert rest == b"<script>" + place + b"</script>"
+        assert response.content[:DOCTYPE_END] + response.content[DOCTYPE_END + extra :] == DOC
+        # Inline script runs under the content policy of the page, shielded or not.
+        script_src = response.headers["content-security-policy"].split("script-src")[1].split(";")[0]
+        assert "'unsafe-inline'" in script_src
 
     async def test_no_editor_frame_without_an_editor(self, client, environment):
         environment.app.state.feedback_editor = None

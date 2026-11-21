@@ -334,7 +334,12 @@ def test_list_json_is_an_envelope_with_untrusted_values_apart(stub_server, host,
     untrusted = entry["untrusted"]
     assert untrusted["comment"] == "Typo in the heading"
     assert untrusted["quote"] == "headng"
-    assert untrusted["page"] == {"path": "/about", "title": "About us", "url": "https://s.example/about"}
+    assert untrusted["page"] == {
+        "path": "/about",
+        "title": "About us",
+        "url": "https://s.example/about",
+        "fragment": None,
+    }
     assert "statusChangedBy" not in untrusted
     assert untrusted["author"] == {"kind": "name"}
     assert "comment" not in entry
@@ -1461,3 +1466,61 @@ def test_without_a_stdout_the_cli_still_runs(stub_server, host, token_env, monke
     _router(stub_server, {("GET", BASE): _json(200, _page([_item(1)]))})
 
     assert _run(host, "list", "--site", SITE) == 0
+
+
+# --- the page fragment -----------------------------------------------------------
+
+_BAD_FRAGMENTS = ["#a=b", "#" + "a" * 65, "#", 7, "#/7\n", "/7", "#a b", ["#/7"]]
+
+
+def test_the_page_fragment_is_shown_in_list_and_show(stub_server, host, token_env, capsys):
+    page = {"path": "/slides/", "title": "Deck", "url": "https://s.example/slides/", "fragment": "#/7"}
+    _router(
+        stub_server,
+        {
+            ("GET", BASE): _json(200, _page([_item(1, page=page)])),
+            ("GET", f"{BASE}/{_uid(1)}"): _json(200, _detail(1, page=page)),
+        },
+    )
+
+    assert _run(host, "list", "--site", SITE) == 0
+    assert "  Page: /slides/#/7\n" in capsys.readouterr().out
+    assert _run(host, "show", _uid(1), "--site", SITE) == 0
+    assert "Page path: /slides/\nPage fragment: #/7\nPage URL:" in capsys.readouterr().out
+    assert _run(host, "list", "--site", SITE, "--json") == 0
+    assert json.loads(capsys.readouterr().out)["items"][0]["untrusted"]["page"]["fragment"] == "#/7"
+
+
+@pytest.mark.parametrize("page", [{"path": "/about", "fragment": None}, {"path": "/about"}])
+def test_a_null_or_missing_page_fragment_is_not_shown(stub_server, host, token_env, capsys, page):
+    _router(
+        stub_server,
+        {
+            ("GET", BASE): _json(200, _page([_item(1, page=page)])),
+            ("GET", f"{BASE}/{_uid(1)}"): _json(200, _detail(1, page=page)),
+        },
+    )
+
+    assert _run(host, "list", "--site", SITE) == 0
+    assert "  Page: /about\n" in capsys.readouterr().out
+    assert _run(host, "show", _uid(1), "--site", SITE) == 0
+    assert "Page fragment" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("fragment", _BAD_FRAGMENTS)
+def test_a_malformed_page_fragment_is_not_printed(stub_server, host, token_env, capsys, fragment):
+    page = {"path": "/about", "fragment": fragment}
+    _router(
+        stub_server,
+        {
+            ("GET", BASE): _json(200, _page([_item(1, page=page)])),
+            ("GET", f"{BASE}/{_uid(1)}"): _json(200, _detail(1, page=page)),
+        },
+    )
+
+    assert _run(host, "list", "--site", SITE) == 0
+    assert "  Page: /about\n" in capsys.readouterr().out
+    assert _run(host, "show", _uid(1), "--site", SITE) == 0
+    assert "Page fragment" not in capsys.readouterr().out
+    assert _run(host, "show", _uid(1), "--site", SITE, "--json") == 0
+    assert json.loads(capsys.readouterr().out)["untrusted"]["page"]["fragment"] is None

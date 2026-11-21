@@ -23,14 +23,17 @@ import type { FeedbackItemState } from '@/components/site/feedbackItem';
 import {
   authorDetail,
   earlierVersionText,
+  feedbackViewUrl,
   kindLabel,
   nameUnverified,
   replyAuthor,
+  safeFragment,
   statusDetail,
   targetLabel,
   versionPageUrl,
   versionText,
   viewportText,
+  withFragment,
 } from '@/components/site/feedbackText';
 import { formatTimestamp } from '@/format';
 import { t } from '@/i18n';
@@ -102,7 +105,7 @@ function metaOf(current: FeedbackDetail): MetaRow[] {
       testid: 'author',
     },
     { label: t('feedback.meta.created'), value: formatTimestamp(current.createdAt), testid: 'created' },
-    { label: t('feedback.meta.page'), value: `/${current.page.path}`, testid: 'page' },
+    { label: t('feedback.meta.page'), value: `/${current.page.path}${safeFragment(current.page.fragment) ?? ''}`, testid: 'page' },
     { label: t('feedback.meta.target'), value: targetLabel(current), testid: 'target' },
     {
       label: t('feedback.meta.version'),
@@ -123,7 +126,10 @@ function metaOf(current: FeedbackDetail): MetaRow[] {
 function earlierOf(current: FeedbackDetail): Pick<MetaRow, 'note' | 'link'> {
   const note = earlierVersionText(current);
   if (note === null || current.versionId === null) return { note };
-  const href = versionPageUrl(props.contentBase, props.group, props.site, current.versionId, current.page.path);
+  const href = withFragment(
+    versionPageUrl(props.contentBase, props.group, props.site, current.versionId, current.page.path),
+    current.page.fragment,
+  );
   return { note, link: { href, text: t('feedback.meta.version.view') } };
 }
 
@@ -226,7 +232,7 @@ function replyHelpOf(current: FeedbackDetail): string {
             appearance="secondary"
             start-icon="open-new-page"
             :text="t('feedback.sheet.view')"
-            :href="detail.highlightUrl ?? detail.page.url"
+            :href="feedbackViewUrl(detail)"
             target="_blank"
             data-testid="feedback-view"
           ></nldd-button>
@@ -234,7 +240,7 @@ function replyHelpOf(current: FeedbackDetail): string {
             slot="overflow"
             icon="open-new-page"
             :text="t('feedback.sheet.view')"
-            :href="detail.highlightUrl ?? detail.page.url"
+            :href="feedbackViewUrl(detail)"
             target="_blank"
           ></nldd-menu-item>
         </nldd-toolbar-item>

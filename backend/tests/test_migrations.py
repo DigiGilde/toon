@@ -2257,6 +2257,8 @@ async def test_an_item_comes_in_new(db_connection: asyncpg.Connection) -> None:
         {"viewport": json.dumps(_VIEWPORT)},
         {"status": "seen"},
         {"status": "resolved", "resolved_at": _RESOLVED_AT},
+        {"page_fragment": "#/7"},
+        {"page_fragment": "#" + "a.b_c~d-e/" * 6 + "abcd"},
     ],
     ids=[
         "page-live-anonymous",
@@ -2275,6 +2277,8 @@ async def test_an_item_comes_in_new(db_connection: asyncpg.Connection) -> None:
         "viewport",
         "seen",
         "resolved",
+        "a-slide",
+        "longest-fragment",
     ],
 )
 async def test_an_item_of_every_valid_shape_goes_in(db_connection: asyncpg.Connection, columns: dict) -> None:
@@ -2290,6 +2294,15 @@ async def test_an_item_of_every_valid_shape_goes_in(db_connection: asyncpg.Conne
         ("ck_feedback_items_page_path", {"page_path": "x" * 2049}),
         ("ck_feedback_items_page_path", {"page_path": "/docs/"}),
         ("ck_feedback_items_page_title_length", {"page_title": "x" * 301}),
+        ("ck_feedback_items_page_fragment", {"page_fragment": "#" + "a" * 65}),
+        ("ck_feedback_items_page_fragment", {"page_fragment": "#access_token=abc"}),
+        ("ck_feedback_items_page_fragment", {"page_fragment": "#/7?x"}),
+        ("ck_feedback_items_page_fragment", {"page_fragment": "#%C3%BC"}),
+        ("ck_feedback_items_page_fragment", {"page_fragment": "#\u00fcber"}),
+        ("ck_feedback_items_page_fragment", {"page_fragment": ""}),
+        ("ck_feedback_items_page_fragment", {"page_fragment": "#"}),
+        ("ck_feedback_items_page_fragment", {"page_fragment": "/7"}),
+        ("ck_feedback_items_page_fragment", {"page_fragment": "#/7\n"}),
         ("ck_feedback_items_anchor", {"anchor": _POINT_ANCHOR}),
         ("ck_feedback_items_anchor", {"kind": "point"}),
         ("ck_feedback_items_anchor", {"kind": "area"}),
@@ -2321,6 +2334,15 @@ async def test_an_item_of_every_valid_shape_goes_in(db_connection: asyncpg.Conne
         "path-too-long",
         "path-with-leading-slash",
         "title-too-long",
+        "fragment-too-long",
+        "fragment-a-value",
+        "fragment-a-query",
+        "fragment-percent-encoded",
+        "fragment-not-ascii",
+        "fragment-empty",
+        "fragment-only-hash",
+        "fragment-without-hash",
+        "fragment-trailing-newline",
         "page-with-anchor",
         "point-without-anchor",
         "area-without-anchor",
@@ -2630,6 +2652,47 @@ async def test_the_feedback_migration_goes_down_and_up_again(postgres_container)
             )
             assert tuple(row) == (False, FeedbackIdentity.ACCOUNT.value, False)
             assert await conn.fetchval("SELECT count(*) FROM feedback_items") == 0
+        finally:
+            await conn.close()
+    finally:
+        await admin.execute(f'DROP DATABASE "{name}" WITH (FORCE)')
+        await admin.close()
+
+
+async def test_the_page_fragment_migration_goes_down_and_up_again(postgres_container) -> None:
+    """Down drops the column with where each item was given; up again an
+    existing item has none, and the check is back."""
+    base = postgres_container.get_connection_url(driver=None)
+    name = f"fragment_{uuid.uuid4().hex[:8]}"
+    admin = await asyncpg.connect(base)
+    await admin.execute(f'CREATE DATABASE "{name}"')
+    dsn = f"{base.rsplit('/', 1)[0]}/{name}"
+    try:
+        await asyncio.to_thread(_alembic, dsn, "upgrade", "head")
+        conn = await asyncpg.connect(dsn)
+        try:
+            site_id = await _feedback_site(conn)
+            item_id = await _make_item(conn, site_id, page_fragment="#/7")
+        finally:
+            await conn.close()
+
+        await asyncio.to_thread(_alembic, dsn, "downgrade", "0011_feedback")
+        conn = await asyncpg.connect(dsn)
+        try:
+            columns = await conn.fetch(
+                "SELECT column_name FROM information_schema.columns WHERE table_name = 'feedback_items'"
+            )
+            assert "page_fragment" not in {row["column_name"] for row in columns}
+            assert await conn.fetchval("SELECT count(*) FROM feedback_items WHERE id = $1", item_id) == 1
+        finally:
+            await conn.close()
+
+        await asyncio.to_thread(_alembic, dsn, "upgrade", "head")
+        conn = await asyncpg.connect(dsn)
+        try:
+            assert await conn.fetchval("SELECT page_fragment FROM feedback_items WHERE id = $1", item_id) is None
+            with pytest.raises(asyncpg.CheckViolationError, match="ck_feedback_items_page_fragment"):
+                await conn.execute("UPDATE feedback_items SET page_fragment = '#a=b' WHERE id = $1", item_id)
         finally:
             await conn.close()
     finally:

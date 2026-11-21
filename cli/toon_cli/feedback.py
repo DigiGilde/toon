@@ -58,6 +58,7 @@ UNNAMED_CHARACTER_KINDS = {
     "Co": "a private-use character",
 }
 TIMESTAMP_RE = re.compile(r"^\d{4}-\d\d-\d\dT[0-9:.+\-Z]{1,40}$")
+FRAGMENT_RE = re.compile(r"#[A-Za-z0-9/_.~-]{1,64}")
 
 
 def _feedback_id(value: str) -> str:
@@ -110,6 +111,11 @@ def _server_fields(item: dict) -> dict[str, Any]:
     }
 
 
+def _fragment(value: object) -> str | None:
+    """The page fragment when it has the shape the server builds, else None."""
+    return value if _text_matching(FRAGMENT_RE)(value) else None
+
+
 def _author_fields(author: dict, with_contact: bool) -> dict[str, Any]:
     fields: dict[str, Any] = {"kind": author.get("kind")}
     if with_contact:
@@ -122,7 +128,10 @@ def _untrusted_fields(item: dict, with_contact: bool) -> dict[str, Any]:
     fields = {
         "comment": item.get("comment"),
         "quote": item.get("quote"),
-        "page": {key: page.get(key) for key in ("path", "title", "url")},
+        "page": {
+            **{key: page.get(key) for key in ("path", "title", "url")},
+            "fragment": _fragment(page.get("fragment")),
+        },
         "anchor": item.get("anchor"),
         "highlightUrl": item.get("highlightUrl"),
         "author": _author_fields(_as_dict(item.get("author")), with_contact),
@@ -290,7 +299,8 @@ def cmd_feedback_list(args: argparse.Namespace) -> int:
         print(_summary_line(entry))
         print(UNTRUSTED_BEGIN)
         print(f"  From: {_author_line(untrusted['author'], args.with_contact)}")
-        print(f"  Page: {_url_line(untrusted['page']['path'])}")
+        fragment = untrusted["page"]["fragment"] or ""
+        print(f"  Page: {_url_line(untrusted['page']['path'])}{fragment}")
         first_line = str(untrusted["comment"] or "").split("\n", 1)[0]
         print(f"  Comment: {_line(first_line[:200])}")
         print(UNTRUSTED_END)
@@ -381,6 +391,8 @@ def _print_feedback_detail(detail: dict, with_contact: bool, screenshot: str | N
     print(f"From: {_author_line(untrusted['author'], with_contact)}")
     print(f"Page title: {_line(untrusted['page']['title'])}")
     print(f"Page path: {_url_line(untrusted['page']['path'])}")
+    if untrusted["page"]["fragment"] is not None:
+        print(f"Page fragment: {untrusted['page']['fragment']}")
     print(f"Page URL: {_url_line(untrusted['page']['url'])}")
     print(f"Highlight URL: {_url_line(untrusted['highlightUrl'])}")
     if with_contact:

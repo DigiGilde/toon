@@ -443,6 +443,7 @@ describe('locate', () => {
     pw: null,
     ph: null,
     q: null,
+    f: null,
     ...overrides,
   });
 
@@ -493,6 +494,7 @@ describe('locate', () => {
     pw: 120,
     ph: 60,
     q: null,
+    f: null,
     ...overrides,
   });
 
@@ -543,6 +545,7 @@ describe('locate', () => {
     pw: null,
     ph: null,
     q: 'de knop',
+    f: null,
     ...overrides,
   });
 
@@ -575,9 +578,9 @@ describe('locate', () => {
 });
 
 describe('locate, for a place found before', () => {
-  const NO_AREA = { w: null, h: null, pw: null, ph: null };
+  const NO_AREA = { w: null, h: null, pw: null, ph: null, f: null };
   const POINT: Highlight = { k: 'point', s: '#a', x: 0.5, y: 0.25, px: 40, py: 900, q: null, ...NO_AREA };
-  const AREA: Highlight = { k: 'area', s: '#a', x: 0, y: 0.5, w: 1, h: 0.5, px: 40, py: 900, pw: 200, ph: 20, q: null };
+  const AREA: Highlight = { k: 'area', s: '#a', x: 0, y: 0.5, w: 1, h: 0.5, px: 40, py: 900, pw: 200, ph: 20, q: null, f: null };
   const QUOTE: Highlight = { k: 'text', s: '#b', x: null, y: null, px: 3, py: 4, q: 'de knop', ...NO_AREA };
 
   it('measures a point again on the element it was found by, without asking the page for it', () => {
@@ -631,6 +634,19 @@ describe('locate, for a place found before', () => {
     expect(first.found).toBeNull();
     platform.viewport.mockReturnValue({ ...platform.viewport(), scrollY: 500 });
     expect(locate({ ...POINT, s: '#gone' }, document, platform, null, first)).toBe(first);
+  });
+
+  it('without page coordinates, finds a place only on its element or its passage', () => {
+    page('<p id="a">x</p><p id="b">Hier staat de knop.</p>');
+    const platform = fakePlatform();
+    const first = locate({ ...POINT, s: '#gone' }, document, platform, null)!;
+    expect(locate({ ...POINT, s: '#gone' }, document, platform, null, null, false)).toBeNull();
+    expect(locate({ ...POINT, s: '#gone' }, document, platform, null, first, false)).toBeNull();
+    expect(locate(POINT, document, platform, null, null, false)!.found).toBe(document.getElementById('a'));
+    expect(locate(QUOTE, document, platform, null, null, false)!.found).toBeInstanceOf(Range);
+    // The element is there without a box, as on a slide that does not show.
+    platform.box.mockReturnValue({ left: 0, top: 0, width: 0, height: 0 });
+    expect(locate(POINT, document, platform, null, null, false)).toBeNull();
   });
 
   it('searches anew when what it was found by is gone or shows nothing now', () => {

@@ -740,6 +740,7 @@ async def test_an_item_carries_its_fields(client, app, factory, world):
         "page": {
             "path": "begroting/",
             "title": "Begroting",
+            "fragment": None,
             "url": f"{CONTENT_BASE_URL}/team/docs/begroting/",
         },
         "target": "live",
@@ -965,6 +966,7 @@ async def test_the_page_address_is_the_current_address_of_the_site(client, app, 
     assert preview["page"] == {
         "path": "docs/aan-de-slag/",
         "title": None,
+        "fragment": None,
         "url": f"{CONTENT_BASE_URL}/team/handboek/_preview/pr-42/docs/aan-de-slag/",
     }
     assert (preview["target"], preview["previewRef"]) == ("preview", "pr-42")
@@ -1174,6 +1176,38 @@ async def test_an_item_is_highlighted_by_its_selector_and_its_place(
 
 async def test_a_page_item_has_no_highlight(client, app, factory, world):
     assert await _highlight(client, app, factory, world) is None
+
+
+async def test_the_highlight_carries_the_fragment_the_item_was_given_at(client, app, factory, world):
+    url = await _highlight(
+        client, app, factory, world, kind=FeedbackKind.POINT, anchor=POINT_ANCHOR, page_fragment="#/7"
+    )
+
+    assert _fragment(url)["f"] == "#/7"
+
+
+async def test_the_fragment_stays_when_the_selector_has_to_go(client, app, factory, world):
+    anchor = {"selectors": [{"type": "CssSelector", "value": "\u00e4" * 1000}], "point": POINT_ANCHOR["point"]}
+    fragment = "#/" + "a" * 63
+
+    url = await _highlight(
+        client, app, factory, world, kind=FeedbackKind.POINT, anchor=anchor, page_fragment=fragment
+    )
+
+    assert len(_fragment_json(url)) <= 2048
+    assert _fragment(url) == {"k": "point", "x": 0.5, "y": 0.25, "px": 640, "py": 1210, "f": fragment}
+
+
+async def test_an_item_shows_the_fragment_it_was_given_at(client, app, factory, world):
+    given = await _item(factory, world.site, page_fragment="#/7")
+    plain = await _item(factory, world.site)
+    _login(client, app, world.reader)
+
+    listed = {entry["id"]: entry["page"]["fragment"] for entry in (await client.get(FEEDBACK)).json()["items"]}
+    detail = (await client.get(f"{FEEDBACK}/{given.id}")).json()
+
+    assert listed == {str(given.id): "#/7", str(plain.id): None}
+    assert detail["page"]["fragment"] == "#/7"
 
 
 async def test_a_long_quote_is_cut_until_the_fragment_fits(client, app, factory, world):

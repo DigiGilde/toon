@@ -473,6 +473,8 @@ design.md §16.
 | Memory exhaustion by uploads: a budget for the bodies in flight that every chunk takes its room in before it is parsed, a share per client and a deadline per body (design.md §16.10) | implemented: `serving/feedback_body.py`, `constants.py`, `backend/tests/test_feedback_body.py` |
 | A widget bundle swapped or stale, or one that reaches into the site: it loads from an address that carries its hash on Toon's own origin, and keeps out of the site's storage, cookies, globals and custom elements (design.md §16.4) | implemented: `serving/feedback_widget.py`, `serving/feedback_routes.py`, `frontend/vite.widget.config.ts`, `backend/tests/test_feedback_widget_bundle.py`, `frontend/tests/feedback-widget-bundle.test.ts`, `frontend/tests/feedback-widget-modules.test.ts` |
 | The editor reaching into the site, or the site into it: a static, sandboxed frame document with a policy of its own, which talks to the widget over one port (design.md §16.15) | implemented: `serving/feedback_editor.py`, `serving/feedback_routes.py`, `frontend/src/feedback-editor/`, `frontend/src/feedback-widget/editor.ts`, `backend/tests/test_feedback_editor.py`, `frontend/src/feedback-editor/frame.test.ts`, `frontend/src/feedback-widget/editor.test.ts` |
+| A secret in the address kept with feedback: of the fragment only one that names a place is sent and stored (`#/7`, `#intro`), never one with `=`, `&`, `?`, `%` or a space, never more than 64 characters, and never the query string; the API refuses anything else and a column check holds the stored value to the same pattern (design.md §16.9, TDR-0018) | implemented: `frontend/src/feedback-widget/place.ts`, `serving/feedback_input.py`, `models/feedback.py`, `alembic/versions/0012_feedback_page_fragment.py`, `frontend/src/feedback-widget/place.test.ts`, `backend/tests/test_feedback_input.py`, `backend/tests/test_migrations.py` |
+| Toon's script running before the site's own: the place script that goes inline behind the widget's tag is built by Toon, read once at startup and refused when it could end or bend the script element, and only acts on a `#toon-feedback=` address (design.md §16.2, TDR-0018) | implemented: `serving/feedback_widget.py`, `serving/feedback_inject.py`, `frontend/src/feedback-place/main.ts`, `frontend/src/feedback-widget/place.ts`, `backend/tests/test_feedback_widget_bundle.py`, `backend/tests/test_feedback_inject.py`, `frontend/tests/feedback-widget-bundle.test.ts`, `e2e/tests/feedback-slide-deck.spec.ts` |
 | Feedback kept longer than needed: the nightly cleanup purges it on its terms (design.md §16.12) | implemented: `previews/cleanup_job.py`, `backend/tests/test_cleanup_job.py`. See `docs/privacy.md` |
 
 ### What site feedback adds, and what is accepted
@@ -584,6 +586,13 @@ With the widget in the page, accepted as well:
 - **The editor's frame can navigate itself.** No CSP directive stops that,
   so a compromised build of the editor could carry the text of its field to
   another address. That text is all the frame holds.
+- **A fragment that looks like a place can still be a secret.** The widget
+  keeps the fragment of the address when it names a place, so a site that
+  keeps a bare token in it, without `=` and within 64 location characters,
+  has that token stored with the feedback and shown to its own team. That
+  team publishes the page and can read its address with a script of its own
+  anyway, and a fragment with a value in it (`#access_token=...`) never
+  goes (TDR-0018).
 - **A link in feedback can lead anywhere.** A comment can carry a link, and
   a giver can be anyone the site lets in. The link shows the address it goes
   to, never a label, so the team reads where it leads before following it,

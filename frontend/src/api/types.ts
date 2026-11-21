@@ -180,6 +180,8 @@ export interface FeedbackPageAddress {
   /** Relative to the root of the live site or the preview, without a leading slash. The root is ''. */
   path: string;
   title: string | null;
+  /** Where on the page the visitor was: the part of the address after the `#`, with it, or null. */
+  fragment: string | null;
   /** Absolute URL of that page at the site's current address, on the content host. */
   url: string;
 }

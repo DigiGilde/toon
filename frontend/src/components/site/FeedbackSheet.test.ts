@@ -381,6 +381,44 @@ describe('FeedbackSheet: the details', () => {
     expect(metaValue(wrapper, 'viewport')).toBe('1280 bij 800 pixels');
   });
 
+  it('shows where on the page the visitor was after the path, and nothing for a malformed one', async () => {
+    const row = backend.data.feedback.find((candidate) => candidate.id === 'fb-1')!;
+    row.page.fragment = '#/7';
+    const slide = await opened('fb-1');
+    expect(metaValue(slide, 'page')).toBe('/docs/#/7');
+    slide.unmount();
+
+    row.page.fragment = '#<b>';
+    const bad = await opened('fb-1');
+    expect(metaValue(bad, 'page')).toBe('/docs/');
+  });
+
+  it('opens the page on the slide it was given on for feedback on the whole page, and the place itself otherwise', async () => {
+    backend.data.feedback.find((candidate) => candidate.id === 'fb-3')!.page.fragment = '#/7';
+    backend.data.feedback.find((candidate) => candidate.id === 'fb-1')!.page.fragment = '#/7';
+    const page = await opened('fb-3');
+    expect(page.find('[data-testid="feedback-view"]').attributes('href')).toBe(
+      'https://sites.toon.test/team-aurora/website/_preview/pr-42/contact/#/7',
+    );
+    page.unmount();
+
+    const point = await opened('fb-1');
+    expect(point.find('[data-testid="feedback-view"]').attributes('href')).toBe(
+      'https://sites.toon.test/team-aurora/website/_preview/pr-42/docs/#toon-feedback=fb-1',
+    );
+  });
+
+  it('opens the earlier version on the same place on the page', async () => {
+    const row = backend.data.feedback.find((candidate) => candidate.id === 'fb-2')!;
+    row.versionId = 'versie-0';
+    row.page.fragment = '#/7';
+    const wrapper = await opened('fb-2');
+
+    expect(wrapper.find('[data-testid="feedback-meta-version-link"]').attributes('href')).toBe(
+      `${MOCK_CONTENT_BASE}/team-aurora/website/_version/versie-0/#/7`,
+    );
+  });
+
   it('says nothing more about a version that is the one shown now', async () => {
     const wrapper = await opened('fb-1');
 

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slide deck</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; font-family: system-ui, sans-serif; background: #f4f4f4; color: #1b1b1b; }
+  .deck { position: fixed; inset: 0; display: grid; place-items: center; }
+  .slide { box-sizing: border-box; width: 960px; height: 540px; padding: 48px; background: #fff; border: 1px solid #888; transform: scale(var(--scale, 1)); }
+  .slide[hidden] { display: none; }
+  .box { width: 240px; height: 140px; margin-top: 24px; background: #cfe0f0; border: 2px solid #184576; }
+  .counter { position: fixed; right: 16px; bottom: 8px; margin: 0; }
+  /* Narrow or low: every slide shows, one under the other, to scroll through. */
+  @media (max-width: 900px), (max-height: 500px) {
+    html, body { height: auto; overflow: auto; }
+    .deck { position: static; display: block; padding: 16px; }
+    .slide { width: auto; height: auto; margin: 0 0 16px; transform: none; }
+    .slide[hidden] { display: block; }
+    .counter { display: none; }
+  }
+</style>
+</head>
+<body>
+<main class="deck">
+  <section class="slide" aria-label="Slide 1">
+    <h1>The plan</h1>
+    <p>A small deck to give feedback on, one slide at a time.</p>
+    <div class="box">Box on slide 1</div>
+  </section>
+  <section class="slide" aria-label="Slide 2">
+    <h1>The problem</h1>
+    <p>Slides take the whole window, and the keys move between them.</p>
+    <div class="box">Box on slide 2</div>
+  </section>
+  <section class="slide" aria-label="Slide 3">
+    <h1>The approach</h1>
+    <p>Only the current slide shows; the address says which one it is.</p>
+    <div class="box">Box on slide 3</div>
+  </section>
+  <section class="slide" aria-label="Slide 4">
+    <h1>Next steps</h1>
+    <p>The last slide.</p>
+    <div class="box">Box on slide 4</div>
+  </section>
+</main>
+<p class="counter" id="counter"></p>
+<script src="deck.js"></script>
+</body>
+</html>
